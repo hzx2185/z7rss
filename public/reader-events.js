@@ -15,6 +15,17 @@ export function registerReaderEvents(deps) {
     element?.addEventListener(eventName, handler, options)
   }
 
+  function handleBodyToggleClick(event, container) {
+    if (!(event.target instanceof Element)) return false
+    const bodyToggleButton = event.target.closest("[data-item-body-toggle]")
+    if (!bodyToggleButton || !container?.contains(bodyToggleButton)) return false
+
+    event.preventDefault()
+    event.stopPropagation()
+    actions.toggleBodyExpanded(Number(bodyToggleButton.dataset.itemBodyToggle))
+    return true
+  }
+
   on(els.composeToggleBtn, "click", () => {
     state.composeOpen = !state.composeOpen
     renderers.renderComposeState()
@@ -191,12 +202,11 @@ export function registerReaderEvents(deps) {
   on(els.feedList, "focusin", actions.handleFeedListPointerOver)
   on(els.feedList, "change", actions.handleFeedListChange)
   on(els.itemList, "click", (event) => {
+    if (handleBodyToggleClick(event, els.itemList)) return
     void actions.handleItemListClick(event)
   })
   on(els.articlePanel, "click", (event) => {
-    const bodyToggleButton = event.target.closest("[data-item-body-toggle]")
-    if (!bodyToggleButton || !els.articlePanel.contains(bodyToggleButton)) return
-    actions.toggleBodyExpanded(Number(bodyToggleButton.dataset.itemBodyToggle))
+    handleBodyToggleClick(event, els.articlePanel)
   })
 
   on(els.feedPrevBtn, "click", async () => {
