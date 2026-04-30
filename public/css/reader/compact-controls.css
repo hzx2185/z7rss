@@ -1,0 +1,820 @@
+/* Reader compact controls refresh */
+body.reader-page .reader-feed-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+body.reader-page .reader-scope-strip,
+body.reader-page .reader-feed-tool-strip,
+body.reader-page .reader-list-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.reader-page .reader-scope-strip::-webkit-scrollbar,
+body.reader-page .reader-feed-tool-strip::-webkit-scrollbar,
+body.reader-page .reader-list-footer-actions::-webkit-scrollbar {
+  display: none;
+}
+
+body.reader-page .reader-scope-strip {
+  padding-bottom: 1px;
+}
+
+body.reader-page .reader-scope-btn {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 8px;
+  gap: 4px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+body.reader-page .reader-scope-count {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu,
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary {
+  flex: 0 0 auto;
+}
+
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu-panel {
+  right: auto;
+  left: 0;
+}
+
+body.reader-page .reader-feed-filter-menu-panel {
+  min-width: min(280px, calc(100vw - 32px));
+}
+
+body.reader-page .reader-feed-filter-menu-panel label {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+body.reader-page .reader-feed-filter-menu-panel label > span {
+  margin-bottom: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+body.reader-page .reader-feed-filter-menu-panel select {
+  min-height: 30px;
+  padding: 0 24px 0 8px;
+  font-size: 12px;
+}
+
+body.reader-page .reader-feed-search-menu .reader-search-input {
+  width: min(200px, calc(100vw - 80px));
+  min-width: 0;
+}
+
+body.reader-page .reader-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+body.reader-page .reader-feed-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+body.reader-page .reader-feed-main {
+  min-height: 34px;
+  padding: 7px 0;
+}
+
+body.reader-page .reader-feed-icon {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+
+body.reader-page .reader-feed-name {
+  font-size: 12px;
+}
+
+body.reader-page .reader-feed-unread-count {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+body.reader-page .reader-toolbar-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+body.reader-page .reader-toolbar-panel::-webkit-scrollbar {
+  display: none;
+}
+
+body.reader-page .reader-toolbar-panel > * {
+  flex: 0 0 auto;
+}
+
+body.reader-page .reader-list-footer {
+  gap: 8px;
+  align-items: stretch;
+}
+
+body.reader-page .reader-list-footer-actions {
+  justify-content: flex-start;
+}
+
+body.reader-page .reader-footer-nav-btn,
+body.reader-page .reader-footer-mark-read-btn {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+body.reader-page .reader-item-preview {
+  padding-top: 2px;
+}
+
+body.reader-page .reader-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+body.reader-page .reader-detail-actions::-webkit-scrollbar {
+  display: none;
+}
+
+body.reader-page .reader-detail-actions > * {
+  flex: 0 0 auto;
+}
+
+body.reader-page .reader-detail-actions .secondary {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+body.reader-page .reader-inline-detail {
+  gap: 6px;
+}
+
+body.reader-page .rich-content .lightbox-wrapper {
+  margin: 0 0 12px;
+}
+
+body.reader-page .rich-content a.lightbox {
+  display: inline-block;
+  max-width: 100%;
+}
+
+body.reader-page .rich-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-scope-btn {
+    min-height: 26px;
+    padding: 0 7px;
+  }
+
+  body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+  body.reader-page .reader-footer-nav-btn,
+  body.reader-page .reader-footer-mark-read-btn {
+    min-height: 28px;
+    height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  body.reader-page .reader-feed-filter-menu-panel {
+    min-width: min(260px, calc(100vw - 20px));
+  }
+
+  body.reader-page .reader-detail-actions .secondary {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+  }
+}
+
+@media (max-width: 480px) {
+  body.reader-page .reader-feed-toolbar {
+    gap: 5px;
+  }
+
+  body.reader-page .reader-scope-btn {
+    padding: 0 6px;
+    font-size: 10.5px;
+  }
+
+  body.reader-page .reader-scope-count {
+    min-width: 18px;
+    height: 17px;
+    padding: 0 4px;
+    font-size: 9.5px;
+  }
+
+  body.reader-page .reader-feed-search-menu .reader-search-input {
+    width: min(180px, calc(100vw - 72px));
+  }
+
+  body.reader-page .reader-detail-actions .secondary {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+}
+
+/* Reader mobile single-line lock */
+body.reader-page .reader-feed-toolbar-top {
+  margin-bottom: 8px;
+}
+
+body.reader-page .reader-source-title-line {
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+body.reader-page .reader-source-title-line h1 {
+  font-size: 15px;
+}
+
+body.reader-page .reader-feed-tool-strip,
+body.reader-page .reader-feed-bulk-bar,
+body.reader-page .reader-panel-line .reader-line-actions,
+body.reader-page .reader-toolbar-panel,
+body.reader-page .reader-detail-actions,
+body.reader-page .reader-head-actions-top,
+body.reader-page .reader-list-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.reader-page .reader-feed-tool-strip::-webkit-scrollbar,
+body.reader-page .reader-feed-bulk-bar::-webkit-scrollbar,
+body.reader-page .reader-panel-line .reader-line-actions::-webkit-scrollbar,
+body.reader-page .reader-toolbar-panel::-webkit-scrollbar,
+body.reader-page .reader-detail-actions::-webkit-scrollbar,
+body.reader-page .reader-head-actions-top::-webkit-scrollbar,
+body.reader-page .reader-list-footer-actions::-webkit-scrollbar {
+  display: none;
+}
+
+body.reader-page .reader-feed-tool-strip > *,
+body.reader-page .reader-feed-bulk-bar > *,
+body.reader-page .reader-panel-line .reader-line-actions > *,
+body.reader-page .reader-toolbar-panel > *,
+body.reader-page .reader-detail-actions > *,
+body.reader-page .reader-head-actions-top > *,
+body.reader-page .reader-list-footer-actions > * {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+
+body.reader-page .reader-feed-tool-strip > button,
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu,
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+body.reader-page .reader-feed-bulk-bar > button,
+body.reader-page .reader-panel-line .reader-line-actions > button,
+body.reader-page .reader-toolbar-panel > button,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu > summary,
+body.reader-page .reader-detail-actions .secondary,
+body.reader-page .reader-head-actions-top > button,
+body.reader-page .reader-head-actions-top .reader-head-menu,
+body.reader-page .reader-head-actions-top .reader-head-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu > summary,
+body.reader-page .reader-head-actions-top .reader-head-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+body.reader-page .reader-feed-tool-strip {
+  justify-content: flex-start;
+}
+
+body.reader-page .reader-feed-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: visible !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  position: relative;
+  z-index: 2;
+}
+
+body.reader-page .reader-feed-bulk-select-all {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+body.reader-page .reader-feed-bulk-bar > .reader-bulk-share-btn {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+body.reader-page .reader-feed-bulk-bar .muted,
+body.reader-page .reader-feed-bulk-select-all {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-feed-tool-strip > button,
+  body.reader-page .reader-feed-tool-strip .reader-toolbar-menu,
+  body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+  body.reader-page .reader-feed-bulk-bar > button,
+  body.reader-page .reader-panel-line .reader-line-actions > button,
+  body.reader-page .reader-toolbar-panel > button,
+  body.reader-page .reader-toolbar-panel .reader-toolbar-menu,
+  body.reader-page .reader-toolbar-panel .reader-toolbar-menu > summary,
+  body.reader-page .reader-detail-actions .secondary,
+  body.reader-page .reader-head-actions-top > button,
+  body.reader-page .reader-head-actions-top .reader-head-menu,
+  body.reader-page .reader-head-actions-top .reader-head-menu > summary {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+
+  body.reader-page .reader-feed-bulk-bar > .reader-bulk-share-btn {
+    width: 28px;
+    min-width: 28px;
+  }
+
+  body.reader-page .reader-feed-bulk-select-all {
+    font-size: 12px;
+  }
+
+  body.reader-page .reader-source-title-line {
+    margin-bottom: 6px;
+  }
+}
+
+body.reader-page .reader-list-footer-actions {
+  width: 100%;
+  justify-content: stretch;
+  gap: 6px;
+  overflow: visible;
+}
+
+body.reader-page .reader-footer-nav-btn,
+body.reader-page .reader-footer-mark-read-btn {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  justify-content: center;
+}
+
+body.reader-page .reader-item-preview {
+  scroll-margin-top: 76px;
+}
+
+body.reader-page .reader-section-head {
+  align-items: center;
+  justify-content: space-between;
+}
+
+body.reader-page .reader-section-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+body.reader-page .reader-section-copy .status-text,
+body.reader-page .reader-section-copy .muted {
+  margin-left: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.reader-page .reader-section-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+body.reader-page .reader-section-action-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+body.reader-page .reader-section-action-btn.active {
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+body.reader-page .reader-body-toggle-btn {
+  min-height: 26px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-list-footer-actions {
+    gap: 4px;
+  }
+
+  body.reader-page .reader-section-copy {
+    gap: 6px;
+  }
+
+  body.reader-page .reader-section-action-btn {
+    min-height: 26px;
+    padding: 0 8px;
+    font-size: 10.5px;
+  }
+
+  body.reader-page .reader-collapsible-content.is-inline.is-collapsed .reader-collapsible-inner {
+    max-height: 176px;
+  }
+
+  body.reader-page .reader-collapsible-content.is-panel.is-collapsed .reader-collapsible-inner {
+    max-height: 240px;
+  }
+
+  body.reader-page .reader-item-preview {
+    scroll-margin-top: 64px;
+  }
+}
+
+/* Reader final row lock and menu visibility */
+body.reader-page .reader-feed-toolbar,
+body.reader-page .reader-feed-toolbar-top,
+body.reader-page .reader-feed-tool-strip,
+body.reader-page .reader-feed-bulk-bar,
+body.reader-page .reader-toolbar-panel,
+body.reader-page .reader-detail-actions,
+body.reader-page .reader-head-actions-top,
+body.reader-page .reader-item-preview,
+body.reader-page .reader-inline-detail {
+  overflow: visible !important;
+}
+
+body.reader-page .reader-source-panel,
+body.reader-page #reader-feed-drawer .reader-source-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden !important;
+}
+
+body.reader-page .reader-feed-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body.reader-page .reader-list-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body.reader-page .reader-item-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+body.reader-page .reader-list-footer {
+  position: static !important;
+  bottom: auto !important;
+  margin-top: 0;
+  flex: 0 0 auto;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  background: transparent;
+}
+
+body.reader-page .reader-list-footer-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  align-items: stretch;
+  width: 100%;
+  gap: 6px;
+  overflow: visible !important;
+}
+
+body.reader-page .reader-footer-nav-btn,
+body.reader-page .reader-footer-mark-read-btn {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  justify-content: center;
+}
+
+body.reader-page .reader-list-footer-actions > .secondary {
+  min-height: 36px;
+  border-color: var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+body.reader-page .reader-list-footer-actions > .secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-sunken);
+}
+
+body.reader-page .reader-flash {
+  position: fixed !important;
+  top: calc(66px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translateX(-50%);
+  margin: 0;
+  z-index: 160;
+  width: fit-content;
+  max-width: min(420px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+body.reader-page .reader-feed-tool-strip,
+body.reader-page .reader-feed-bulk-bar,
+body.reader-page .reader-toolbar-panel,
+body.reader-page .reader-detail-actions,
+body.reader-page .reader-head-actions-top {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  grid-template-columns: none !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+body.reader-page .reader-feed-tool-strip > *,
+body.reader-page .reader-feed-bulk-bar > *,
+body.reader-page .reader-toolbar-panel > *,
+body.reader-page .reader-detail-actions > *,
+body.reader-page .reader-head-actions-top > * {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+body.reader-page .reader-feed-bulk-bar.hidden {
+  display: none !important;
+}
+
+body.reader-page .reader-feed-tool-strip > button,
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu,
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+body.reader-page .reader-feed-bulk-bar > button,
+body.reader-page .reader-toolbar-panel > button,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu > summary,
+body.reader-page .reader-detail-actions .secondary,
+body.reader-page .reader-head-actions-top > button,
+body.reader-page .reader-head-actions-top .reader-head-menu,
+body.reader-page .reader-head-actions-top .reader-head-menu > summary {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+}
+
+body.reader-page .reader-toolbar-menu,
+body.reader-page .reader-head-menu {
+  position: relative;
+  z-index: 130;
+}
+
+body.reader-page .reader-toolbar-menu-panel,
+body.reader-page .reader-head-menu-panel {
+  z-index: 140 !important;
+  max-width: min(calc(100vw - 20px), 280px);
+}
+
+body.reader-page .reader-feed-tool-strip .reader-toolbar-menu-panel,
+body.reader-page .reader-toolbar-panel .reader-toolbar-menu-panel {
+  left: 0;
+  right: auto;
+}
+
+body.reader-page #reader-feed-filter-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+}
+
+body.reader-page #reader-feed-drawer .reader-feed-toolbar,
+body.reader-page #reader-feed-drawer .reader-feed-toolbar-top {
+  width: 100%;
+  min-width: 0;
+}
+
+body.reader-page #reader-feed-drawer .reader-scope-strip,
+body.reader-page #reader-feed-drawer .reader-feed-tool-strip,
+body.reader-page #reader-feed-drawer .reader-feed-bulk-bar {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  flex-wrap: nowrap !important;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.reader-page #reader-feed-drawer .reader-scope-strip::-webkit-scrollbar,
+body.reader-page #reader-feed-drawer .reader-feed-tool-strip::-webkit-scrollbar,
+body.reader-page #reader-feed-drawer .reader-feed-bulk-bar::-webkit-scrollbar {
+  display: none;
+}
+
+body.reader-page #reader-feed-drawer .reader-scope-strip > *,
+body.reader-page #reader-feed-drawer .reader-feed-tool-strip > *,
+body.reader-page #reader-feed-drawer .reader-feed-bulk-bar > * {
+  flex: 0 0 auto !important;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-feed-tool-strip > button,
+  body.reader-page .reader-feed-tool-strip .reader-toolbar-menu,
+  body.reader-page .reader-feed-tool-strip .reader-toolbar-menu > summary,
+  body.reader-page .reader-feed-bulk-bar > button,
+  body.reader-page .reader-toolbar-panel > button,
+  body.reader-page .reader-toolbar-panel .reader-toolbar-menu,
+  body.reader-page .reader-toolbar-panel .reader-toolbar-menu > summary,
+  body.reader-page .reader-detail-actions .secondary,
+  body.reader-page .reader-head-actions-top > button,
+  body.reader-page .reader-head-actions-top .reader-head-menu,
+  body.reader-page .reader-head-actions-top .reader-head-menu > summary {
+    width: 26px !important;
+    min-width: 26px !important;
+    height: 26px !important;
+    min-height: 26px !important;
+  }
+}
+
+body.reader-page .reader-content-head + .reader-head-actions-top {
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
+body.reader-page .reader-import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+body.reader-page .reader-import-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+body.reader-page #reader-import-content {
+  width: 100%;
+  min-height: 92px;
+  max-height: min(28vh, 180px);
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+body.reader-page .reader-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+body.reader-page .reader-import-actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 10px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-import-form {
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  body.reader-page #reader-import-content {
+    min-height: 84px;
+    padding: 7px 9px;
+    font-size: 11.5px;
+  }
+
+  body.reader-page .reader-import-actions {
+    gap: 4px;
+  }
+
+  body.reader-page .reader-import-actions > button {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+}

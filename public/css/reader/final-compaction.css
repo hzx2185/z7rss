@@ -1,0 +1,148 @@
+/* Final reader compaction pass */
+#reader-layout {
+  grid-template-columns: 248px minmax(0, 1fr) minmax(300px, 0.88fr);
+  min-height: auto;
+  align-items: start;
+}
+
+#reader-layout.layout-two,
+#reader-layout.inline-mode {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+#reader-layout .reader-column {
+  max-height: none;
+  overflow: visible;
+}
+
+#reader-layout .source-column,
+#reader-layout .item-column,
+#reader-layout .content-column {
+  padding-bottom: 10px;
+}
+
+.reader-source-panel,
+.reader-toolbar-panel,
+.reader-content-shell,
+.reader-inline-detail {
+  gap: 8px;
+}
+
+.reader-source-top h1,
+.reader-content-head h2,
+body.reader-page .card-head h2 {
+  font-size: 16px;
+}
+
+.reader-feed-main,
+.reader-toolbar-panel,
+.reader-list-head,
+.reader-item-main,
+.reader-item-preview,
+.reader-content-shell {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.reader-feed-main,
+.reader-item-main {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.reader-toolbar-panel {
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.reader-toolbar-panel .inline-field {
+  flex: 1 1 190px;
+  min-width: 0;
+}
+
+.reader-toolbar-panel .narrow-field {
+  flex: 0 0 96px;
+}
+
+.reader-list-head,
+.reader-item-main {
+  grid-template-columns: 72px 112px minmax(0, 1fr) 76px;
+  gap: 8px;
+}
+
+.reader-list-head {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.reader-item-preview {
+  padding-top: 0;
+  padding-bottom: 10px;
+}
+
+.reader-detail-actions,
+.reader-actions,
+body.reader-page .inline-row,
+.reader-bulk-actions {
+  gap: 6px;
+}
+
+.reader-fold {
+  border-radius: 8px;
+}
+
+.reader-fold summary {
+  padding: 8px 10px;
+}
+
+.reader-fold-body {
+  padding: 0 10px 10px;
+}
+
+.reader-content,
+.reader-plain-text {
+  line-height: 1.65;
+}
+
+@media (max-width: 1100px) {
+  #reader-layout {
+    grid-template-columns: 220px minmax(0, 1fr) minmax(280px, 0.82fr);
+  }
+
+  #reader-layout.layout-two,
+  #reader-layout.inline-mode {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  #reader-layout,
+  #reader-layout.layout-two,
+  #reader-layout.inline-mode {
+    grid-template-columns: 1fr;
+  }
+
+  #reader-layout .source-column,
+  #reader-layout .item-column,
+  #reader-layout .content-column {
+    padding-bottom: 0;
+  }
+
+  .reader-toolbar-panel .inline-field,
+  .reader-toolbar-panel .narrow-field {
+    flex: none;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .reader-item-main {
+    grid-template-columns: 1fr;
+  }
+
+  .reader-feed-main {
+    align-items: flex-start;
+  }
+}

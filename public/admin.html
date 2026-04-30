@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS - 管理后台</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/admin.css" />
+  </head>
+  <body class="admin-page" data-admin-mode="guest">
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn" href="/member.html">会员</a>
+          <a class="nav-btn" href="/help.html">帮助</a>
+          <a class="nav-btn" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions admin-header-actions">
+          <a class="nav-action-btn site-register-link" href="/member.html#member-register-form" data-site-register>注册</a>
+          <a id="admin-top-login-link" class="nav-action-btn secondary site-login-link" href="#admin-guest-view" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button id="logout-btn" class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="admin-layout">
+        <aside class="admin-sidebar">
+          <div class="admin-sidebar-inner">
+            <nav class="admin-nav-list" aria-label="后台导航">
+              <a class="admin-nav-item active" href="#tab-overview" data-switch-tab="tab-overview"><span>概览</span></a>
+              <a class="admin-nav-item" href="#tab-config" data-switch-tab="tab-config"><span>配置</span></a>
+              <a class="admin-nav-item" href="#tab-logs" data-switch-tab="tab-logs"><span>日志</span></a>
+              <a class="admin-nav-item" href="#tab-database" data-switch-tab="tab-database"><span>数据库</span></a>
+              <a class="admin-nav-item" href="#tab-plans" data-switch-tab="tab-plans"><span>套餐</span></a>
+              <a class="admin-nav-item" href="#tab-users" data-switch-tab="tab-users"><span>用户</span></a>
+              <a class="admin-nav-item" href="#tab-security" data-switch-tab="tab-security"><span>风控</span></a>
+              <a class="admin-nav-item" href="#tab-content" data-switch-tab="tab-content"><span>内容</span></a>
+            </nav>
+          </div>
+        </aside>
+
+        <div class="admin-content">
+          <div id="admin-status" class="admin-status hidden" aria-live="polite" role="status">
+            <span id="admin-status-text"></span>
+          </div>
+
+          <div id="admin-guest-view" class="admin-guest-panel">
+            <div class="admin-guest-card card">
+              <div class="card-head">
+                <h2>登录管理后台</h2>
+                <p>请使用管理员账号登录</p>
+              </div>
+              <form id="login-form" class="stack">
+                <label class="field-label">
+                  <span>邮箱</span>
+                  <input id="login-email" type="email" autocomplete="username" required />
+                </label>
+                <label class="field-label">
+                  <span>密码</span>
+                  <input id="login-password" type="password" autocomplete="current-password" required />
+                </label>
+                <button type="submit" class="cta-btn full-btn">登录后台</button>
+              </form>
+              <p id="forbidden-panel" class="status-text hidden">当前账号已登录，但没有管理员权限。</p>
+            </div>
+          </div>
+
+          <div id="admin-user-view" class="admin-user-panel hidden">
+            <section id="tab-overview" class="admin-section">
+              <div class="admin-section-head">
+                <h2>系统概览</h2>
+              </div>
+              <div class="admin-overview-layout">
+                <div class="card admin-overview-block admin-account-card">
+                  <div class="admin-account-identity">
+                    <div>
+                      <p class="eyebrow">管理员档案</p>
+                      <h3 id="admin-user-name">访客</h3>
+                      <p class="admin-account-email status-text">登录后可查看系统状态与后台入口</p>
+                    </div>
+                    <span class="pill accent">后台</span>
+                  </div>
+                  <div class="admin-account-meta">
+                    <p class="status-text">系统能力、计费与翻译配置集中展示，便于快速确认后台当前状态。</p>
+                    <div id="admin-system-flags" class="feature-flags"></div>
+                  </div>
+                </div>
+
+                <div class="card admin-overview-block">
+                  <div class="card-head">
+                    <h3>核心指标</h3>
+                  </div>
+                  <div id="admin-metrics" class="metrics-grid"></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>套餐概览</h3>
+                </div>
+                <div id="admin-plan-snapshot" class="compact-list"></div>
+              </div>
+            </section>
+
+            <section id="tab-config" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>系统配置</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>系统配置</h3>
+                </div>
+                <form id="settings-form" class="stack">
+                  <div class="admin-settings-group">
+                    <div class="admin-settings-group-head">
+                      <strong>基础与 SMTP</strong>
+                      <span class="muted">站点名称、邮件发件人、SMTP 全部参数。</span>
+                    </div>
+                    <div class="admin-form-grid">
+                      <label class="field-label">
+                        <span>站点名称</span>
+                        <input id="setting-site-name" type="text" autocomplete="off" />
+                      </label>
+                      <label class="field-label admin-span-2">
+                        <span>站点域名</span>
+                        <input id="setting-site-domain" type="text" autocomplete="url" placeholder="rss.example.com 或 https://rss.example.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>邮件发件人</span>
+                        <input id="setting-mail-from" type="text" autocomplete="email" placeholder="noreply@example.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>SMTP 主机</span>
+                        <input id="setting-mail-host" type="text" autocomplete="url" placeholder="smtp.example.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>SMTP 端口</span>
+                        <input id="setting-mail-port" type="text" autocomplete="off" placeholder="587" />
+                      </label>
+                      <label class="field-label">
+                        <span>SMTP 用户</span>
+                        <input id="setting-mail-username" type="text" autocomplete="username" placeholder="mailer@example.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>SMTP 密码</span>
+                        <input id="setting-mail-password" type="password" autocomplete="new-password" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="admin-settings-group">
+                    <div class="admin-settings-group-head">
+                      <strong>默认 AI</strong>
+                      <span class="muted">模型和提示词集中维护。</span>
+                    </div>
+                    <div class="admin-form-grid">
+                      <label class="field-label admin-span-2">
+                        <span>默认 AI 接口地址</span>
+                        <input id="setting-ai-base-url" type="text" autocomplete="url" placeholder="https://api.openai.com/v1" />
+                      </label>
+                      <label class="field-label">
+                        <span>默认 AI 模型</span>
+                        <input id="setting-ai-model" type="text" autocomplete="off" placeholder="gpt-4.1-mini" />
+                      </label>
+                      <label class="field-label admin-span-3">
+                        <span>默认 AI Key</span>
+                        <input id="setting-ai-api-key" type="password" autocomplete="new-password" />
+                      </label>
+                      <label class="field-label admin-span-3">
+                        <span>默认翻译提示词</span>
+                        <textarea id="setting-ai-translate-prompt" placeholder="留空则使用内置默认提示词"></textarea>
+                      </label>
+                      <label class="field-label admin-span-3">
+                        <span>默认总结提示词</span>
+                        <textarea id="setting-ai-summary-prompt" placeholder="留空则使用内置默认提示词"></textarea>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="admin-settings-group">
+                    <div class="admin-settings-group-head">
+                      <strong>简报输入控制</strong>
+                      <span class="muted">控制发送给 AI 的内容量，默认不使用正文。</span>
+                    </div>
+                    <div class="admin-form-grid">
+                      <label class="field-label">
+                        <span>输入策略</span>
+                        <select id="setting-digest-input-mode">
+                          <option value="title_summary">标题 + 摘要</option>
+                          <option value="title">仅标题</option>
+                          <option value="title_summary_body">标题 + 摘要/正文片段</option>
+                        </select>
+                      </label>
+                      <label class="field-label">
+                        <span>最多文章数</span>
+                        <input id="setting-digest-max-items" type="number" min="1" max="100" step="1" placeholder="30" />
+                      </label>
+                      <label class="field-label">
+                        <span>每篇最多字符</span>
+                        <input id="setting-digest-max-chars-per-item" type="number" min="0" max="2000" step="50" placeholder="300" />
+                      </label>
+                      <label class="field-label">
+                        <span>总输入最多字符</span>
+                        <input id="setting-digest-max-total-chars" type="number" min="500" max="30000" step="500" placeholder="6000" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="admin-settings-group">
+                    <div class="admin-settings-group-head">
+                      <strong>翻译接口</strong>
+                      <span class="muted">设置系统默认翻译工具，支持 Google、必应、DeepLX。</span>
+                    </div>
+                    <div class="admin-form-grid">
+                      <label class="field-label">
+                        <span>默认翻译工具</span>
+                        <select id="setting-translation-provider">
+                          <option value="google">谷歌翻译</option>
+                          <option value="bing">必应翻译</option>
+                          <option value="deeplx">DeepLX 翻译</option>
+                        </select>
+                      </label>
+                      <label class="field-label">
+                        <span>默认目标语言</span>
+                        <select id="setting-translation-target">
+                          <option value="zh-CN">简体中文</option>
+                          <option value="zh-TW">繁體中文</option>
+                          <option value="en">English</option>
+                          <option value="ja">日本語</option>
+                          <option value="ko">한국어</option>
+                        </select>
+                      </label>
+
+                      <label class="field-label admin-span-2">
+                        <span>Google 接口地址（选填）</span>
+                        <input id="setting-google-translate-base-url" type="text" autocomplete="url" placeholder="默认无需填写" />
+                      </label>
+                      <label class="field-label">
+                        <span>Google API Key（选填）</span>
+                        <input id="setting-google-translate-api-key" type="password" autocomplete="new-password" placeholder="留空则使用 Google 免 Key 模式" />
+                      </label>
+
+                      <label class="field-label admin-span-3">
+                        <span>DeepLX 接口地址</span>
+                        <input id="setting-deeplx-base-url" type="text" autocomplete="url" placeholder="https://api.deeplx.你的域名.com" />
+                      </label>
+                      <label class="field-label admin-span-3">
+                        <span>DeepLX API Key（选填）</span>
+                        <input id="setting-deeplx-api-key" type="password" autocomplete="new-password" placeholder="如需认证可填写" />
+                      </label>
+
+                      <label class="field-label admin-span-2">
+                        <span>必应翻译接口地址</span>
+                        <input id="setting-bing-translate-base-url" type="text" autocomplete="url" placeholder="https://api.cognitive.microsofttranslator.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>必应翻译区域</span>
+                        <input id="setting-bing-translate-region" type="text" autocomplete="off" placeholder="eastasia（选填）" />
+                      </label>
+                      <label class="field-label admin-span-3">
+                        <span>必应翻译 API Key</span>
+                        <input id="setting-bing-translate-api-key" type="password" autocomplete="new-password" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="inline-row">
+                    <button type="submit">保存配置</button>
+                    <button id="setting-ai-test-btn" class="secondary" type="button">测试 AI</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            <section id="tab-logs" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>日志与运行</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>后台刷新</h3>
+                </div>
+                <div class="admin-subsection-head-row">
+                  <div>
+                    <strong>刷新队列与执行结果</strong>
+                    <span class="muted">手动触发全站刷新，查看历史记录。</span>
+                  </div>
+                  <button id="admin-refresh-trigger-btn" class="secondary" type="button">立即刷新全站</button>
+                </div>
+                <p id="admin-refresh-status" class="status-text">正在加载刷新状态...</p>
+                <div id="admin-refresh-metrics" class="feature-flags"></div>
+                <div id="admin-refresh-history" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>数据库维护</h3>
+                </div>
+                <div class="admin-subsection-head-row">
+                  <div>
+                    <strong>清理旧文章与运行记录</strong>
+                    <span class="muted">按套餐文章保留上限清理普通文章，并优化数据库。</span>
+                  </div>
+                  <button id="admin-maintenance-trigger-btn" class="secondary" type="button">立即清理数据库</button>
+                </div>
+                <p id="admin-maintenance-status" class="status-text">正在加载维护状态...</p>
+                <div id="admin-maintenance-metrics" class="feature-flags"></div>
+                <div id="admin-maintenance-history" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>审计日志</h3>
+                </div>
+                <p class="muted">管理员关键操作统一记录。</p>
+                <div id="admin-audit-list" class="compact-list"></div>
+              </div>
+            </section>
+
+            <section id="tab-database" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>数据库</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>数据库状态</h3>
+                </div>
+                <p id="admin-database-status" class="status-text">正在加载数据库状态...</p>
+                <div id="admin-database-metrics" class="metrics-grid admin-database-metrics-grid"></div>
+                <div id="admin-database-flags" class="feature-flags"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>维护操作</h3>
+                </div>
+                <div class="admin-settings-group">
+                  <div class="admin-settings-group-head">
+                    <strong>自动备份</strong>
+                    <span class="muted">自动维护时创建备份，并轮转旧自动备份。</span>
+                  </div>
+                  <div class="admin-form-grid admin-database-backup-settings-grid">
+                    <label class="field-label">
+                      <span>自动备份</span>
+                      <select id="setting-database-backup-enabled">
+                        <option value="true">开启</option>
+                        <option value="false">关闭</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>保留天数</span>
+                      <input id="setting-database-backup-retention-days" type="number" min="0" max="3650" step="1" placeholder="14" />
+                    </label>
+                    <label class="field-label">
+                      <span>最多保留份数</span>
+                      <input id="setting-database-backup-max-files" type="number" min="1" max="1000" step="1" placeholder="24" />
+                    </label>
+                    <button id="admin-database-backup-settings-save-btn" class="secondary" type="button">保存备份设置</button>
+                  </div>
+                </div>
+                <div class="toolbar-wrap">
+                  <button id="admin-database-cleanup-btn" class="secondary" type="button">数据清理</button>
+                  <button id="admin-database-optimize-btn" class="secondary" type="button">优化</button>
+                  <button id="admin-database-vacuum-btn" class="secondary" type="button">碎片整理</button>
+                  <button id="admin-database-backup-btn" class="secondary" type="button">备份下载</button>
+                </div>
+                <p class="status-text">数据清理会按当前套餐保留上限删除旧普通文章，并清理孤儿订阅源、孤儿文章、孤儿文章状态、过期会话、旧日志和旧刷新记录；定期维护会自动创建数据库备份并轮转旧自动备份。碎片整理会短暂占用数据库，适合低峰期执行。</p>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>备份文件</h3>
+                </div>
+                <div id="admin-database-backups" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>表统计</h3>
+                </div>
+                <div id="admin-database-tables" class="compact-list"></div>
+              </div>
+            </section>
+
+            <section id="tab-plans" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>套餐与兑换</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>套餐设置</h3>
+                </div>
+                <p class="status-text">普通文章超过上限后会自动清理较早内容，收藏文章不会被自动删除。</p>
+                <div id="admin-plan-settings" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>兑换码管理</h3>
+                </div>
+                <form id="redeem-create-form" class="stack">
+                  <div class="admin-form-grid">
+                    <label class="field-label">
+                      <span>兑换码</span>
+                      <input id="admin-redeem-code" type="text" autocomplete="off" placeholder="PRO2026" />
+                    </label>
+                    <label class="field-label">
+                      <span>套餐代码</span>
+                      <select id="admin-redeem-plan">
+                        <option value="free">free</option>
+                        <option value="pro">pro</option>
+                        <option value="team">team</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>最大次数</span>
+                      <input id="admin-redeem-max" type="number" value="1" min="1" />
+                    </label>
+                    <label class="field-label">
+                      <span>到期日期</span>
+                      <input id="admin-redeem-expire" type="date" />
+                    </label>
+                    <label class="field-label admin-span-2">
+                      <span>备注</span>
+                      <input id="admin-redeem-note" type="text" autocomplete="off" placeholder="活动批次 / 渠道说明" />
+                    </label>
+                  </div>
+                  <button type="submit">创建兑换码</button>
+                </form>
+                <div id="admin-redeem-list" class="compact-list"></div>
+              </div>
+            </section>
+
+            <section id="tab-users" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>用户与订单</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>用户管理</h3>
+                </div>
+                <p class="muted">账号、套餐、安全与会话统一处理。</p>
+                <div id="admin-user-list" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>订单管理</h3>
+                </div>
+                <p class="muted">查看订单状态、来源与金额。</p>
+                <div id="admin-order-list" class="compact-list"></div>
+              </div>
+            </section>
+
+            <section id="tab-security" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>风控管理</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>插件管理</h3>
+                </div>
+                <form id="plugin-form" class="stack">
+                  <div class="admin-form-grid">
+                    <label class="field-label">
+                      <span>插件代码</span>
+                      <input id="plugin-code" type="text" autocomplete="off" placeholder="digest_webhook" />
+                    </label>
+                    <label class="field-label">
+                      <span>名称</span>
+                      <input id="plugin-name" type="text" autocomplete="off" placeholder="Digest Webhook" />
+                    </label>
+                    <label class="field-label admin-span-2">
+                      <span>描述</span>
+                      <input id="plugin-description" type="text" autocomplete="off" placeholder="日报推送插件" />
+                    </label>
+                    <label class="field-label admin-span-3">
+                      <span>配置 JSON</span>
+                      <textarea id="plugin-config" placeholder="{&#10;  &quot;endpoint&quot;: &quot;https://example.com/webhook&quot;&#10;}"></textarea>
+                    </label>
+                    <label class="field-label">
+                      <span>状态</span>
+                      <select id="plugin-enabled">
+                        <option value="1">启用</option>
+                        <option value="0">停用</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button type="submit">保存插件</button>
+                </form>
+                <div id="admin-plugin-list" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>内容过滤</h3>
+                </div>
+                <form id="rule-form" class="stack">
+                  <div class="admin-form-grid">
+                    <label class="field-label">
+                      <span>规则类型</span>
+                      <select id="rule-kind">
+                        <option value="title">title</option>
+                        <option value="summary">summary</option>
+                        <option value="link">link</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>匹配内容</span>
+                      <input id="rule-pattern" type="text" autocomplete="off" placeholder="crypto" />
+                    </label>
+                  </div>
+                  <button type="submit">新增过滤规则</button>
+                </form>
+                <div id="admin-rule-list" class="compact-list"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>访问封禁</h3>
+                </div>
+                <div class="admin-split-stack">
+                  <div class="admin-mini-panel">
+                    <form id="site-block-form" class="stack">
+                      <div class="admin-form-grid admin-form-grid-2">
+                        <label class="field-label">
+                          <span>域名</span>
+                          <input id="blocked-site-domain" type="text" autocomplete="off" placeholder="example.com" />
+                        </label>
+                        <label class="field-label">
+                          <span>原因</span>
+                          <input id="blocked-site-reason" type="text" autocomplete="off" placeholder="spam" />
+                        </label>
+                      </div>
+                      <button type="submit">保存网站屏蔽</button>
+                    </form>
+                    <div id="admin-site-block-list" class="compact-list"></div>
+                  </div>
+                  <div class="admin-mini-panel">
+                    <form id="ip-block-form" class="stack">
+                      <div class="admin-form-grid admin-form-grid-2">
+                        <label class="field-label">
+                          <span>IP 地址</span>
+                          <input id="blocked-ip" type="text" autocomplete="off" placeholder="203.0.113.4" />
+                        </label>
+                        <label class="field-label">
+                          <span>原因</span>
+                          <input id="blocked-ip-reason" type="text" autocomplete="off" placeholder="abuse" />
+                        </label>
+                      </div>
+                      <button type="submit">保存 IP 屏蔽</button>
+                    </form>
+                    <div id="admin-ip-block-list" class="compact-list"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="tab-content" class="admin-section hidden">
+              <div class="admin-section-head">
+                <h2>内容管理</h2>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>内容管理</h3>
+                </div>
+                <div class="admin-split-stack">
+                  <section class="admin-mini-panel">
+                    <strong>订阅源</strong>
+                    <div id="admin-feed-list" class="compact-list"></div>
+                  </section>
+                  <section class="admin-mini-panel">
+                    <strong>文章</strong>
+                    <div id="admin-item-list" class="compact-list"></div>
+                  </section>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/theme.js"></script>
+    <script type="module" src="/shared-settings.js"></script>
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS - 订阅广场</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/public.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn active" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn" href="/member.html">会员</a>
+          <a class="nav-btn" href="/help.html">帮助</a>
+          <a class="nav-btn" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions">
+          <a class="nav-action-btn site-register-link" href="/member.html#member-register-form" data-site-register>注册</a>
+          <a class="nav-action-btn secondary site-login-link" href="/member.html#member-login-form" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="plaza-main">
+        <section class="plaza-hero">
+          <div class="plaza-hero-copy">
+            <h1 class="plaza-title">浏览公开分享的优质订阅</h1>
+            <p class="plaza-subtitle">看看别人正在追的源，直接查看最新文章，登录后还能一键加入自己的阅读列表。</p>
+          </div>
+        </section>
+
+        <section class="plaza-toolbar" aria-label="广场工具栏">
+          <label class="plaza-search-field">
+            <span>搜索公开订阅</span>
+            <input id="plaza-search-input" type="search" autocomplete="off" placeholder="搜索分类、订阅名或介绍" />
+          </label>
+        </section>
+
+        <div id="plaza-status" class="plaza-status hidden" aria-live="polite" role="status">
+          <span id="plaza-status-text"></span>
+        </div>
+
+        <div id="plaza-results-meta" class="plaza-results-meta muted">正在加载公开订阅...</div>
+        <section id="plaza-grid" class="plaza-grid" aria-label="订阅广场列表"></section>
+      </main>
+    </div>
+
+    <script type="module" src="/plaza.js"></script>
+    <script type="module" src="/theme.js"></script>
+  </body>
+</html>

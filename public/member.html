@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS - 会员中心</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/member.css" />
+  </head>
+  <body class="member-page" data-member-mode="guest">
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn active" href="/member.html">会员</a>
+          <a class="nav-btn" href="/help.html">帮助</a>
+          <a class="nav-btn" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions member-header-actions">
+          <a class="nav-action-btn site-register-link" href="#member-register-form" data-site-register>注册</a>
+          <a id="member-top-login-link" class="nav-action-btn secondary site-login-link" href="#member-login-form" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button id="member-logout-btn" class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="member-layout">
+        <aside class="member-sidebar">
+          <div class="member-sidebar-inner">
+            <nav class="member-nav-list" aria-label="会员导航">
+              <a class="member-nav-item active" href="#member-section-account" data-section-target="member-section-account">
+                <span>账户</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-plan" data-section-target="member-section-plan">
+                <span>套餐</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-ai" data-section-target="member-section-ai">
+                <span>AI</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-digest" data-section-target="member-section-digest">
+                <span>简报</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-translation" data-section-target="member-section-translation">
+                <span>翻译</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-billing" data-section-target="member-section-billing">
+                <span>账单</span>
+              </a>
+              <a class="member-nav-item" href="#member-section-security" data-section-target="member-section-security">
+                <span>安全</span>
+              </a>
+              <a id="member-admin-entry" class="member-nav-item hidden" href="/admin.html">
+                <span>后台</span>
+              </a>
+            </nav>
+          </div>
+        </aside>
+
+        <div class="member-content">
+          <div id="member-status" class="member-status hidden" aria-live="polite" role="status">
+            <span id="member-status-text"></span>
+          </div>
+
+          <div id="member-guest-view" class="member-guest-panel">
+            <div class="member-guest-card card">
+              <div class="card-head">
+                <h2>登录会员中心</h2>
+                <p>登录后可管理订阅、套餐、AI 配置与翻译设置</p>
+              </div>
+              <form id="member-login-form" class="stack">
+                <label class="field-label">
+                  <span>邮箱</span>
+                  <input id="member-login-email" type="email" autocomplete="username" required />
+                </label>
+                <label class="field-label">
+                  <span>密码</span>
+                  <input id="member-login-password" type="password" autocomplete="current-password" required />
+                </label>
+                <button type="submit" class="cta-btn full-btn">登录</button>
+              </form>
+              <div class="form-divider-text"><span>或</span></div>
+              <form id="member-register-form" class="stack">
+                <label class="field-label">
+                  <span>显示名</span>
+                  <input id="member-register-name" type="text" autocomplete="name" required />
+                </label>
+                <label class="field-label">
+                  <span>邮箱</span>
+                  <input id="member-register-email" type="email" autocomplete="email" required />
+                </label>
+                <label class="field-label">
+                  <span>密码</span>
+                  <input id="member-register-password" type="password" autocomplete="new-password" required />
+                </label>
+                <button class="ghost-btn full-btn" type="submit">注册并登录</button>
+              </form>
+            </div>
+          </div>
+
+          <div id="member-user-view" class="member-user-panel hidden">
+            <section id="member-section-account" class="member-section">
+              <div class="member-section-head">
+                <h2>账号资料</h2>
+              </div>
+              <div class="member-overview-layout">
+                <div class="card member-account-card member-overview-block">
+                  <div class="member-account-identity">
+                    <div>
+                      <p class="eyebrow">会员档案</p>
+                      <h3 id="member-account-name">会员</h3>
+                      <p id="member-account-email" class="member-account-email status-text">登录后可查看账号邮箱</p>
+                    </div>
+                    <span id="member-account-plan-badge" class="pill accent hidden">免费版</span>
+                  </div>
+                  <div class="member-account-meta">
+                    <div id="member-capability-flags" class="feature-flags"></div>
+                  </div>
+                </div>
+
+                <div class="card member-overview-block">
+                  <div class="card-head">
+                    <h3>权益与配额</h3>
+                  </div>
+                  <div id="member-capability-metrics" class="metrics-grid"></div>
+                  <div class="redeem-block">
+                    <form id="member-redeem-form" class="stack">
+                      <div class="redeem-row">
+                        <span class="redeem-label">兑换套餐</span>
+                        <input id="member-redeem-code" type="text" autocomplete="off" placeholder="TEAMVIP" />
+                        <button type="submit">兑换</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="member-section-plan" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>套餐与订阅</h2>
+              </div>
+              <div id="member-plan-list" class="plan-list"></div>
+            </section>
+
+            <section id="member-section-ai" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>AI 配置</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>自定义 AI 接口</h3>
+                </div>
+                <p id="member-ai-form-hint" class="status-text">付费套餐支持自定义接口地址、密钥、模型与提示词。</p>
+                <form id="member-ai-form" class="stack">
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>接口地址</span>
+                      <input id="member-ai-base-url" type="text" autocomplete="url" placeholder="https://api.openai.com/v1" />
+                    </label>
+                    <label class="field-label">
+                      <span>模型</span>
+                      <input id="member-ai-model" type="text" autocomplete="off" placeholder="gpt-4.1-mini" />
+                    </label>
+                  </div>
+                  <label class="field-label">
+                    <span>API Key</span>
+                    <input id="member-ai-api-key" type="password" autocomplete="new-password" />
+                  </label>
+                  <label class="field-label">
+                    <span>翻译提示词</span>
+                    <textarea id="member-ai-translate-prompt" placeholder="可选，自定义翻译行为"></textarea>
+                  </label>
+                  <label class="field-label">
+                    <span>总结提示词</span>
+                    <textarea id="member-ai-summary-prompt" placeholder="可选，自定义总结行为"></textarea>
+                  </label>
+                  <div class="inline-row">
+                    <button type="submit">保存 AI 配置</button>
+                    <button id="member-ai-test-btn" class="secondary" type="button">测试 AI</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            <section id="member-section-translation" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>翻译设置</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>翻译选项与接口配置</h3>
+                </div>
+                <form id="member-translation-form" class="stack">
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>翻译工具</span>
+                      <select id="member-translation-provider">
+                        <option value="google">谷歌翻译</option>
+                        <option value="bing">必应翻译</option>
+                        <option value="deeplx">DeepLX 翻译</option>
+                        <option value="sogou">搜狗翻译</option>
+                        <option value="ai">AI 翻译</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>目标语言</span>
+                      <select id="member-translation-target">
+                        <option value="zh-CN">简体中文</option>
+                        <option value="zh-TW">繁體中文</option>
+                        <option value="en">English</option>
+                        <option value="ja">日本語</option>
+                        <option value="ko">한국어</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div id="member-translation-google-config" class="translation-provider-config">
+                    <div class="member-form-row">
+                      <label class="field-label">
+                        <span>接口地址</span>
+                        <input id="member-translation-google-base-url" type="text" autocomplete="url" placeholder="默认无需填写" />
+                      </label>
+                      <label class="field-label">
+                        <span>API Key（选填）</span>
+                        <input id="member-translation-google-api-key" type="password" autocomplete="new-password" placeholder="Google 默认免 Key 模式" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div id="member-translation-bing-config" class="translation-provider-config hidden">
+                    <div class="member-form-row">
+                      <label class="field-label">
+                        <span>接口地址</span>
+                        <input id="member-translation-bing-base-url" type="text" autocomplete="url" placeholder="https://api.cognitive.microsofttranslator.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>API Key</span>
+                        <input id="member-translation-bing-api-key" type="password" autocomplete="new-password" />
+                      </label>
+                    </div>
+                    <label class="field-label">
+                      <span>区域（选填）</span>
+                      <input id="member-translation-bing-region" type="text" autocomplete="off" placeholder="eastasia" />
+                    </label>
+                  </div>
+
+                  <div id="member-translation-deeplx-config" class="translation-provider-config hidden">
+                    <div class="member-form-row">
+                      <label class="field-label">
+                        <span>接口地址</span>
+                        <input id="member-translation-deeplx-base-url" type="text" autocomplete="url" placeholder="https://api.deeplx.你的域名.com" />
+                      </label>
+                      <label class="field-label">
+                        <span>API Key（选填）</span>
+                        <input id="member-translation-deeplx-api-key" type="password" autocomplete="new-password" placeholder="如需认证可填写" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="inline-row" style="flex-wrap: nowrap;">
+                    <label class="checkbox-row">
+                      <input id="member-translation-auto" type="checkbox" />
+                      <span>自动翻译并存库</span>
+                    </label>
+                    <label class="checkbox-row">
+                      <input id="member-translation-display" type="checkbox" />
+                      <span>优先显示译文</span>
+                    </label>
+                  </div>
+                  <div class="inline-row">
+                    <button type="submit">保存翻译设置</button>
+                    <button id="member-translation-reset-btn" class="secondary" type="button">恢复默认</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            <section id="member-section-digest" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>AI 总结简报</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>每日邮件简报</h3>
+                </div>
+                <p id="member-digest-hint" class="status-text">支持的套餐可配置每天 09:00 自动生成约 500 字简报；接收邮箱可选，留空则只生成不发送。系统会限制输入量，避免浪费 token。</p>
+                <form id="member-digest-form" class="stack">
+                  <input id="member-digest-id" type="hidden" />
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>规则名称</span>
+                      <input id="member-digest-name" type="text" autocomplete="off" placeholder="每日简报" />
+                    </label>
+                    <label class="field-label">
+                      <span>发送时间</span>
+                      <input id="member-digest-send-time" type="time" value="09:00" />
+                    </label>
+                  </div>
+                  <label class="field-label">
+                    <span>接收邮箱（可选）</span>
+                    <input id="member-digest-emails" type="text" autocomplete="off" placeholder="留空只生成简报；多个邮箱用逗号分隔" />
+                  </label>
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>AI 来源</span>
+                      <select id="member-digest-ai-source">
+                        <option value="system">系统默认</option>
+                        <option value="user">我的 AI 配置</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>订阅源范围</span>
+                      <select id="member-digest-feed-scope">
+                        <option value="all">全部订阅源</option>
+                        <option value="selected">指定订阅源</option>
+                        <option value="category">指定分类</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>文章时间</span>
+                      <select id="member-digest-lookback-hours">
+                        <option value="24">最近 1 天</option>
+                      </select>
+                    </label>
+                    <label class="checkbox-row member-digest-enabled-row">
+                      <input id="member-digest-unread-only" type="checkbox" />
+                      <span>仅未读</span>
+                    </label>
+                  </div>
+                  <label id="member-digest-feed-ids-field" class="field-label hidden">
+                    <span>指定订阅源</span>
+                    <select id="member-digest-feed-ids" multiple size="5"></select>
+                  </label>
+                  <label id="member-digest-category-field" class="field-label hidden">
+                    <span>分类</span>
+                    <input id="member-digest-category" type="text" autocomplete="off" placeholder="新闻 / AI / 健康生活" />
+                  </label>
+                  <label class="field-label">
+                    <span>提示词</span>
+                    <textarea id="member-digest-prompt" placeholder="可选，例如：请偏重产品、技术和投资机会。"></textarea>
+                  </label>
+                  <label class="checkbox-row member-digest-enabled-row">
+                    <input id="member-digest-enabled" type="checkbox" checked />
+                    <span>启用这条规则</span>
+                  </label>
+                  <div class="inline-row">
+                    <button type="submit">保存简报规则</button>
+                    <button id="member-digest-new-btn" class="secondary" type="button">新建</button>
+                  </div>
+                </form>
+              </div>
+              <div id="member-digest-list" class="compact-list"></div>
+              <div id="member-digest-runs" class="compact-list"></div>
+            </section>
+
+            <section id="member-section-billing" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>账单记录</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>当前订阅</h3>
+                </div>
+                <div id="member-billing-overview" class="billing-card">
+                  <p class="status-text">加载中</p>
+                </div>
+              </div>
+              <div id="member-billing-history" class="billing-history"></div>
+            </section>
+
+            <section id="member-section-security" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>账号安全</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>修改密码</h3>
+                </div>
+                <form id="member-security-form" class="stack">
+                  <input type="text" name="username" autocomplete="username" style="display:none" tabindex="-1" aria-hidden="true" />
+                  <label class="field-label">
+                    <span>当前密码</span>
+                    <input id="member-current-password" type="password" autocomplete="current-password" />
+                  </label>
+                  <label class="field-label">
+                    <span>新密码</span>
+                    <input id="member-new-password" type="password" autocomplete="new-password" />
+                  </label>
+                  <label class="field-label">
+                    <span>确认新密码</span>
+                    <input id="member-confirm-password" type="password" autocomplete="new-password" />
+                  </label>
+                  <button type="submit">修改密码</button>
+                </form>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>设备管理</h3>
+                </div>
+                <p id="member-security-hint" class="status-text">当前设备的登录状态。</p>
+                <div id="member-device-list" class="device-list"></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/theme.js"></script>
+    <script type="module" src="/shared-settings.js"></script>
+    <script type="module" src="/member.js"></script>
+  </body>
+</html>

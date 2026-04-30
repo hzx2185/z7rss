@@ -1,0 +1,635 @@
+import { badRequest, forbidden } from "../lib/errors.js";
+import {
+  getProviderTargetCode,
+  getTranslationProviderLabel,
+  supportsServerTranslation
+} from "./translator.js";
+
+export function createAccountService({ store, config, secretBox }) {
+  const allowedTranslationProviders = new Set(["google", "bing", "deeplx", "sogou", "ai"]);
+  const entitledSubscriptionStatuses = new Set(["active", "trialing", "past_due"]);
+  const translationTargets = {
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    en: "English",
+    ja: "日本語",
+    ko: "한국어"
+  };
+  const translationModes = {
+    title: "仅标题",
+    full: "标题和正文"
+  };
+  const readerFeedUnreadFilters = new Set(["all", "unread", "read"]);
+  const readerItemFilters = new Set(["all", "unread", "read", "favorite"]);
+
+  function isSecretSettingKey(key) {
+    return key === "api_key" || key === "password";
+  }
+
+  function markUnavailableSecret(output, category, key, rawValue, decryptedValue) {
+    if (!output?.[category]) return;
+    const hasRawValue = Boolean(String(rawValue || "").trim());
+    const hasDecryptedValue = Boolean(String(decryptedValue || "").trim());
+    if (key === "api_key") {
+      output[category].api_key_unavailable = hasRawValue && !hasDecryptedValue;
+    }
+    if (key === "password") {
+      output[category].password_unavailable = hasRawValue && !hasDecryptedValue;
+    }
+  }
+
+  function maskApiKey(output, category) {
+    if (!output?.[category]) return;
+    output[category].api_key_configured = Boolean(output[category].api_key);
+    delete output[category].api_key;
+  }
+
+  function maskPassword(output, category) {
+    if (!output?.[category]) return;
+    output[category].password_configured = Boolean(output[category].password);
+    delete output[category].password;
+  }
+
+  function withMaskedSecrets(settings) {
+    const output = structuredClone(settings || {});
+    maskApiKey(output, "ai");
+    maskApiKey(output, "translation_google");
+    maskApiKey(output, "translation_bing");
+    maskPassword(output, "mail");
+    return output;
+  }
+
+  function rowsToSettings(rows) {
+    return rows.reduce((acc, row) => {
+      if (!acc[row.category]) acc[row.category] = {};
+      const isSecretKey = isSecretSettingKey(row.key);
+      const value = isSecretKey ? secretBox.decrypt(row.value) : row.value;
+      acc[row.category][row.key] = value;
+      if (isSecretKey) markUnavailableSecret(acc, row.category, row.key, row.value, value);
+      return acc;
+    }, {});
+  }
+
+  function sanitizeUser(user) {
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName || user.display_name,
+      isAdmin: Boolean(user.isAdmin ?? user.is_admin),
+      status: user.status
+    };
+  }
+
+  function normalizeStoredBoolean(value, fallback = false) {
+    if (value === undefined || value === null || value === "") return fallback;
+    return value === true || value === 1 || value === "1" || value === "true";
+  }
+
+  function normalizeTranslationTarget(value, fallback = "zh-CN") {
+    const candidate = String(value || "").trim();
+    return translationTargets[candidate] ? candidate : fallback;
+  }
+
+  function normalizeOptionalBooleanOverride(value) {
+    if (value === undefined || value === null || value === "") return null;
+    return normalizeStoredBoolean(value, false);
+  }
+
+  function getTranslationTargetLabel(code) {
+    return translationTargets[normalizeTranslationTarget(code)] || translationTargets["zh-CN"];
+  }
+
+  function normalizeTranslationMode(value, fallback = "full") {
+    const candidate = String(value || "").trim().toLowerCase();
+    return translationModes[candidate] ? candidate : fallback;
+  }
+
+  function normalizeReaderFeedUnreadFilter(value, fallback = "all") {
+    const candidate = String(value || "").trim().toLowerCase();
+    return readerFeedUnreadFilters.has(candidate) ? candidate : fallback;
+  }
+
+  function normalizeReaderItemFilter(value, fallback = "all") {
+    const candidate = String(value || "").trim().toLowerCase();
+    return readerItemFilters.has(candidate) ? candidate : fallback;
+  }
+
+  function getTranslationModeLabel(code) {
+    return translationModes[normalizeTranslationMode(code)] || translationModes.full;
+  }
+
+  function listSettingsMap() {
+    return rowsToSettings(store.listSettings());
+  }
+
+  function listUserSettingsMap(userId) {
+    return userId ? rowsToSettings(store.listUserSettings(userId)) : {};
+  }
+
+  function getStoredTranslationProviderConfig(settings, provider, scope = "system") {
+    const map = settings || {};
+
+    if (provider === "google") {
+      const google = map.translation_google || {};
+      return {
+        provider,
+        apiKey: String(google.api_key || "").trim(),
+        baseUrl: "",
+        region: "",
+        scope: "system"
+      };
+    }
+
+    if (provider === "bing") {
+      const bing = map.translation_bing || {};
+      return {
+        provider,
+        apiKey: String(bing.api_key || "").trim(),
+        baseUrl: String(bing.base_url || "").trim(),
+        region: String(bing.region || "").trim(),
+        scope: "system"
+      };
+    }
+
+    if (provider === "deeplx") {
+      const deeplx = map.translation_deeplx || {};
+      return {
+        provider,
+        apiKey: String(deeplx.api_key || "").trim(),
+        baseUrl: String(deeplx.base_url || "").trim(),
+        region: "",
+        scope
+      };
+    }
+
+    return {
+      provider,
+      apiKey: "",
+      baseUrl: "",
+      region: "",
+      scope: "system"
+    };
+  }
+
+  function getSystemTranslationProviderConfig(provider) {
+    return getStoredTranslationProviderConfig(listSettingsMap(), provider, "system");
+  }
+
+  function getUserTranslationProviderConfig(userId, provider) {
+    return getStoredTranslationProviderConfig(listUserSettingsMap(userId), provider, "user");
+  }
+
+  function hasTranslationProviderCredentials(providerConfig) {
+    if (String(providerConfig?.provider || "").trim().toLowerCase() === "deeplx") {
+      return Boolean(String(providerConfig?.baseUrl || "").trim());
+    }
+    return Boolean(String(providerConfig?.apiKey || "").trim());
+  }
+
+  function hasTranslationProviderOverride(providerConfig) {
+    return Boolean(
+      String(providerConfig?.apiKey || "").trim() ||
+        String(providerConfig?.baseUrl || "").trim() ||
+        String(providerConfig?.region || "").trim()
+    );
+  }
+
+  function resolveTranslationProviderConfig(userId, provider) {
+    const userConfig = getUserTranslationProviderConfig(userId, provider);
+    const systemConfig = getSystemTranslationProviderConfig(provider);
+    const source =
+      provider === "google" && !hasTranslationProviderOverride(userConfig) && !hasTranslationProviderOverride(systemConfig)
+        ? "public"
+        : hasTranslationProviderOverride(userConfig)
+          ? "user"
+          : hasTranslationProviderOverride(systemConfig)
+            ? "system"
+            : "none";
+
+    return {
+      provider,
+      apiKey: userConfig.apiKey || systemConfig.apiKey || "",
+      baseUrl: userConfig.baseUrl || systemConfig.baseUrl || "",
+      region: userConfig.region || systemConfig.region || "",
+      source,
+      userConfigured: hasTranslationProviderCredentials(userConfig),
+      systemConfigured: hasTranslationProviderCredentials(systemConfig)
+    };
+  }
+
+  function getTranslationProviderStatus(userId, provider) {
+    const normalizedProvider = allowedTranslationProviders.has(String(provider || "").trim())
+      ? String(provider || "").trim()
+      : "google";
+
+    if (normalizedProvider === "ai") {
+      const aiConfig = listUserSettingsOrDefault(userId);
+      return {
+        provider: normalizedProvider,
+        providerLabel: getTranslationProviderLabel(normalizedProvider),
+        configured: Boolean(aiConfig.baseUrl && aiConfig.apiKey),
+        autoTranslateSupported: true,
+        scope: aiConfig.source,
+        userConfigured: aiConfig.source === "user" && Boolean(aiConfig.baseUrl && aiConfig.apiKey),
+        systemConfigured: aiConfig.source === "system" && Boolean(aiConfig.baseUrl && aiConfig.apiKey)
+      };
+    }
+
+    const effectiveConfig = resolveTranslationProviderConfig(userId, normalizedProvider);
+    return {
+      provider: normalizedProvider,
+      providerLabel: getTranslationProviderLabel(normalizedProvider),
+      configured:
+        normalizedProvider === "sogou"
+          ? false
+          : normalizedProvider === "google"
+            ? true
+            : hasTranslationProviderCredentials(effectiveConfig),
+      autoTranslateSupported: supportsServerTranslation(normalizedProvider),
+      scope: effectiveConfig.source,
+      userConfigured: effectiveConfig.userConfigured,
+      systemConfigured: effectiveConfig.systemConfigured
+    };
+  }
+
+  function resolveTranslationSettings(baseSettings, overrides = {}) {
+    return {
+      provider: baseSettings.provider,
+      targetLanguage: normalizeTranslationTarget(
+        overrides.targetLanguage ?? overrides.target_language ?? overrides.translation_target_language,
+        baseSettings.targetLanguage
+      ),
+      autoTranslate:
+        normalizeOptionalBooleanOverride(overrides.autoTranslate ?? overrides.auto_translate) ?? baseSettings.autoTranslate,
+      displayTranslated:
+        normalizeOptionalBooleanOverride(overrides.displayTranslated ?? overrides.display_translated) ??
+        baseSettings.displayTranslated,
+      translationMode: normalizeTranslationMode(
+        overrides.translationMode ?? overrides.translation_mode,
+        baseSettings.translationMode
+      )
+    };
+  }
+
+  function getEffectiveTranslationSettings(userId, overrides = null) {
+    const translation = listUserSettingsMap(userId).translation || {};
+    const provider = allowedTranslationProviders.has(String(translation.provider || "").trim())
+      ? String(translation.provider || "").trim()
+      : "google";
+    const targetLanguage = normalizeTranslationTarget(translation.target_language, "zh-CN");
+
+    const globalSettings = {
+      provider,
+      targetLanguage,
+      autoTranslate: normalizeStoredBoolean(translation.auto_translate, false),
+      displayTranslated: normalizeStoredBoolean(translation.display_translated, true),
+      translationMode: "full"
+    };
+
+    return overrides ? resolveTranslationSettings(globalSettings, overrides) : globalSettings;
+  }
+
+  function listUserSettingsOrDefault(userId, options = {}) {
+    const system = listSettingsMap().ai || {};
+    const user = listUserSettingsMap(userId).ai || {};
+    const targetLanguage = normalizeTranslationTarget(options.targetLanguage, "zh-CN");
+    return {
+      enabled: config.aiEnabled,
+      provider: "ai",
+      baseUrl: user.base_url || system.base_url || "",
+      apiKey: user.api_key || system.api_key || "",
+      model: user.model || system.model || "gpt-4.1-mini",
+      translatePrompt:
+        user.translate_prompt ||
+        system.translate_prompt ||
+        `Translate the article into ${getTranslationTargetLabel(targetLanguage)}. Preserve structure and proper nouns where appropriate.`,
+      summaryPrompt: user.summary_prompt || system.summary_prompt || "",
+      source: user.base_url || user.api_key || user.model || user.translate_prompt || user.summary_prompt ? "user" : "system",
+      targetLanguage,
+      targetLanguageCode: getProviderTargetCode("ai", targetLanguage)
+    };
+  }
+
+  function getResolvedPlan(userId) {
+    const subscription = store.getUserSubscription(userId);
+    const fallbackPlan = store.getPlanByCode("free");
+    if (!subscription) {
+      return {
+        subscription: null,
+        plan: fallbackPlan
+      };
+    }
+
+    if (!entitledSubscriptionStatuses.has(String(subscription.status || "").trim().toLowerCase())) {
+      return {
+        subscription,
+        plan: fallbackPlan
+      };
+    }
+
+    return {
+      subscription,
+        plan: {
+          id: subscription.plan_id,
+          code: subscription.plan_code,
+          name: subscription.plan_name,
+          description: subscription.plan_description,
+        price_monthly_cents: subscription.price_monthly_cents,
+        max_feeds: subscription.max_feeds,
+          max_saved_items: subscription.max_saved_items,
+          max_favorite_items: subscription.max_favorite_items,
+          ai_translation_enabled: subscription.ai_translation_enabled,
+          ai_summary_enabled: subscription.ai_summary_enabled,
+          custom_ai_enabled: subscription.custom_ai_enabled,
+          ai_digest_enabled: subscription.ai_digest_enabled,
+          email_digest_enabled: subscription.email_digest_enabled,
+          max_digest_rules: subscription.max_digest_rules,
+          stripe_price_id: subscription.stripe_price_id
+        }
+      };
+  }
+
+  return {
+    getTranslationTargetLabel,
+    getSupportedTranslationTargets() {
+      return { ...translationTargets };
+    },
+    getSupportedTranslationModes() {
+      return { ...translationModes };
+    },
+    getEffectiveAiConfig(userId, options = {}) {
+      return listUserSettingsOrDefault(userId, {
+        targetLanguage: options.targetLanguage || null
+      });
+    },
+    getEffectiveTranslationRuntime(userId, options = {}) {
+      const provider = allowedTranslationProviders.has(String(options.provider || "").trim())
+        ? String(options.provider || "").trim()
+        : getEffectiveTranslationSettings(userId).provider;
+      const targetLanguage = normalizeTranslationTarget(
+        options.targetLanguage,
+        getEffectiveTranslationSettings(userId).targetLanguage
+      );
+
+      if (provider === "ai") {
+        return this.getEffectiveAiConfig(userId, { targetLanguage });
+      }
+
+      const systemProvider = resolveTranslationProviderConfig(userId, provider);
+      return {
+        provider,
+        targetLanguage,
+        targetLanguageCode: getProviderTargetCode(provider, targetLanguage),
+        apiKey: systemProvider.apiKey,
+        baseUrl: systemProvider.baseUrl,
+        region: systemProvider.region,
+        source: systemProvider.source
+      };
+    },
+    getEffectiveTranslationSettings,
+    getEffectiveFeedTranslationSettings(userId, feed = {}) {
+      const effective = getEffectiveTranslationSettings(userId, feed);
+      const providerStatus = getTranslationProviderStatus(userId, effective.provider);
+      return {
+        ...effective,
+        providerLabel: providerStatus.providerLabel,
+        providerConfigured: providerStatus.configured,
+        autoTranslateSupported: providerStatus.autoTranslateSupported,
+        targetLabel: getTranslationTargetLabel(effective.targetLanguage),
+        translationModeLabel: getTranslationModeLabel(effective.translationMode)
+      };
+    },
+    getUserPreferences(userId) {
+      const settings = withMaskedSecrets(listUserSettingsMap(userId));
+      Object.keys(settings).forEach((category) => {
+        if (String(category || "").startsWith("feed_fetch:")) {
+          delete settings[category];
+        }
+      });
+      const translation = getEffectiveTranslationSettings(userId);
+      const reader = settings.reader || {};
+      settings.translation = {
+        ...(settings.translation || {}),
+        provider: translation.provider,
+        target_language: translation.targetLanguage,
+        auto_translate: translation.autoTranslate ? "1" : "0",
+        display_translated: translation.displayTranslated ? "1" : "0"
+      };
+      settings.reader = {
+        ...reader,
+        feed_unread_filter: normalizeReaderFeedUnreadFilter(reader.feed_unread_filter, "all"),
+        item_filter: normalizeReaderItemFilter(reader.item_filter, "all"),
+        feed_unread_filter_saved: Object.prototype.hasOwnProperty.call(reader, "feed_unread_filter"),
+        item_filter_saved: Object.prototype.hasOwnProperty.call(reader, "item_filter")
+      };
+      return settings;
+    },
+    updateUserAiSettings(user, payload) {
+      const account = this.getAccount(user);
+      if (!account.features.customAi) {
+        throw forbidden("当前套餐不支持自定义 AI 接口", { code: "custom_ai_unavailable" });
+      }
+
+      const current = listUserSettingsMap(user.id).ai || {};
+      const nextApiKey = String(payload.apiKey || "").trim();
+      const aiSettings = {
+        base_url: String(payload.baseUrl || ""),
+        api_key: nextApiKey ? secretBox.encrypt(nextApiKey) : current.api_key ? secretBox.encrypt(current.api_key) : "",
+        model: String(payload.model || ""),
+        translate_prompt: String(payload.translatePrompt || ""),
+        summary_prompt: String(payload.summaryPrompt || "")
+      };
+
+      for (const [key, value] of Object.entries(aiSettings)) {
+        store.setUserSetting(user.id, "ai", key, value);
+      }
+
+      return this.getUserPreferences(user.id);
+    },
+    updateUserTranslationProviderSettings(user, provider, payload) {
+      const normalizedProvider = String(provider || "").trim().toLowerCase();
+      if (!["google", "bing", "deeplx"].includes(normalizedProvider)) {
+        throw badRequest("翻译工具无效", { code: "invalid_translation_provider" });
+      }
+
+      const currentMap = listUserSettingsMap(user.id);
+      if (normalizedProvider === "google") {
+        const current = currentMap.translation_google || {};
+        const nextApiKey = String(payload.apiKey || "").trim();
+        store.setUserSetting(
+          user.id,
+          "translation_google",
+          "api_key",
+          nextApiKey ? secretBox.encrypt(nextApiKey) : current.api_key ? secretBox.encrypt(current.api_key) : ""
+        );
+        return this.getUserPreferences(user.id);
+      }
+
+      if (normalizedProvider === "bing") {
+        const current = currentMap.translation_bing || {};
+        const nextApiKey = String(payload.apiKey || "").trim();
+        const bingSettings = {
+          base_url: String(payload.baseUrl || ""),
+          api_key: nextApiKey ? secretBox.encrypt(nextApiKey) : current.api_key ? secretBox.encrypt(current.api_key) : "",
+          region: String(payload.region || "")
+        };
+        for (const [key, value] of Object.entries(bingSettings)) {
+          store.setUserSetting(user.id, "translation_bing", key, value);
+        }
+        return this.getUserPreferences(user.id);
+      }
+
+      if (normalizedProvider === "deeplx") {
+        const current = currentMap.translation_deeplx || {};
+        const nextApiKey = String(payload.apiKey || "").trim();
+        const deeplxSettings = {
+          base_url: String(payload.baseUrl || ""),
+          api_key: nextApiKey ? secretBox.encrypt(nextApiKey) : current.api_key ? secretBox.encrypt(current.api_key) : ""
+        };
+        for (const [key, value] of Object.entries(deeplxSettings)) {
+          store.setUserSetting(user.id, "translation_deeplx", key, value);
+        }
+        return this.getUserPreferences(user.id);
+      }
+    },
+    resetUserTranslationProviderSettings(user, provider) {
+      const normalizedProvider = String(provider || "").trim().toLowerCase();
+      if (!["google", "bing", "deeplx"].includes(normalizedProvider)) {
+        throw badRequest("翻译工具无效", { code: "invalid_translation_provider" });
+      }
+
+      if (normalizedProvider === "google") {
+        store.setUserSetting(user.id, "translation_google", "api_key", "");
+        return this.getUserPreferences(user.id);
+      }
+
+      if (normalizedProvider === "bing") {
+        store.setUserSetting(user.id, "translation_bing", "base_url", "");
+        store.setUserSetting(user.id, "translation_bing", "api_key", "");
+        store.setUserSetting(user.id, "translation_bing", "region", "");
+        return this.getUserPreferences(user.id);
+      }
+
+      if (normalizedProvider === "deeplx") {
+        store.setUserSetting(user.id, "translation_deeplx", "base_url", "");
+        store.setUserSetting(user.id, "translation_deeplx", "api_key", "");
+        return this.getUserPreferences(user.id);
+      }
+    },
+    updateUserTranslationSettings(user, payload) {
+      const provider = String(payload.provider || "").trim().toLowerCase();
+      const targetLanguage = String(payload.targetLanguage || payload.target_language || "").trim();
+      if (!allowedTranslationProviders.has(provider)) {
+        throw badRequest("翻译工具无效", { code: "invalid_translation_provider" });
+      }
+      if (!translationTargets[targetLanguage]) {
+        throw badRequest("目标语言无效", { code: "invalid_translation_target" });
+      }
+      if (payload.autoTranslate && !supportsServerTranslation(provider)) {
+        throw badRequest("当前翻译工具暂不支持自动翻译", { code: "translation_auto_unsupported" });
+      }
+
+      const translationSettings = {
+        provider,
+        target_language: targetLanguage,
+        auto_translate: payload.autoTranslate ? "1" : "0",
+        display_translated: payload.displayTranslated === false ? "0" : "1"
+      };
+
+      for (const [key, value] of Object.entries(translationSettings)) {
+        store.setUserSetting(user.id, "translation", key, String(value));
+      }
+
+      return this.getUserPreferences(user.id);
+    },
+    updateUserReaderSettings(user, payload) {
+      const nextFeedUnreadFilter = normalizeReaderFeedUnreadFilter(payload.feedUnreadFilter, "");
+      const nextItemFilter = normalizeReaderItemFilter(payload.itemFilter, "");
+
+      if (!nextFeedUnreadFilter) {
+        throw badRequest("订阅源默认筛选无效", { code: "invalid_reader_feed_unread_filter" });
+      }
+      if (!nextItemFilter) {
+        throw badRequest("文章列表默认筛选无效", { code: "invalid_reader_item_filter" });
+      }
+
+      store.setUserSetting(user.id, "reader", "feed_unread_filter", nextFeedUnreadFilter);
+      store.setUserSetting(user.id, "reader", "item_filter", nextItemFilter);
+      return this.getUserPreferences(user.id);
+    },
+    getAccount(user) {
+      const safeUser = sanitizeUser(user);
+      const { plan, subscription } = getResolvedPlan(user.id);
+      const feedCount = store.countUserFeeds(user.id);
+      const favoriteCount = store.countUserFavorites(user.id);
+      const aiConfig = this.getEffectiveAiConfig(user.id);
+      const translation = getEffectiveTranslationSettings(user.id);
+      const providerStatus = getTranslationProviderStatus(user.id, translation.provider);
+      const translationProviders = Array.from(allowedTranslationProviders).reduce((acc, provider) => {
+        const status = getTranslationProviderStatus(user.id, provider);
+        acc[provider] = {
+          provider: status.provider,
+          providerLabel: status.providerLabel,
+          configured: status.configured,
+          source: status.scope,
+          autoTranslateSupported: status.autoTranslateSupported,
+          userConfigured: status.userConfigured,
+          systemConfigured: status.systemConfigured
+        };
+        return acc;
+      }, {});
+
+      return {
+        user: safeUser,
+        plan,
+        subscription,
+        usage: {
+          feedCount,
+          feedLimit: plan.max_feeds,
+          savedItemLimit: plan.max_saved_items,
+          favoriteCount,
+          favoriteLimit: plan.max_favorite_items,
+          digestRules: store.countDigestRulesByUser?.(user.id) ?? 0,
+          digestRuleLimit: plan.max_digest_rules || 0
+        },
+        features: {
+          translation: Boolean(config.aiEnabled && plan.ai_translation_enabled),
+          summary: Boolean(config.aiEnabled && plan.ai_summary_enabled),
+          customAi: Boolean(config.aiEnabled && plan.custom_ai_enabled),
+          digest: Boolean(config.aiEnabled && plan.ai_digest_enabled),
+          emailDigest: Boolean(config.aiEnabled && plan.email_digest_enabled)
+        },
+        limits: {
+          digestRules: plan.max_digest_rules || 0
+        },
+        permissions: {
+          admin: Boolean(safeUser.isAdmin)
+        },
+        ai: {
+          source: aiConfig.source,
+          hasConfiguredProvider: Boolean(aiConfig.baseUrl && aiConfig.apiKey)
+        },
+        translation: {
+          provider: translation.provider,
+          providerLabel: providerStatus.providerLabel,
+          providerSource: providerStatus.scope,
+          targetLanguage: translation.targetLanguage,
+          targetLabel: getTranslationTargetLabel(translation.targetLanguage),
+          autoTranslate: translation.autoTranslate,
+          displayTranslated: translation.displayTranslated,
+          providerConfigured: providerStatus.configured,
+          autoTranslateActive: Boolean(
+            translation.autoTranslate &&
+              providerStatus.autoTranslateSupported &&
+              providerStatus.configured &&
+              config.aiEnabled &&
+              plan.ai_translation_enabled
+          ),
+          autoTranslateSupported: providerStatus.autoTranslateSupported
+        },
+        translationProviders
+      };
+    },
+    getResolvedPlan
+  };
+}

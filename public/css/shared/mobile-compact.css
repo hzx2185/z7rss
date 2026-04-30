@@ -1,0 +1,74 @@
+/* ============================================================
+   MOBILE COMPACTION - Optimized for compact & efficient layout
+   ============================================================ */
+
+/* --- 720px: Tablet/Mobile boundary --- */
+@media (max-width: 720px) {
+  .brand-lockup p {
+    display: none;
+  }
+
+  .nav-link-btn,
+  button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 8px;
+  }
+
+  .link-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+  }
+
+  .link-row br { display: none; }
+
+  .metrics-grid {
+    gap: 8px;
+    grid-template-columns: 1fr;
+  }
+
+  .card-head {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .card-head h2 { font-size: 14px; }
+
+  .inline-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .inline-row > * {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* --- 480px: Small mobile --- */
+@media (max-width: 480px) {
+  .inline-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.compact-form {
+  gap: 10px;
+}
+
+.compact-form label {
+  gap: 4px;
+}
+
+.compact-form label span {
+  font-size: 11px;
+}

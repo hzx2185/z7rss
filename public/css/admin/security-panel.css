@@ -1,0 +1,28 @@
+.admin-user-security-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--overlay-card);
+}
+
+.admin-user-security-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-user-security-head .status-text {
+  margin: 0;
+}
+
+.admin-user-password-form {
+  margin-bottom: 12px;
+}
+
+.admin-session-row {
+  background: var(--overlay-card-strong);
+}

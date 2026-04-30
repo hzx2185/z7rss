@@ -1,0 +1,60 @@
+.plan-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.card {
+  padding: 14px;
+}
+
+.card-head {
+  margin-bottom: 12px;
+}
+
+.plan-card {
+  padding: 18px;
+}
+
+.metric-box,
+.billing-card,
+.list-row,
+.result-box {
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  box-shadow: none;
+}
+
+.metric-box,
+.billing-card,
+.list-row {
+  border-radius: 10px;
+}
+
+.result-box {
+  background: #ffffff;
+}
+
+.metrics-grid {
+  gap: 10px;
+}
+
+.member-sidebar {
+  padding: 14px;
+  gap: 12px;
+  background: var(--bg-sidebar);
+}
+
+.link-row {
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.status-text,
+.muted,
+label span,
+.metric-box span,
+.list-row .muted {
+  color: var(--text-muted);
+}

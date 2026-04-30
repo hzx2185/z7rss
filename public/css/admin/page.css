@@ -1,0 +1,117 @@
+body.admin-page .admin-sidebar {
+  gap: 10px;
+  padding: 10px;
+}
+
+body.admin-page .admin-mini-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px dashed rgba(215, 195, 171, 0.92);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+body.admin-page .admin-mini-panel > strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+body.admin-page .admin-split-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+body.admin-page .metric-box,
+body.admin-page .list-row,
+body.admin-page .compact-card,
+body.admin-page .card {
+  border-radius: 10px;
+}
+
+body.admin-page .metric-box,
+body.admin-page .list-row,
+body.admin-page .compact-card {
+  padding: 9px 10px;
+}
+
+body.admin-page .status-text,
+body.admin-page .muted,
+body.admin-page input,
+body.admin-page select,
+body.admin-page textarea,
+body.admin-page button,
+body.admin-page .pill {
+  font-size: 12px;
+}
+
+body.admin-page label > span {
+  font-size: 11px;
+}
+
+body.admin-page textarea {
+  min-height: 82px;
+}
+
+body.admin-page .inline-row,
+body.admin-page .toolbar-wrap,
+body.admin-page .feature-flags,
+body.admin-page .compact-list {
+  gap: 6px;
+}
+
+body.admin-page .feature-flags,
+body.admin-page .compact-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+body.admin-page .compact-list {
+  flex-direction: column;
+}
+
+body.admin-page .pill {
+  max-width: none;
+}
+
+body.admin-page .admin-database-metrics-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+body.admin-page .admin-database-backup-settings-grid {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(120px, 1fr) minmax(140px, 1fr) max-content;
+  align-items: end;
+}
+
+body.admin-page .admin-database-backup-settings-grid > button {
+  height: 34px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1080px) {
+  body.admin-page .admin-split-stack {
+    grid-template-columns: 1fr;
+  }
+
+  body.admin-page .admin-database-metrics-grid {
+    grid-template-columns: repeat(5, minmax(92px, 1fr));
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  body.admin-page .admin-sidebar {
+    padding: 8px;
+  }
+
+  body.admin-page .admin-database-backup-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.admin-page .admin-database-backup-settings-grid > button {
+    width: 100%;
+  }
+}

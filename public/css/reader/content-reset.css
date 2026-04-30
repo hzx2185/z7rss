@@ -1,0 +1,11 @@
+.reader-content {
+  overflow-wrap: anywhere;
+}
+
+.reader-content p:first-child {
+  margin-top: 0;
+}
+
+.reader-content p:last-child {
+  margin-bottom: 0;
+}

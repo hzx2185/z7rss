@@ -1,0 +1,211 @@
+body.admin-page #admin-order-list {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+body.admin-page #admin-order-list::-webkit-scrollbar {
+  display: none;
+}
+
+body.admin-page .admin-order-row {
+  display: grid !important;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  align-items: center !important;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+body.admin-page .admin-order-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+body.admin-page .admin-order-row-title,
+body.admin-page .admin-order-row-summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.admin-page .admin-order-row-title {
+  display: inline;
+  margin: 0;
+  flex: 0 0 auto;
+  max-width: 320px;
+}
+
+body.admin-page .admin-order-row-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+body.admin-page .admin-order-row > .pill {
+  white-space: nowrap;
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+body.admin-page .admin-plan-row,
+body.admin-page .admin-redeem-row {
+  width: 100%;
+  min-width: 0;
+}
+
+body.admin-page .admin-plan-row-controls,
+body.admin-page .admin-redeem-row-controls {
+  width: 100%;
+  min-width: 0;
+}
+
+body.admin-page .admin-plan-toggle {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  white-space: nowrap;
+}
+
+body.admin-page .admin-plan-toggle > span {
+  margin-bottom: 0;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  body.admin-page #admin-user-list,
+  body.admin-page #admin-order-list {
+    overflow-x: visible;
+  }
+
+  body.admin-page .admin-user-row,
+  body.admin-page .admin-order-row {
+    grid-template-columns: 1fr;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+
+  body.admin-page .admin-user-row-main,
+  body.admin-page .admin-order-row-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  body.admin-page .admin-user-row-head {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  body.admin-page .admin-user-row-email,
+  body.admin-page .admin-user-row-summary,
+  body.admin-page .admin-order-row-title,
+  body.admin-page .admin-order-row-summary {
+    max-width: none;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  body.admin-page .admin-user-row-plan-controls,
+  body.admin-page .admin-user-row-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    width: 100% !important;
+    gap: 6px;
+  }
+
+  body.admin-page .admin-user-row-plan-controls > *,
+  body.admin-page .admin-user-row-actions > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.admin-page .admin-user-row-plan-controls select,
+  body.admin-page .admin-user-row-plan-controls input[type="date"] {
+    min-width: 0;
+  }
+
+  body.admin-page .admin-order-row > .pill,
+  body.admin-page .admin-user-row > .pill,
+  body.admin-page .admin-account-identity .pill {
+    align-self: flex-start;
+  }
+
+  body.admin-page #tab-plans .card,
+  body.admin-page #tab-plans .compact-list,
+  body.admin-page #tab-plans .list-row,
+  body.admin-page #tab-plans .list-main,
+  body.admin-page #tab-plans .admin-plan-row-controls,
+  body.admin-page #tab-plans .admin-redeem-row-controls,
+  body.admin-page #redeem-create-form,
+  body.admin-page #redeem-create-form .admin-form-grid {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  body.admin-page #tab-plans .admin-plan-row,
+  body.admin-page #tab-plans .admin-redeem-row {
+    align-items: stretch !important;
+  }
+
+  body.admin-page #tab-plans .admin-plan-row-controls,
+  body.admin-page #tab-plans .admin-redeem-row-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    justify-items: stretch;
+  }
+
+  body.admin-page #tab-plans .admin-plan-row-controls > *,
+  body.admin-page #tab-plans .admin-redeem-row-controls > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body.admin-page #tab-plans .admin-plan-row .inline-field,
+  body.admin-page #tab-plans .admin-plan-row .narrow-field,
+  body.admin-page #tab-plans .admin-plan-toggle {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.admin-page #tab-plans .admin-plan-row .secondary,
+  body.admin-page #tab-plans .admin-redeem-row .secondary,
+  body.admin-page #redeem-create-form > button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  body.admin-page #tab-plans .admin-redeem-row > .pill {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  body.admin-page .admin-user-row,
+  body.admin-page .admin-order-row {
+    gap: 6px;
+  }
+
+  body.admin-page .admin-user-row-head,
+  body.admin-page .admin-user-row-main,
+  body.admin-page .admin-order-row-main {
+    gap: 4px;
+  }
+
+  body.admin-page .admin-user-row-plan-controls,
+  body.admin-page .admin-user-row-actions,
+  body.admin-page #tab-plans .admin-plan-row-controls,
+  body.admin-page #tab-plans .admin-redeem-row-controls {
+    grid-template-columns: 1fr;
+  }
+}

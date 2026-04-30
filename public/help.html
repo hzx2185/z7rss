@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS - 帮助中心</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/public.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn" href="/member.html">会员</a>
+          <a class="nav-btn active" href="/help.html">帮助</a>
+          <a class="nav-btn" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions">
+          <a class="nav-action-btn site-register-link" href="/member.html#member-register-form" data-site-register>注册</a>
+          <a class="nav-action-btn secondary site-login-link" href="/member.html#member-login-form" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="home-main">
+        <div class="help-hero">
+          <p class="home-label">帮助中心</p>
+          <h1 class="help-title">常见问题</h1>
+          <p class="help-subtitle">快速找到你关心的问题答案。如果没有找到答案，可以通过会员中心联系客服。</p>
+        </div>
+
+        <div class="help-sections">
+          <div class="help-section">
+            <h2 class="help-section-title">快速入门</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何开始使用？</h3>
+                <p class="help-faq-a">先在会员中心注册或登录账号，然后进入阅读中心添加订阅源。免费版最多支持 5 个订阅源，升级专业版后可添加更多。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">阅读中心和会员中心有什么区别？</h3>
+                <p class="help-faq-a">阅读中心负责订阅管理、文章列表和 AI 处理功能；会员中心负责账号登录、套餐升级、账单管理、兑换码和自定义 AI 配置。两者各自独立，职责清晰。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">免费版有哪些限制？</h3>
+                <p class="help-faq-a">免费版订阅上限为 5 个，不包含 AI 翻译、AI 总结和自定义 AI 接口功能。免费版可长期使用，没有时间限制。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">订阅与内容</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何添加订阅源？</h3>
+                <p class="help-faq-a">在阅读中心点击「添加订阅」，粘贴 RSS / Atom 链接即可。支持批量导入，也可以通过 OPML、JSON、TXT 文件批量导入订阅源。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">文章正文抓取失败怎么办？</h3>
+                <p class="help-faq-a">部分网站限制了自动抓取，可以点击「抓取正文」手动触发。如果持续失败，可能是网站本身不支持，建议查看原文链接。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何筛选只看未读文章？</h3>
+                <p class="help-faq-a">阅读中心顶部有筛选器，支持按全部 / 未读 / 已收藏筛选，也可以按订阅源、时间范围进一步筛选，快速定位目标内容。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">订阅源很多会不会卡？</h3>
+                <p class="help-faq-a">订阅源列表会先显示前 80 个，底部可继续加载更多。搜索、分类、未读、异常、公开状态等筛选仍会作用于全部订阅源，只是页面不会一次性渲染过多行。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何公开分享订阅源？</h3>
+                <p class="help-faq-a">在阅读中心打开订阅源设置，将分享状态设为公开。公开后该订阅源会出现在订阅广场；私有订阅不会进入广场展示。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">AI 功能</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">AI 翻译支持哪些语言？</h3>
+                <p class="help-faq-a">专业版和团队版支持任意语言翻译，具体效果取决于所配置的 AI 模型。OpenAI、Claude、DeepSeek 等主流模型均支持多语言翻译。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">自定义 AI 接口如何配置？</h3>
+                <p class="help-faq-a">在会员中心进入 AI 配置页面，可以设置 API Base URL、API Key、模型名称、翻译提示词和总结提示词。配置后所有 AI 功能将使用你指定的接口。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">AI 总结有什么用？</h3>
+                <p class="help-faq-a">长篇文章可一键生成摘要，快速了解文章核心内容，判断是否值得阅读全文。摘要独立存储，随时可以回顾。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">AI 邮件简报怎么配置？</h3>
+                <p class="help-faq-a">在会员中心创建简报规则，选择全部订阅、指定分类或指定订阅源，设置发送时间、提示词和接收邮箱。后台 SMTP 配置完整后，系统会按规则自动生成并发送简报。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">免费版可以用 AI 吗？</h3>
+                <p class="help-faq-a">不可以。免费版不含 AI 翻译与 AI 总结功能，需要升级到专业版或团队版才能使用。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">套餐与账号</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何升级套餐？</h3>
+                <p class="help-faq-a">在会员中心选择需要的套餐，完成支付后立即生效。升级后订阅上限、AI 能力等权益立即可用，无需等待。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">可以用兑换码吗？</h3>
+                <p class="help-faq-a">可以在会员中心的兑换码入口输入兑换码，兑换成功后套餐权益立即追加到你的账号，有效期叠加。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何联系客服？</h3>
+                <p class="help-faq-a">登录后通过会员中心页面底部的联系方式与我们取得联系，工作时间内会尽快回复。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">隐私与安全</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">API Key 和邮箱密码会明文显示吗？</h3>
+                <p class="help-faq-a">不会。AI Key、翻译 Key、SMTP 密码和订阅源抓取密码会加密存储；页面只显示是否已配置。留空提交会保留原值，按页面提示清空才会删除。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">哪些数据属于敏感数据？</h3>
+                <p class="help-faq-a">用户邮箱、订阅地址、文章内容、会话记录、简报收件邮箱、抓取 Cookie、加密后的 Key 和数据库备份都应按生产数据处理，不建议公开分享。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">部署时有哪些安全建议？</h3>
+                <p class="help-faq-a">生产环境请更换高强度 APP_SECRET，使用 HTTPS，限制 data 目录权限，定期备份数据库，并避免把 .env、data 目录、日志和数据库备份提交到仓库。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">客户端接入</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">Google Reader API 怎么用？</h3>
+                <p class="help-faq-a">已支持 Google Reader API 常用兼容接口。大多数支持 Google Reader API 的客户端，直接填写你的 Z7 RSS 登录邮箱和密码即可接入。</p>
+                <div class="help-api-grid">
+                  <article class="help-api-card">
+                    <span class="help-api-label">站点地址</span>
+                    <code class="help-inline-code" data-help-site-url>加载中...</code>
+                  </article>
+                  <article class="help-api-card">
+                    <span class="help-api-label">登录地址</span>
+                    <code class="help-inline-code" data-help-client-login-url>加载中...</code>
+                  </article>
+                  <article class="help-api-card">
+                    <span class="help-api-label">接口前缀</span>
+                    <code class="help-inline-code" data-help-reader-api-prefix>加载中...</code>
+                  </article>
+                </div>
+              </div>
+
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">客户端里怎么填写账号？</h3>
+                <ul class="help-api-list">
+                  <li>用户名：你的 Z7 RSS 登录邮箱</li>
+                  <li>密码：你的 Z7 RSS 登录密码</li>
+                  <li>类型：选择支持 Google Reader API 的模式</li>
+                  <li>地址：填写上方站点地址，或按客户端要求填写 Reader API 地址</li>
+                </ul>
+              </div>
+
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">如何手动获取 Auth？</h3>
+                <p class="help-faq-a">如果客户端需要你先取一次 Token，可以先请求 <code class="help-inline-code" data-help-client-login-url>加载中...</code>，拿到返回里的 <code class="help-inline-code">Auth=...</code> 后，再放到请求头里。</p>
+                <pre class="help-code" data-help-client-login-example>加载中...</pre>
+              </div>
+
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">拿到 Auth 后怎么请求接口？</h3>
+                <p class="help-faq-a">后续请求带上 <code class="help-inline-code">Authorization: GoogleLogin auth=你的Auth</code> 即可。下面是读取订阅列表的示例：</p>
+                <pre class="help-code" data-help-reader-request-example>加载中...</pre>
+              </div>
+
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">目前支持哪些常用接口？</h3>
+                <ul class="help-api-list">
+                  <li><code class="help-inline-code">POST /accounts/ClientLogin</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/token</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/user-info</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/preference/list</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/tag/list</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/subscription/list</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/unread-count</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/stream/items/ids</code></li>
+                  <li><code class="help-inline-code">GET|POST /reader/api/0/stream/items/contents</code></li>
+                  <li><code class="help-inline-code">GET /reader/api/0/stream/contents/*</code></li>
+                  <li><code class="help-inline-code">POST /reader/api/0/edit-tag</code></li>
+                  <li><code class="help-inline-code">POST /reader/api/0/subscription/edit</code></li>
+                  <li><code class="help-inline-code">POST /reader/api/0/subscription/quickadd</code></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/help.js"></script>
+    <script type="module" src="/theme.js"></script>
+  </body>
+</html>

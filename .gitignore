@@ -1,0 +1,15 @@
+node_modules
+data
+data-backups
+data-recovery/*.db
+data-recovery/*.db-shm
+data-recovery/*.db-wal
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.DS_Store
+**/.DS_Store
+*.db
+*.db-shm
+*.db-wal

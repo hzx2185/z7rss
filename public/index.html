@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/public.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn active" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn" href="/member.html">会员</a>
+          <a class="nav-btn" href="/help.html">帮助</a>
+          <a class="nav-btn" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions">
+          <a class="nav-action-btn site-register-link" href="/member.html#member-register-form" data-site-register>注册</a>
+          <a class="nav-action-btn secondary site-login-link" href="/member.html#member-login-form" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="home-main">
+        <div class="home-hero">
+          <div class="home-hero-inner">
+            <div class="home-hero-text">
+              <p class="home-label">Z7 RSS</p>
+              <h1 class="home-title">你的 RSS 阅读与<br />AI 处理工作台</h1>
+              <p class="home-desc">多用户 RSS 订阅、AG 翻译、AI 摘要、原文呈现，一站式完成。阅读、会员、管理各自独立，专注而不打扰。</p>
+              <div class="home-cta-row">
+                <a class="cta-btn" href="/reader.html">开始阅读</a>
+                <a class="ghost-btn" href="/pricing.html">查看套餐</a>
+              </div>
+            </div>
+            <div class="home-entrance-grid">
+              <a class="entrance-card" href="/reader.html">
+                <div class="entrance-icon">📖</div>
+                <div class="entrance-info">
+                  <strong>阅读中心</strong>
+                  <span>订阅管理 · 文章列表 · 正文阅读</span>
+                  <span>AI 翻译 · AI 摘要</span>
+                </div>
+              </a>
+              <a class="entrance-card" href="/plaza.html">
+                <div class="entrance-icon">🧭</div>
+                <div class="entrance-info">
+                  <strong>订阅广场</strong>
+                  <span>公开分享 · 优质订阅发现</span>
+                  <span>最新文章 · 一键订阅</span>
+                </div>
+              </a>
+              <a class="entrance-card" href="/member.html">
+                <div class="entrance-icon">👤</div>
+                <div class="entrance-info">
+                  <strong>会员中心</strong>
+                  <span>登录注册 · 套餐升级</span>
+                  <span>兑换码 · AI 配置</span>
+                </div>
+              </a>
+              <a class="entrance-card" href="/admin.html">
+                <div class="entrance-icon">⚙️</div>
+                <div class="entrance-info">
+                  <strong>管理后台</strong>
+                  <span>平台配置 · 用户管理</span>
+                  <span>订阅统计 · 系统设置</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-features">
+          <div class="home-section-header">
+            <h2>核心功能</h2>
+            <p>围绕 RSS 阅读体验设计，功能分层清晰</p>
+          </div>
+          <div class="feature-card-grid">
+            <div class="feature-item">
+              <div class="feature-item-icon">📡</div>
+              <h3>多用户订阅</h3>
+              <p>每个用户独立管理订阅，共享抓取结果节省资源。免费版有订阅上限，高阶套餐按需扩展。</p>
+            </div>
+            <div class="feature-item">
+              <div class="feature-item-icon">🔄</div>
+              <h3>AI 翻译</h3>
+              <p>集成翻译能力，英文文章一键翻译，阅读外语内容无障碍。支持批量翻译与逐篇翻译。</p>
+            </div>
+            <div class="feature-item">
+              <div class="feature-item-icon">📝</div>
+              <h3>AI 摘要</h3>
+              <p>长文自动生成摘要，帮你快速判断内容价值，节省阅读时间。摘要独立存储，随时查看。</p>
+            </div>
+            <div class="feature-item">
+              <div class="feature-item-icon">📱</div>
+              <h3>原文呈现</h3>
+              <p>保留原始网页内容，特殊排版或交互内容可通过原文模式查看，不受抓取格式限制。</p>
+            </div>
+            <div class="feature-item">
+              <div class="feature-item-icon">🏷️</div>
+              <h3>标签与筛选</h3>
+              <p>支持按标签、订阅源、时间范围、已读/未读等维度筛选，快速定位目标内容。</p>
+            </div>
+            <div class="feature-item">
+              <div class="feature-item-icon">⚡</div>
+              <h3>套餐能力开关</h3>
+              <p>免费版基础功能可用，AI 翻译、AI 摘要、自定义 AI 接口等能力按套餐级别开放。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-cta-bar">
+          <div class="home-cta-bar-inner">
+            <div class="home-cta-text">
+              <h2>准备好开始了吗？</h2>
+              <p>免费注册即可使用基础订阅功能，立即体验 RSS 阅读。</p>
+            </div>
+            <div class="home-cta-actions">
+              <a class="cta-btn" href="/member.html">免费注册</a>
+              <a class="ghost-btn" href="/reader.html">先逛逛</a>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/theme.js"></script>
+  </body>
+</html>

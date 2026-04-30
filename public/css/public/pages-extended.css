@@ -1,0 +1,174 @@
+.help-code {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-soft) 88%, var(--accent-soft) 12%);
+  color: var(--text-primary);
+  font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.help-api-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .help-hero {
+    padding: 32px 0 28px;
+  }
+
+  .help-section {
+    padding: 20px 18px;
+  }
+
+  .help-sections {
+    gap: 16px;
+    padding-bottom: 48px;
+  }
+
+  .help-api-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.changelog-hero {
+  text-align: center;
+  padding: 56px 0 48px;
+}
+
+.changelog-title {
+  margin: 12px 0 16px;
+  font-size: clamp(26px, 3.5vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.changelog-subtitle {
+  margin: 0 auto;
+  max-width: 520px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.changelog-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 72px;
+}
+
+.changelog-entry {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  transition:
+    background 200ms,
+    border-color 200ms;
+}
+
+.changelog-entry:hover {
+  border-color: var(--accent);
+}
+
+.changelog-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.changelog-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.changelog-tags {
+  display: flex;
+  gap: 6px;
+}
+
+.changelog-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.changelog-tag-new {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
+}
+
+.changelog-tag-improve {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.changelog-tag-fix {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
+}
+
+.changelog-entry-title {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.changelog-entry-body {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.changelog-changes {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.changelog-changes li {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  list-style: disc;
+}
+
+@media (max-width: 640px) {
+  .changelog-hero {
+    padding: 32px 0 28px;
+  }
+
+  .changelog-entry {
+    padding: 20px 18px;
+  }
+
+  .changelog-timeline {
+    padding-bottom: 48px;
+  }
+}

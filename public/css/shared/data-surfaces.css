@@ -1,0 +1,227 @@
+.toolbar-wrap {
+  flex-wrap: wrap;
+}
+
+.inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.inline-field span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.narrow-field {
+  min-width: 110px;
+}
+
+.link-row {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.plan-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-md);
+  transition: border-color 150ms, box-shadow 150ms, transform 150ms;
+}
+
+.plan-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.plan-card.highlight {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.plan-price {
+  margin: 12px 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.billing-card {
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+
+.billing-card .card-head {
+  margin-bottom: 8px;
+}
+
+.billing-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.device-item.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.device-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.device-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.device-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.device-meta strong {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-meta .muted {
+  font-size: 12px;
+}
+
+.device-revoke-btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 540px) {
+  .device-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .device-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .device-revoke-btn {
+    width: 100%;
+    margin-top: 8px;
+  }
+}
+
+.result-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-md);
+}
+
+.result-box h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.result-box .metrics-grid,
+.result-box .compact-list {
+  margin-top: 0;
+}
+
+.list-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+}
+
+.list-row .list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-row strong {
+  font-size: 13px;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.list-row .muted {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.list-row .feature-flags {
+  margin-top: 8px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.status-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.compact-card {
+  padding: 14px 16px;
+}

@@ -1,0 +1,55 @@
+.reader-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(340px, 1fr) minmax(400px, 1.4fr);
+  min-height: calc(100vh - 130px);
+}
+
+.reader-layout.layout-two {
+  grid-template-columns: minmax(400px, 1fr) minmax(480px, 1.5fr);
+}
+
+.reader-layout.layout-two .source-column {
+  display: none;
+}
+
+.reader-column {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.source-column {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+}
+
+.source-column .card {
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 16px;
+}
+
+.source-column .sticky-card {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+}
+
+.item-column {
+  border-right: 1px solid var(--border);
+  padding: 0;
+}
+
+.item-column .card {
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 16px;
+}
+
+.item-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}

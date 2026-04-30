@@ -1,0 +1,116 @@
+.reader-page .site-main {
+  min-height: 0;
+}
+
+.reader-page {
+  min-height: 100vh;
+  background: var(--bg-base);
+}
+
+.reader-site-main {
+  background: var(--bg-base);
+  flex: 1;
+  min-height: 0;
+}
+
+.reader-import-form {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.reader-empty-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+}
+
+@media (min-width: 841px) {
+  .reader-page {
+    overflow-y: auto;
+  }
+
+  .reader-site-main {
+    overflow-y: auto;
+  }
+}
+
+.inline-row button[type="submit"] {
+  flex-shrink: 0;
+}
+
+:root {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --font-sans: "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-base);
+}
+
+a {
+  color: var(--accent);
+}
+
+.site-header {
+  background: var(--header-bg, var(--bg-elevated));
+}
+
+.brand-mark {
+  box-shadow: none;
+}
+
+.nav-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.nav-link-btn,
+button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+button {
+  background: var(--accent);
+}
+
+button:hover {
+  background: var(--accent-hover);
+  transform: none;
+  box-shadow: none;
+}
+
+.secondary,
+.ghost-btn {
+  background: #ffffff;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.secondary:hover,
+.ghost-btn:hover {
+  background: #f9fafb;
+}
+
+input,
+select,
+textarea {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+}

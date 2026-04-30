@@ -1,0 +1,754 @@
+import {
+  escapeHtml,
+  formatBillingProvider,
+  formatDate,
+  formatMoney as formatPrice,
+  safeUrl,
+  safeHtml,
+  safeSet,
+  safeToggle,
+  summarizeUserAgent
+} from "./shared-ui.js"
+import { formatAuditAction, toDateInputValue } from "./admin-formatters.js"
+import { getAdminUserSecurityState, renderAdminUserSecurityPanel } from "./admin-user-security.js"
+
+function formatBytes(value) {
+  const bytes = Number(value || 0)
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let size = bytes
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  const precision = unitIndex === 0 || size >= 10 ? 0 : 1
+  return `${size.toFixed(precision)} ${units[unitIndex]}`
+}
+
+export function createAdminDashboard({
+  actions,
+  els,
+  isAdmin,
+  renderMaintenanceStatus,
+  renderRefreshStatus,
+  state,
+  syncMaintenancePolling,
+  syncRefreshPolling
+}) {
+  function getUserSecurityState(userId) {
+    return getAdminUserSecurityState(state.userSecurity, userId)
+  }
+
+  function renderPlanOptions(selectedCode = "") {
+    const plans = state.admin?.plans || state.config?.plans || []
+    return plans
+      .map(
+        (plan) =>
+          `<option value="${escapeHtml(plan.code)}" ${plan.code === selectedCode ? "selected" : ""}>${escapeHtml(plan.name)} (${escapeHtml(plan.code)})</option>`
+      )
+      .join("")
+  }
+
+  function renderSidebarInfo() {
+    const flags = []
+    if (state.config) {
+      flags.push({
+        tone: state.config.siteDomainRaw ? "accent" : "warning",
+        label: state.config.siteDomainRaw ? `域名：${state.config.siteDomain || state.config.siteDomainRaw}` : "域名未配置"
+      })
+      flags.push({
+        tone: state.config.aiEnabled ? "success" : "warning",
+        label: `AI ${state.config.aiEnabled ? "已启用" : "已关闭"}`
+      })
+      flags.push({
+        tone: state.config.billingProvider === "demo" ? "warning" : "accent",
+        label: `计费：${formatBillingProvider(state.config.billingProvider)}`
+      })
+      flags.push({
+        tone: state.config.stripeEnabled ? "accent" : "warning",
+        label: state.config.stripeEnabled ? "Stripe 已接入" : "Stripe 未接入"
+      })
+    }
+    if (state.admin?.settings?.ai) {
+      const ai = state.admin.settings.ai
+      flags.push({
+        tone: ai.base_url && ai.api_key_configured ? "success" : "warning",
+        label: ai.api_key_unavailable
+          ? "系统默认 AI 密钥不可用"
+          : ai.base_url && ai.api_key_configured
+            ? "系统默认 AI 已配置"
+            : "系统默认 AI 未完整配置"
+      })
+    }
+    const google = state.admin?.settings?.translation_google || {}
+    flags.push({
+      tone: google.api_key_configured ? "success" : "accent",
+      label: google.api_key_configured ? "谷歌翻译 Key 已配置" : "谷歌翻译免 Key 已启用"
+    })
+
+    if (state.admin?.settings?.translation_bing) {
+      const bing = state.admin.settings.translation_bing
+      flags.push({
+        tone: bing.api_key_configured ? "success" : "warning",
+        label: bing.api_key_configured ? "必应翻译已配置" : "必应翻译未配置"
+      })
+    }
+    const deeplx = state.admin?.settings?.translation_deeplx || {}
+    flags.push({
+      tone: deeplx.base_url || state.config?.deeplxConfigured ? "success" : "warning",
+      label: deeplx.base_url || state.config?.deeplxConfigured ? "DeepLX 已配置" : "DeepLX 未配置"
+    })
+
+    safeHtml(els.adminSystemFlags, flags.length
+      ? flags.map((item) => `<span class="pill ${item.tone}">${escapeHtml(item.label)}</span>`).join("")
+      : '<span class="muted">系统信息加载中</span>')
+
+    const plans = state.admin?.plans || state.config?.plans || []
+    safeHtml(els.adminPlanSnapshot, plans.length
+      ? plans
+          .map(
+            (plan) => `
+              <article class="list-row">
+                <div class="list-main">
+                  <strong>${escapeHtml(plan.name)}</strong>
+                  <span class="muted">${escapeHtml(plan.code)} · ${plan.subscriber_count || 0} 位订阅者</span>
+                  <span class="muted">订阅源上限 ${plan.max_feeds} · 文章保留 ${plan.max_saved_items} 篇 / 源 · 收藏上限 ${plan.max_favorite_items} 篇</span>
+                  <span class="muted">翻译 ${plan.ai_translation_enabled ? "开" : "关"} · 总结 ${plan.ai_summary_enabled ? "开" : "关"} · 自定义 AI ${plan.custom_ai_enabled ? "开" : "关"}</span>
+                </div>
+                <span class="pill accent">${formatPrice(plan.price_monthly_cents)}</span>
+              </article>
+            `
+          )
+          .join("")
+      : '<span class="muted">暂无套餐数据</span>')
+  }
+
+  function renderAuthState() {
+    const user = state.me?.user
+    if (!user) {
+      safeSet(els.adminUserName, "textContent", "访客")
+      safeToggle(els.topLoginLink, false)
+      safeToggle(els.guestView, false)
+      safeToggle(els.userView, true)
+      safeToggle(els.logoutBtn, true)
+      safeToggle(els.forbiddenPanel, true)
+      document.querySelectorAll("[data-site-register]").forEach((link) => link.classList.remove("hidden"))
+      document.querySelectorAll("[data-site-user]").forEach((pill) => pill.classList.add("hidden"))
+      renderSidebarInfo()
+      return
+    }
+
+    safeSet(els.adminUserName, "textContent", user.displayName || user.email || "管理员")
+    safeToggle(els.topLoginLink, true)
+    safeToggle(els.guestView, true)
+    safeToggle(els.logoutBtn, false)
+    document.querySelectorAll("[data-site-register]").forEach((link) => link.classList.add("hidden"))
+    document.querySelectorAll("[data-site-user]").forEach((pill) => {
+      pill.textContent = user.isAdmin ? "管理员" : "会员"
+      pill.classList.remove("hidden")
+      pill.classList.toggle("success", Boolean(user.isAdmin))
+      pill.classList.toggle("accent", !user.isAdmin)
+    })
+    if (user.isAdmin) {
+      safeToggle(els.userView, false)
+      safeToggle(els.forbiddenPanel, true)
+    } else {
+      safeToggle(els.userView, true)
+      safeToggle(els.forbiddenPanel, false)
+    }
+    renderSidebarInfo()
+  }
+
+  function renderAdminDashboard() {
+    if (!state.admin || !isAdmin()) {
+      safeHtml(els.adminMetrics, "")
+      safeSet(els.adminRefreshStatus, "textContent", "")
+      safeHtml(els.adminRefreshMetrics, "")
+      safeHtml(els.adminRefreshHistory, "")
+      safeSet(els.adminMaintenanceStatus, "textContent", "")
+      safeHtml(els.adminMaintenanceMetrics, "")
+      safeHtml(els.adminMaintenanceHistory, "")
+      safeSet(els.adminDatabaseStatus, "textContent", "")
+      safeHtml(els.adminDatabaseMetrics, "")
+      safeHtml(els.adminDatabaseFlags, "")
+      safeHtml(els.adminDatabaseTables, "")
+      safeHtml(els.adminPlanSettings, "")
+      safeHtml(els.adminRedeemList, "")
+      safeHtml(els.adminPluginList, "")
+      safeHtml(els.adminRuleList, "")
+      safeHtml(els.adminSiteBlockList, "")
+      safeHtml(els.adminIpBlockList, "")
+      safeHtml(els.adminUserList, "")
+      safeHtml(els.adminOrderList, "")
+      safeHtml(els.adminAuditList, "")
+      safeHtml(els.adminFeedList, "")
+      safeHtml(els.adminItemList, "")
+      renderSidebarInfo()
+      syncMaintenancePolling()
+      syncRefreshPolling()
+      return
+    }
+
+    const activeRules = (state.admin.contentRules || []).filter((entry) => entry.is_active).length
+    const activeSites = (state.admin.blockedSites || []).filter((entry) => entry.is_active).length
+    const activeIps = (state.admin.blockedIps || []).filter((entry) => entry.is_active).length
+
+    safeHtml(els.adminMetrics, `
+      <article class="metric-box"><span>用户数</span><strong>${state.admin.metrics.userCount}</strong></article>
+      <article class="metric-box"><span>管理员</span><strong>${state.admin.metrics.adminCount}</strong></article>
+      <article class="metric-box"><span>订阅源</span><strong>${state.admin.metrics.feedCount}</strong></article>
+      <article class="metric-box"><span>订单数</span><strong>${state.admin.metrics.orderCount}</strong></article>
+      <article class="metric-box"><span>活跃规则</span><strong>${activeRules}</strong></article>
+      <article class="metric-box"><span>屏蔽站点</span><strong>${activeSites}</strong></article>
+      <article class="metric-box"><span>屏蔽 IP</span><strong>${activeIps}</strong></article>
+    `)
+
+    renderDatabaseStatus()
+
+    safeHtml(els.adminPlanSettings, (state.admin.plans || [])
+      .map(
+        (plan) => `
+          <article class="list-row admin-plan-row">
+            <div class="list-main">
+              <strong>${escapeHtml(plan.name)}</strong>
+              <span class="muted">${escapeHtml(plan.code)} · ${formatPrice(plan.price_monthly_cents)} · ${plan.subscriber_count || 0} 位订阅者</span>
+              <div class="inline-row toolbar-wrap admin-plan-row-controls">
+                <label class="inline-field narrow-field">
+                  <span>订阅源上限</span>
+                  <input type="number" min="0" step="1" value="${Number(plan.max_feeds || 0)}" data-plan-feeds="${escapeHtml(plan.code)}" />
+                </label>
+                <label class="inline-field narrow-field">
+                  <span>文章保存上限</span>
+                  <input type="number" min="0" step="1" value="${Number(plan.max_saved_items || 0)}" data-plan-saved="${escapeHtml(plan.code)}" />
+                </label>
+                <label class="inline-field narrow-field">
+                  <span>收藏文章上限</span>
+                  <input type="number" min="0" step="1" value="${Number(plan.max_favorite_items || 0)}" data-plan-favorite="${escapeHtml(plan.code)}" />
+                </label>
+                <label class="inline-field narrow-field">
+                  <span>简报规则上限</span>
+                  <input type="number" min="0" step="1" value="${Number(plan.max_digest_rules || 0)}" data-plan-digest-rules="${escapeHtml(plan.code)}" />
+                </label>
+                <label class="checkbox-row admin-plan-toggle">
+                  <input type="checkbox" ${plan.ai_translation_enabled ? "checked" : ""} data-plan-translation="${escapeHtml(plan.code)}" />
+                  <span>AI 翻译</span>
+                </label>
+                <label class="checkbox-row admin-plan-toggle">
+                  <input type="checkbox" ${plan.ai_summary_enabled ? "checked" : ""} data-plan-summary="${escapeHtml(plan.code)}" />
+                  <span>AI 总结</span>
+                </label>
+                <label class="checkbox-row admin-plan-toggle">
+                  <input type="checkbox" ${plan.custom_ai_enabled ? "checked" : ""} data-plan-custom-ai="${escapeHtml(plan.code)}" />
+                  <span>自定义 AI</span>
+                </label>
+                <label class="checkbox-row admin-plan-toggle">
+                  <input type="checkbox" ${plan.ai_digest_enabled ? "checked" : ""} data-plan-digest="${escapeHtml(plan.code)}" />
+                  <span>AI 简报</span>
+                </label>
+                <label class="checkbox-row admin-plan-toggle">
+                  <input type="checkbox" ${plan.email_digest_enabled ? "checked" : ""} data-plan-email-digest="${escapeHtml(plan.code)}" />
+                  <span>邮件简报</span>
+                </label>
+                <button class="secondary" type="button" data-plan-save="${escapeHtml(plan.code)}">保存套餐设置</button>
+              </div>
+            </div>
+          </article>
+        `
+      )
+      .join(""))
+
+    const general = state.admin.settings.general || {}
+    const mail = state.admin.settings.mail || {}
+    const ai = state.admin.settings.ai || {}
+    const digest = state.admin.settings.digest || {}
+    const backups = state.admin.database?.backups || {}
+    const google = state.admin.settings.translation_google || {}
+    const deeplx = state.admin.settings.translation_deeplx || {}
+    const bing = state.admin.settings.translation_bing || {}
+    const translation = state.admin.settings.translation || {}
+    if (els.settingTranslationProvider) els.settingTranslationProvider.value = translation.provider || "google"
+    if (els.settingTranslationTarget) els.settingTranslationTarget.value = translation.target_language || "zh-CN"
+    if (els.settingSiteName) els.settingSiteName.value = general.site_name || state.config?.appName || ""
+    if (els.settingSiteDomain) {
+      els.settingSiteDomain.value = general.site_domain || ""
+      els.settingSiteDomain.placeholder = state.config?.siteUrl || state.config?.appUrl || "https://rss.example.com"
+    }
+    if (els.settingMailFrom) els.settingMailFrom.value = mail.from || ""
+    if (els.settingMailHost) els.settingMailHost.value = mail.host || ""
+    if (els.settingMailPort) els.settingMailPort.value = mail.port || ""
+    if (els.settingMailUsername) els.settingMailUsername.value = mail.username || ""
+    if (els.settingMailPassword) {
+      els.settingMailPassword.value = ""
+      els.settingMailPassword.placeholder = mail.password_unavailable
+        ? "旧密钥不可用，请重新保存"
+        : mail.password_configured
+          ? "已配置，留空表示不修改"
+          : ""
+    }
+    if (els.settingAiBaseUrl) els.settingAiBaseUrl.value = ai.base_url || ""
+    if (els.settingAiApiKey) {
+      els.settingAiApiKey.value = ""
+      els.settingAiApiKey.placeholder = ai.api_key_unavailable
+        ? "旧密钥不可用，请重新保存"
+        : ai.api_key_configured
+          ? "已配置，留空表示不修改"
+          : ""
+    }
+    if (els.settingAiModel) els.settingAiModel.value = ai.model || ""
+    if (els.settingAiTranslatePrompt) els.settingAiTranslatePrompt.value = ai.translate_prompt || ""
+    if (els.settingAiSummaryPrompt) els.settingAiSummaryPrompt.value = ai.summary_prompt || ""
+    if (els.settingDigestInputMode) els.settingDigestInputMode.value = digest.input_mode || "title_summary"
+    if (els.settingDigestMaxItems) els.settingDigestMaxItems.value = digest.max_items || "30"
+    if (els.settingDigestMaxCharsPerItem) els.settingDigestMaxCharsPerItem.value = digest.max_chars_per_item || "300"
+    if (els.settingDigestMaxTotalChars) els.settingDigestMaxTotalChars.value = digest.max_total_chars || "6000"
+    if (els.settingDatabaseBackupEnabled) els.settingDatabaseBackupEnabled.value = backups.enabled === false ? "false" : "true"
+    if (els.settingDatabaseBackupRetentionDays) els.settingDatabaseBackupRetentionDays.value = String(backups.retentionDays ?? 14)
+    if (els.settingDatabaseBackupMaxFiles) els.settingDatabaseBackupMaxFiles.value = String(backups.maxFiles ?? 24)
+    if (els.settingGoogleTranslateApiKey) {
+      els.settingGoogleTranslateApiKey.value = ""
+      els.settingGoogleTranslateApiKey.placeholder = google.api_key_configured ? "已配置，留空表示保留当前 Key" : "留空则使用 Google 免 Key 模式"
+    }
+    if (els.settingDeepLXBaseUrl) {
+      els.settingDeepLXBaseUrl.value = deeplx.base_url || ""
+      els.settingDeepLXBaseUrl.placeholder = deeplx.base_url ? "已配置自定义 DeepLX 地址" : "例如: https://api.deeplx.你的域名.com"
+    }
+    if (els.settingDeepLXApiKey) {
+      els.settingDeepLXApiKey.value = ""
+      els.settingDeepLXApiKey.placeholder = deeplx.api_key_configured ? "已配置，留空表示不修改" : "如需认证可填写"
+    }
+    if (els.settingBingTranslateBaseUrl) els.settingBingTranslateBaseUrl.value = bing.base_url || ""
+    if (els.settingBingTranslateApiKey) {
+      els.settingBingTranslateApiKey.value = ""
+      els.settingBingTranslateApiKey.placeholder = bing.api_key_configured ? "已配置，留空表示不修改" : ""
+    }
+    if (els.settingBingTranslateRegion) els.settingBingTranslateRegion.value = bing.region || ""
+
+    if (els.adminRedeemPlan) {
+      const redeemPlanSelection = els.adminRedeemPlan.value || "free"
+      safeHtml(els.adminRedeemPlan, renderPlanOptions(redeemPlanSelection))
+      if (![...els.adminRedeemPlan.options].some((option) => option.value === redeemPlanSelection)) {
+        els.adminRedeemPlan.value = state.admin.plans?.[0]?.code || "free"
+      }
+    }
+
+    safeHtml(els.adminRedeemList, (state.admin.redeemCodes || [])
+      .map(
+        (entry) => `
+          <article class="list-row admin-redeem-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.code)}</strong>
+              <span class="muted">${escapeHtml(entry.plan_name)} · 已用 ${entry.used_count}/${entry.max_uses} · 到期 ${entry.expires_at ? formatDate(entry.expires_at) : "未设置"}</span>
+              ${entry.note ? `<span class="muted">${escapeHtml(entry.note)}</span>` : ""}
+              <div class="inline-row toolbar-wrap admin-redeem-row-controls">
+                <input type="number" min="${Math.max(1, entry.used_count || 0)}" value="${entry.max_uses}" data-redeem-max="${entry.id}" />
+                <input type="date" value="${toDateInputValue(entry.expires_at)}" data-redeem-expire="${entry.id}" />
+                <input type="text" value="${escapeHtml(entry.note || "")}" placeholder="备注" data-redeem-note="${entry.id}" />
+                <button class="secondary" type="button" data-redeem-save="${entry.id}">保存</button>
+                <button class="secondary" type="button" data-redeem-toggle="${entry.id}" data-redeem-active="${entry.is_active ? "0" : "1"}">
+                  ${entry.is_active ? "停用" : "启用"}
+                </button>
+              </div>
+            </div>
+            <span class="pill ${entry.is_active ? "success" : "warning"}">${entry.is_active ? "启用" : "停用"}</span>
+          </article>
+        `
+      )
+      .join(""))
+
+    safeHtml(els.adminPluginList, (state.admin.plugins || [])
+      .map((entry) => {
+        const configKeys = Object.keys(entry.config || {})
+        return `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.name)}</strong>
+              <span class="muted">${escapeHtml(entry.code)} · ${escapeHtml(entry.description || "无描述")}</span>
+              <span class="muted">${configKeys.length ? `配置项：${escapeHtml(configKeys.join(", "))}` : "无配置 JSON"}</span>
+            </div>
+            <div class="reader-actions toolbar-wrap">
+              <span class="pill ${entry.is_enabled ? "success" : "warning"}">${entry.is_enabled ? "启用" : "停用"}</span>
+              <button class="secondary" type="button" data-plugin-toggle="${escapeHtml(entry.code)}">${entry.is_enabled ? "停用" : "启用"}</button>
+            </div>
+          </article>
+        `
+      })
+      .join(""))
+
+    safeHtml(els.adminRuleList, (state.admin.contentRules || [])
+      .map(
+        (entry) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.kind)}: ${escapeHtml(entry.pattern)}</strong>
+              <span class="muted">${escapeHtml(entry.action)} · 创建于 ${formatDate(entry.created_at)}</span>
+            </div>
+            <div class="reader-actions toolbar-wrap">
+              <span class="pill ${entry.is_active ? "success" : "warning"}">${entry.is_active ? "启用" : "停用"}</span>
+              <button class="secondary" type="button" data-rule-id="${entry.id}" data-rule-active="${entry.is_active ? "0" : "1"}">
+                ${entry.is_active ? "停用" : "启用"}
+              </button>
+            </div>
+          </article>
+        `
+      )
+      .join(""))
+
+    safeHtml(els.adminSiteBlockList, (state.admin.blockedSites || [])
+      .map(
+        (entry) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.domain)}</strong>
+              <span class="muted">${escapeHtml(entry.reason || "未填写原因")}</span>
+            </div>
+            <div class="reader-actions toolbar-wrap">
+              <span class="pill ${entry.is_active ? "success" : "warning"}">${entry.is_active ? "生效" : "关闭"}</span>
+              <button class="secondary" type="button" data-site-domain="${escapeHtml(entry.domain)}" data-site-active="${entry.is_active ? "0" : "1"}">
+                ${entry.is_active ? "停用" : "启用"}
+              </button>
+            </div>
+          </article>
+        `
+      )
+      .join(""))
+
+    safeHtml(els.adminIpBlockList, (state.admin.blockedIps || [])
+      .map(
+        (entry) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.ip)}</strong>
+              <span class="muted">${escapeHtml(entry.reason || "未填写原因")}</span>
+            </div>
+            <div class="reader-actions toolbar-wrap">
+              <span class="pill ${entry.is_active ? "success" : "warning"}">${entry.is_active ? "生效" : "关闭"}</span>
+              <button class="secondary" type="button" data-ip-value="${escapeHtml(entry.ip)}" data-ip-active="${entry.is_active ? "0" : "1"}">
+                ${entry.is_active ? "停用" : "启用"}
+              </button>
+            </div>
+          </article>
+        `
+      )
+      .join(""))
+
+    safeHtml(els.adminUserList, (state.admin.users || [])
+      .map((user) => {
+        const securityState = getUserSecurityState(user.id)
+        const securitySessions = securityState.data?.sessions || []
+        const securityExpanded = state.expandedUserSecurityId === user.id
+        const deleteBlockedReason = user.id === state.me?.user?.id
+          ? "当前登录账号不能删除"
+          : (user.is_admin && Number(state.admin?.metrics?.adminCount || 0) <= 1)
+              ? "至少保留一个管理员账号"
+              : ""
+        const canDeleteUser = !deleteBlockedReason
+        const userSummary = [
+          user.is_admin ? "管理员" : "普通用户",
+          user.plan_name || "免费版",
+          `${user.feed_count} 源`,
+          `账号 ${user.status}`,
+          `订阅 ${user.subscription_status || "active"}/${user.subscription_provider || "system"}`,
+          `到期 ${user.current_period_end ? formatDate(user.current_period_end) : "未设置"}`,
+          securityState.data ? `${securitySessions.length} 会话` : null
+        ]
+          .filter(Boolean)
+          .join(" · ")
+
+        return `
+          <article class="list-row admin-user-row${securityExpanded ? " admin-user-row-expanded" : ""}">
+            <div class="list-main admin-user-row-main">
+              <div class="admin-user-row-head">
+                <strong>${escapeHtml(user.display_name || user.email)}</strong>
+                <span class="muted admin-user-row-email">${escapeHtml(user.email)}</span>
+              </div>
+              <span class="muted admin-user-row-summary">${escapeHtml(userSummary)}</span>
+            </div>
+            <div class="inline-row toolbar-wrap admin-user-row-plan-controls">
+              <select data-plan-select="${user.id}">
+                ${renderPlanOptions(user.plan_code)}
+              </select>
+              <input type="date" data-expire-input="${user.id}" value="${toDateInputValue(user.current_period_end)}" />
+              <button class="secondary" type="button" data-user-subscription-id="${user.id}">保存套餐</button>
+            </div>
+            <div class="reader-actions toolbar-wrap admin-user-row-actions">
+              <button class="secondary" type="button" data-user-security-toggle="${user.id}">
+                ${securityExpanded ? "收起安全" : "安全管理"}
+              </button>
+              <button class="secondary" type="button" data-user-id="${user.id}" data-make-admin="${user.is_admin ? "0" : "1"}">
+                ${user.is_admin ? "撤销管理员" : "设为管理员"}
+              </button>
+              <button class="secondary" type="button" data-user-status-id="${user.id}" data-user-status="${user.status === "active" ? "disabled" : "active"}">
+                ${user.status === "active" ? "禁用" : "启用"}
+              </button>
+              <button
+                class="secondary"
+                type="button"
+                data-user-delete-id="${user.id}"
+                data-user-label="${escapeHtml(user.display_name || user.email)}"
+                ${canDeleteUser ? "" : `disabled title="${escapeHtml(deleteBlockedReason)}"`}
+              >
+                删除
+              </button>
+            </div>
+            ${securityExpanded ? `<div class="admin-user-row-security">${renderAdminUserSecurityPanel(user.id, securityState)}</div>` : ""}
+          </article>
+        `
+      })
+      .join(""))
+
+    safeHtml(els.adminOrderList, (state.admin.orders || [])
+      .map((order) => {
+        const orderSummary = [
+          order.provider,
+          order.status,
+          formatDate(order.created_at),
+          order.provider_checkout_id ? `支付编号 ${order.provider_checkout_id}` : null
+        ]
+          .filter(Boolean)
+          .join(" · ")
+
+        return `
+          <article class="list-row admin-order-row">
+            <div class="list-main admin-order-row-main">
+              <strong class="admin-order-row-title">${escapeHtml(order.user_email)} · ${escapeHtml(order.plan_name)}</strong>
+              <span class="muted admin-order-row-summary">${escapeHtml(orderSummary)}</span>
+            </div>
+            <span class="pill ${order.status === "paid" ? "success" : "warning"}">${formatPrice(order.amount_cents, order.currency, false)}</span>
+          </article>
+        `
+      })
+      .join(""))
+
+    safeHtml(els.adminAuditList, (state.admin.auditLogs || []).length
+      ? (state.admin.auditLogs || [])
+          .map((entry) => {
+            const actorLabel = entry.actor_display_name || entry.actor_email || "系统"
+            const details = entry.details || {}
+            const detailLines = []
+            if (details.email) detailLines.push(`账号：${details.email}`)
+            if (details.planCode) detailLines.push(`套餐：${details.planCode}`)
+            if (details.runId) detailLines.push(`任务 ID：${details.runId}`)
+            if (details.totalFeeds !== undefined) detailLines.push(`源数：${details.totalFeeds}`)
+            if (details.revokedCount !== undefined) detailLines.push(`会话数：${details.revokedCount}`)
+            if (details.sessionId) detailLines.push(`会话 ID：${details.sessionId}`)
+            if (details.ipAddress) detailLines.push(`会话 IP：${details.ipAddress}`)
+            if (details.userAgent) detailLines.push(`设备：${summarizeUserAgent(details.userAgent)}`)
+            if (Array.isArray(details.changedKeys) && details.changedKeys.length) {
+              detailLines.push(`字段：${details.changedKeys.join("、")}`)
+            }
+            if (entry.target_type || entry.target_id) {
+              detailLines.push(`目标：${entry.target_type || "-"}${entry.target_id ? ` · ${entry.target_id}` : ""}`)
+            }
+            if (entry.actor_ip) {
+              detailLines.push(`IP：${entry.actor_ip}`)
+            }
+
+            return `
+              <article class="list-row">
+                <div class="list-main">
+                  <strong>${escapeHtml(entry.summary || formatAuditAction(entry.action))}</strong>
+                  <span class="muted">${escapeHtml(actorLabel)} · ${escapeHtml(formatAuditAction(entry.action))} · ${formatDate(entry.created_at)}</span>
+                  ${detailLines.map((line) => `<span class="muted">${escapeHtml(line)}</span>`).join("")}
+                </div>
+              </article>
+            `
+          })
+          .join("")
+      : '<article class="reader-empty-card"><strong>暂无审计记录</strong><span class="muted">管理员执行关键操作后会显示在这里。</span></article>')
+
+    safeHtml(els.adminFeedList, (state.admin.feeds || [])
+      .slice(0, 20)
+      .map(
+        (feed) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(feed.title)}</strong>
+              <span class="muted">${feed.subscriber_count} 订阅者 · ${feed.item_count} 篇内容 · 最近抓取 ${formatDate(feed.last_fetched_at)}</span>
+              <span class="muted">分类：${escapeHtml(feed.auto_category || "未分类")}</span>
+              <span class="muted">${escapeHtml(feed.url)}</span>
+              ${feed.last_error ? `<span class="muted">最近错误：${escapeHtml(feed.last_error)}</span>` : ""}
+            </div>
+            <button class="secondary" type="button" data-feed-reclassify="${escapeHtml(feed.id)}">AI 分类</button>
+            ${safeUrl(feed.site_url) ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(feed.site_url))}" target="_blank" rel="noreferrer">站点</a>` : ""}
+          </article>
+        `
+      )
+      .join(""))
+
+    safeHtml(els.adminItemList, (state.admin.items || [])
+      .slice(0, 20)
+      .map(
+        (item) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(item.title)}</strong>
+              <span class="muted">${escapeHtml(item.feed_title)} · ${formatDate(item.published_at)}</span>
+              ${item.summary ? `<span class="muted">${escapeHtml(item.summary)}</span>` : ""}
+            </div>
+            ${safeUrl(item.link) ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(item.link))}" target="_blank" rel="noreferrer">原文</a>` : ""}
+          </article>
+        `
+      )
+      .join(""))
+
+    document.querySelectorAll("[data-rule-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.toggleRule(Number(button.dataset.ruleId), button.dataset.ruleActive === "1"))
+    })
+    document.querySelectorAll("[data-user-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.updateUser(Number(button.dataset.userId), { isAdmin: button.dataset.makeAdmin === "1" }))
+    })
+    document.querySelectorAll("[data-user-security-toggle]").forEach((button) => {
+      button.addEventListener("click", () => actions.toggleUserSecurity(Number(button.dataset.userSecurityToggle)))
+    })
+    document.querySelectorAll("[data-user-status-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.updateUser(Number(button.dataset.userStatusId), { status: button.dataset.userStatus }))
+    })
+    document.querySelectorAll("[data-user-delete-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.deleteUser(Number(button.dataset.userDeleteId), button.dataset.userLabel || ""))
+    })
+    document.querySelectorAll("[data-user-subscription-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const userId = Number(button.dataset.userSubscriptionId)
+        const planCode = document.querySelector(`[data-plan-select="${userId}"]`)?.value || ""
+        const currentPeriodEnd = document.querySelector(`[data-expire-input="${userId}"]`)?.value || ""
+        actions.updateUserSubscription(userId, planCode, currentPeriodEnd)
+      })
+    })
+    document.querySelectorAll("[data-user-password-form]").forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault()
+        actions.resetUserPassword(Number(form.dataset.userPasswordForm))
+      })
+    })
+    document.querySelectorAll("[data-user-revoke-all]").forEach((button) => {
+      button.addEventListener("click", () => actions.revokeAllUserSessions(Number(button.dataset.userRevokeAll)))
+    })
+    document.querySelectorAll("[data-user-session-revoke]").forEach((button) => {
+      button.addEventListener("click", () =>
+        actions.revokeUserSession(Number(button.dataset.userSessionRevoke), Number(button.dataset.sessionId))
+      )
+    })
+    document.querySelectorAll("[data-plan-save]").forEach((button) => {
+      button.addEventListener("click", () => actions.savePlanSettings(button.dataset.planSave))
+    })
+    document.querySelectorAll("[data-feed-reclassify]").forEach((button) => {
+      button.addEventListener("click", () => actions.reclassifyFeed(Number(button.dataset.feedReclassify)))
+    })
+    document.querySelectorAll("[data-redeem-save]").forEach((button) => {
+      button.addEventListener("click", () => actions.saveRedeemCode(Number(button.dataset.redeemSave)))
+    })
+    document.querySelectorAll("[data-redeem-toggle]").forEach((button) => {
+      button.addEventListener("click", () =>
+        actions.saveRedeemCode(Number(button.dataset.redeemToggle), button.dataset.redeemActive === "1")
+      )
+    })
+    document.querySelectorAll("[data-plugin-toggle]").forEach((button) => {
+      button.addEventListener("click", () => actions.togglePlugin(button.dataset.pluginToggle))
+    })
+    document.querySelectorAll("[data-site-domain]").forEach((button) => {
+      button.addEventListener("click", () => actions.toggleBlockedSite(button.dataset.siteDomain, button.dataset.siteActive === "1"))
+    })
+    document.querySelectorAll("[data-ip-value]").forEach((button) => {
+      button.addEventListener("click", () => actions.toggleBlockedIp(button.dataset.ipValue, button.dataset.ipActive === "1"))
+    })
+
+    renderMaintenanceStatus()
+    renderRefreshStatus()
+    renderSidebarInfo()
+    syncMaintenancePolling()
+    syncRefreshPolling()
+  }
+
+  function renderDatabaseStatus() {
+    const database = state.admin?.database
+    if (!database || !isAdmin()) {
+      safeSet(els.adminDatabaseStatus, "textContent", "")
+      safeHtml(els.adminDatabaseMetrics, "")
+      safeHtml(els.adminDatabaseFlags, "")
+      safeHtml(els.adminDatabaseTables, "")
+      safeHtml(els.adminDatabaseBackups, "")
+      return
+    }
+
+    safeSet(els.adminDatabaseStatus, "textContent", `数据库文件：${database.path || "-"}。WAL 模式：${database.journalMode || "未知"}。`)
+    safeHtml(els.adminDatabaseMetrics, `
+      <article class="metric-box"><span>总占用</span><strong>${formatBytes(database.totalBytes)}</strong></article>
+      <article class="metric-box"><span>主库</span><strong>${formatBytes(database.mainBytes)}</strong></article>
+      <article class="metric-box"><span>WAL</span><strong>${formatBytes(database.walBytes)}</strong></article>
+      <article class="metric-box"><span>空闲页</span><strong>${formatBytes(database.freeBytes)}</strong></article>
+      <article class="metric-box"><span>备份</span><strong>${Number(database.backups?.count || 0)}</strong></article>
+    `)
+
+    const freeRatio = Number(database.freeRatio || 0)
+    const orphanTotal = Number(database.orphanTotal || 0)
+    const fkViolations = Number(database.orphanMetrics?.foreignKeyViolations || 0)
+    const flags = [
+      { tone: freeRatio > 0.2 ? "warning" : "success", label: `碎片率 ${(freeRatio * 100).toFixed(1)}%` },
+      { tone: orphanTotal > 0 ? "warning" : "success", label: `孤儿数据 ${orphanTotal}` },
+      { tone: fkViolations > 0 ? "warning" : "success", label: `外键异常 ${fkViolations}` },
+      {
+        tone: database.backups?.enabled ? "success" : "warning",
+        label: database.backups?.enabled
+          ? `自动备份 ${Number(database.backups?.automaticCount || 0)} / ${Number(database.backups?.maxFiles || 0)}`
+          : "自动备份关闭"
+      },
+      { tone: "accent", label: `页大小 ${formatBytes(database.pageSize)}` },
+      { tone: "accent", label: `页数 ${Number(database.pageCount || 0)}` },
+      { tone: database.maintenance?.isRunning ? "accent" : "success", label: database.maintenance?.isRunning ? "清理运行中" : "维护空闲" }
+    ]
+    safeHtml(els.adminDatabaseFlags, flags.map((item) => `<span class="pill ${item.tone}">${escapeHtml(item.label)}</span>`).join(""))
+
+    const tableLabels = {
+      users: "用户",
+      sessions: "会话",
+      feeds: "订阅源",
+      user_feeds: "用户订阅",
+      items: "文章",
+      user_item_states: "文章状态",
+      audit_logs: "审计日志",
+      refresh_runs: "刷新记录",
+      billing_events: "订单事件"
+    }
+    safeHtml(els.adminDatabaseTables, (database.tableRows || []).length
+      ? database.tableRows
+          .map((entry) => `
+            <article class="list-row">
+              <div class="list-main">
+                <strong>${escapeHtml(tableLabels[entry.table] || entry.table)}</strong>
+                <span class="muted">${escapeHtml(entry.table)}</span>
+              </div>
+              <span class="pill accent">${Number(entry.rows || 0).toLocaleString()} 行</span>
+            </article>
+          `)
+          .join("")
+      : '<article class="reader-empty-card"><strong>暂无表统计</strong></article>')
+
+    const backupFiles = database.backups?.files || []
+    safeHtml(els.adminDatabaseBackups, backupFiles.length
+      ? backupFiles.map((entry) => `
+          <article class="list-row">
+            <div class="list-main">
+              <strong>${escapeHtml(entry.filename)}</strong>
+              <span class="muted">${entry.automatic ? "自动备份" : "手动备份"} · ${formatBytes(entry.size)} · ${formatDate(entry.updatedAt)}</span>
+            </div>
+            <button class="secondary" type="button" data-backup-download="${escapeHtml(entry.filename)}">下载</button>
+            <button class="secondary" type="button" data-backup-delete="${escapeHtml(entry.filename)}">删除</button>
+          </article>
+        `).join("")
+      : '<article class="reader-empty-card"><strong>暂无备份文件</strong></article>')
+
+    els.adminDatabaseBackups?.querySelectorAll("[data-backup-download]").forEach((button) => {
+      button.addEventListener("click", () => actions.downloadBackupFile(button.dataset.backupDownload))
+    })
+    els.adminDatabaseBackups?.querySelectorAll("[data-backup-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.deleteBackupFile(button.dataset.backupDelete))
+    })
+  }
+
+  return {
+    renderAdminDashboard,
+    renderAuthState,
+    renderSidebarInfo
+  }
+}

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z7 RSS - 更新日志</title>
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/css/pages/public.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="brand-lockup">
+          <span class="brand-mark">Z7</span>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="nav-btn" href="/">首页</a>
+          <a class="nav-btn" href="/reader.html">阅读</a>
+          <a class="nav-btn" href="/plaza.html">广场</a>
+          <a class="nav-btn" href="/pricing.html">价格</a>
+          <a class="nav-btn" href="/member.html">会员</a>
+          <a class="nav-btn" href="/help.html">帮助</a>
+          <a class="nav-btn active" href="/changelog.html">更新</a>
+        </nav>
+        <div class="header-actions site-auth-actions">
+          <a class="nav-action-btn site-register-link" href="/member.html#member-register-form" data-site-register>注册</a>
+          <a class="nav-action-btn secondary site-login-link" href="/member.html#member-login-form" data-site-login>登录</a>
+          <span class="pill accent site-user-pill hidden" data-site-user></span>
+          <button class="secondary site-logout-btn hidden" type="button" data-site-logout>退出</button>
+          <button class="reader-theme-btn reader-nav-theme-btn site-theme-btn" type="button" data-theme-toggle aria-label="主题切换">
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="home-main">
+        <div class="changelog-hero">
+          <p class="home-label">更新日志</p>
+          <h1 class="changelog-title">产品迭代记录</h1>
+          <p class="changelog-subtitle">记录 Z7 RSS 的核心功能变化与优化，了解产品演进方向。</p>
+        </div>
+
+        <div class="changelog-timeline">
+          <article class="changelog-entry">
+            <div class="changelog-meta">
+              <span class="changelog-date">2026-05-01</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-improve">优化</span>
+                <span class="changelog-tag changelog-tag-fix">安全</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">订阅源分批渲染、帮助文档与部署说明更新</h2>
+            <p class="changelog-entry-body">阅读中心订阅源列表改为先显示 80 个并按需加载更多，降低大量订阅源时的首屏渲染压力；同步完善帮助中心、README 与 Docker 部署说明，补充隐私数据边界和端口维护约定。</p>
+            <ul class="changelog-changes">
+              <li>订阅源列表新增“加载更多”，搜索和筛选仍覆盖全部订阅源</li>
+              <li>批量选择只作用于当前已显示的订阅源，避免误选未加载项</li>
+              <li>帮助中心补充大量订阅、公开分享、邮件简报和隐私安全说明</li>
+              <li>Docker 文档补充重建、端口占用检查和敏感数据处理说明</li>
+              <li>清理本地系统临时文件，并确认数据库与备份不会进入构建上下文</li>
+            </ul>
+          </article>
+
+          <article class="changelog-entry">
+            <div class="changelog-meta">
+              <span class="changelog-date">2026-04-26</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-new">新增</span>
+                <span class="changelog-tag changelog-tag-improve">优化</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">黑夜主题、全站主题切换与首页重构</h2>
+            <p class="changelog-entry-body">新增黑夜主题，五套主题（青绿 / 海蓝 / 暖橙 / 珊瑚 / 黑夜）统一切换，底色、文本、按钮、边框平滑过渡。同步重构首页、价格页、帮助页，采用统一的设计语言与导航栏样式，窄屏导航横向滚动不换行。</p>
+            <ul class="changelog-changes">
+              <li>新增黑夜主题 CSS 变量与全链路暗色覆盖</li>
+              <li>主题切换添加 280ms ease 统一过渡动画</li>
+              <li>重构首页为 Hero + 功能区 + CTA Banner 结构</li>
+              <li>重构价格页为三栏定价卡 + 功能对比表格 + FAQ</li>
+              <li>重构帮助页为四分组 QA 卡片</li>
+              <li>全站导航栏压缩，窄屏横向滚动不换行</li>
+            </ul>
+          </article>
+
+          <article class="changelog-entry">
+            <div class="changelog-meta">
+              <span class="changelog-date">2026-04-24</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-new">新增</span>
+                <span class="changelog-tag changelog-tag-fix">修复</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">文件导入、正文清洗与样式补全</h2>
+            <p class="changelog-entry-body">阅读中心新增本地 OPML / JSON / TXT 文件导入入口；正文渲染链路补上外部 HTML 清洗与相对链接修正；首页、会员中心、阅读中心的卡片层次与移动端布局同步优化。</p>
+            <ul class="changelog-changes">
+              <li>新增 OPML / JSON / TXT 订阅文件导入</li>
+              <li>正文 HTML 外部清洗与相对链接自动修正</li>
+              <li>修复首页缺失导致的静态文件 ENOENT 错误</li>
+              <li>卡片层次与移动端布局统一优化</li>
+            </ul>
+          </article>
+
+          <article class="changelog-entry">
+            <div class="changelog-meta">
+              <span class="changelog-date">2026-04-23</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-new">新增</span>
+                <span class="changelog-tag changelog-tag-improve">优化</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">前台多页面拆分与业务分离</h2>
+            <p class="changelog-entry-body">将原来的单页前台拆分为六个独立 HTML 入口，阅读业务与会员业务完全分离，职责清晰互不干扰。</p>
+            <ul class="changelog-changes">
+              <li>新增首页、价格页、帮助页、更新日志、会员中心、阅读中心六个独立页面</li>
+              <li>订阅管理、文章列表、正文阅读留在阅读中心</li>
+              <li>登录注册、套餐管理、账单、AI 配置迁移到会员中心</li>
+              <li>AI 翻译和总结逻辑收敛到独立服务层</li>
+            </ul>
+          </article>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/theme.js"></script>
+  </body>
+</html>
