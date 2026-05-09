@@ -27,9 +27,6 @@ services:
       APP_SECRET: ${APP_SECRET:-change-me-before-production}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       AI_ENABLED: ${AI_ENABLED:-true}
-      AI_BASE_URL: ${AI_BASE_URL:-}
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-}
       DEEPLX_API_URL: ${DEEPLX_API_URL:-}
       BILLING_PROVIDER: ${BILLING_PROVIDER:-demo}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
