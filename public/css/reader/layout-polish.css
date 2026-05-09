@@ -273,8 +273,8 @@ body.reader-modal-open {
 }
 
 #reader-layout.inline-mode {
-  grid-template-columns: 1fr;
-  column-gap: 0;
+  grid-template-columns: minmax(248px, var(--reader-source-width)) minmax(360px, 1fr);
+  column-gap: 8px;
 }
 
 #reader-layout.inline-mode .content-column {
@@ -384,7 +384,7 @@ body.reader-modal-open {
 .reader-section-head {
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid rgba(234, 223, 206, 0.72);
 }
 
@@ -442,11 +442,11 @@ body.reader-modal-open {
 }
 
 #reader-article-content {
-  min-height: 180px;
+  min-height: 60px;
 }
 
 .reader-body-block .reader-panel-body {
-  padding-top: 12px;
+  padding-top: 6px;
 }
 
 .reader-list-head,

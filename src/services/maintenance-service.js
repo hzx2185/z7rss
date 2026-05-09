@@ -22,10 +22,21 @@ function getStoredBackupSettings(store, config) {
   const enabled = enabledValue
     ? ["1", "true", "yes", "on"].includes(enabledValue)
     : config.databaseBackupEnabled !== false;
+  const frequency = String(settings.schedule_frequency || "daily").trim().toLowerCase() === "weekly" ? "weekly" : "daily";
+  const scheduleTime = /^\d{2}:\d{2}$/.test(String(settings.schedule_time || "").trim())
+    ? String(settings.schedule_time).trim()
+    : "00:00";
+  const scheduleWeekdays = String(settings.schedule_weekdays || "")
+    .split(",")
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6);
   return {
     enabled,
     retentionDays: Math.max(0, Number(settings.retention_days ?? config.databaseBackupRetentionDays ?? 14) || 0),
-    maxFiles: Math.max(1, Number(settings.max_files ?? config.databaseBackupMaxFiles ?? 24) || 24)
+    maxFiles: Math.max(1, Number(settings.max_files ?? config.databaseBackupMaxFiles ?? 24) || 24),
+    scheduleFrequency: frequency,
+    scheduleTime,
+    scheduleWeekdays
   };
 }
 
@@ -45,6 +56,27 @@ function getAutoBackupFiles(config) {
       };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isAutoBackupDue(settings, autoBackups, now = new Date()) {
+  if (!settings.enabled) return false;
+  const [hour, minute] = String(settings.scheduleTime || "00:00").split(":").map((part) => Number(part));
+  const scheduledAt = new Date(now);
+  scheduledAt.setHours(Number.isFinite(hour) ? hour : 0, Number.isFinite(minute) ? minute : 0, 0, 0);
+  if (now.getTime() < scheduledAt.getTime()) return false;
+  if (settings.scheduleFrequency === "weekly") {
+    const weekdays = settings.scheduleWeekdays.length ? settings.scheduleWeekdays : [1];
+    if (!weekdays.includes(now.getDay())) return false;
+  }
+  const todayKey = getLocalDateKey(now);
+  return !autoBackups.some((entry) => getLocalDateKey(new Date(entry.mtimeMs)) === todayKey);
 }
 
 export function createMaintenanceService({ store, feedService, config, logger = console }) {
@@ -143,21 +175,27 @@ export function createMaintenanceService({ store, feedService, config, logger = 
         if (!backupSettings.enabled || !config.dbPath || !store.backup) return;
         const backupDir = getBackupDir(config);
         fs.mkdirSync(backupDir, { recursive: true });
-        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const filename = `z7rss-auto-${stamp}.db`;
-        const targetPath = path.join(backupDir, filename);
-        await store.backup(targetPath);
-        const stat = fs.statSync(targetPath);
-        details.databaseBackupCreated = true;
-        details.databaseBackupFilename = filename;
-        details.databaseBackupSize = stat.size;
+        const autoBackups = getAutoBackupFiles(config);
+        if (!isAutoBackupDue(backupSettings, autoBackups)) {
+          details.databaseBackupCreated = false;
+          details.databaseBackupSkipped = true;
+        } else {
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const filename = `z7rss-auto-${stamp}.db`;
+          const targetPath = path.join(backupDir, filename);
+          await store.backup(targetPath);
+          const stat = fs.statSync(targetPath);
+          details.databaseBackupCreated = true;
+          details.databaseBackupFilename = filename;
+          details.databaseBackupSize = stat.size;
+        }
 
         const retentionDays = backupSettings.retentionDays;
         const maxFiles = backupSettings.maxFiles;
         const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-        const autoBackups = getAutoBackupFiles(config);
+        const allAutoBackups = getAutoBackupFiles(config);
         const deleteSet = new Set();
-        autoBackups.forEach((entry, index) => {
+        allAutoBackups.forEach((entry, index) => {
           if (index >= maxFiles || (retentionDays > 0 && entry.mtimeMs < cutoffMs)) deleteSet.add(entry.path);
         });
         for (const filePath of deleteSet) {

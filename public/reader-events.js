@@ -28,7 +28,13 @@ export function registerReaderEvents(deps) {
 
   on(els.composeToggleBtn, "click", () => {
     state.composeOpen = !state.composeOpen
+    if (state.composeOpen) {
+      state.feedBulkMode = false
+      state.selectedFeedIds = []
+      menus.closeManagedMenus()
+    }
     renderers.renderComposeState()
+    renderers.renderFeeds()
   })
 
   on(els.feedForm, "submit", async (event) => {
@@ -79,7 +85,10 @@ export function registerReaderEvents(deps) {
   on(els.refreshAllBtn, "click", actions.refreshCurrentView)
   on(els.exportOpmlBtn, "click", () => actions.exportFeeds("opml"))
   on(els.exportJsonBtn, "click", () => actions.exportFeeds("json"))
-  on(els.feedBulkToggleBtn, "click", actions.toggleFeedBulkMode)
+  on(els.feedBulkToggleBtn, "click", () => {
+    menus.closeManagedMenus()
+    actions.toggleFeedBulkMode()
+  })
   on(els.feedRefreshAllBtn, "click", actions.refreshAllFeeds)
   on(els.feedBulkSelectAllBtn, "click", () => actions.toggleAllVisibleFeeds())
   on(els.feedBulkRefreshBtn, "click", async () => actions.refreshSelectedFeeds())
@@ -98,6 +107,14 @@ export function registerReaderEvents(deps) {
     await actions.saveFeedSettings()
   })
 
+  function closeFeedOperationPanels() {
+    state.composeOpen = false
+    state.feedBulkMode = false
+    state.selectedFeedIds = []
+    renderers.renderComposeState()
+    renderers.renderFeeds()
+  }
+
   menus.managedMenus.forEach((menu) => {
     const summary = menu.querySelector("summary")
     if (!summary) return
@@ -105,6 +122,9 @@ export function registerReaderEvents(deps) {
     summary.addEventListener("click", (event) => {
       event.preventDefault()
       event.stopPropagation()
+      if (menu === els.feedSearchMenu || menu === els.feedFilterMenu || menu === els.exportMenu) {
+        closeFeedOperationPanels()
+      }
       menus.toggleToolbarMenu(menu)
     })
 
@@ -112,6 +132,9 @@ export function registerReaderEvents(deps) {
       if (event.key !== "Enter" && event.key !== " ") return
       event.preventDefault()
       event.stopPropagation()
+      if (menu === els.feedSearchMenu || menu === els.feedFilterMenu || menu === els.exportMenu) {
+        closeFeedOperationPanels()
+      }
       menus.toggleToolbarMenu(menu)
     })
   })
@@ -236,7 +259,7 @@ export function registerReaderEvents(deps) {
       renderers.renderFilterMode()
       renderers.renderScopeButtons()
       menus.closeToolbarMenu(els.filterMenu)
-      await actions.loadItems(state.selectedFeedId)
+      await actions.loadItems(state.selectedFeedId, { skipImmediateTranslations: true })
     })
   })
 
@@ -269,6 +292,10 @@ export function registerReaderEvents(deps) {
 
   on(els.browserOpenBtn, "click", () => actions.openItemInBrowser(state.selectedItem))
   on(els.bodyPageBtn, "click", () => void actions.toggleDetailView("page"))
+  on(els.bodyToggleTranslationBtn, "click", () => {
+    state.forceOriginalBody = !state.forceOriginalBody
+    renderers.renderArticle()
+  })
   on(els.summaryToggleBtn, "click", () => void actions.toggleDetailView("summary"))
   on(els.translateBtn, "click", () => void actions.toggleDetailView("translation"))
   on(els.originalToggleBtn, "click", () => void actions.toggleDetailView("original"))

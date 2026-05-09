@@ -19,11 +19,12 @@ export function createAccountService({ store, config, secretBox }) {
     title: "仅标题",
     full: "标题和正文"
   };
+  const defaultTranslationFallbackProviders = ["deeplx", "bing", "ai", "google"];
   const readerFeedUnreadFilters = new Set(["all", "unread", "read"]);
   const readerItemFilters = new Set(["all", "unread", "read", "favorite"]);
 
   function isSecretSettingKey(key) {
-    return key === "api_key" || key === "password";
+    return key === "api_key" || key === "password" || key === "configs_secret";
   }
 
   function markUnavailableSecret(output, category, key, rawValue, decryptedValue) {
@@ -35,6 +36,9 @@ export function createAccountService({ store, config, secretBox }) {
     }
     if (key === "password") {
       output[category].password_unavailable = hasRawValue && !hasDecryptedValue;
+    }
+    if (key === "configs_secret") {
+      output[category].configs_unavailable = hasRawValue && !hasDecryptedValue;
     }
   }
 
@@ -99,7 +103,7 @@ export function createAccountService({ store, config, secretBox }) {
     return translationTargets[normalizeTranslationTarget(code)] || translationTargets["zh-CN"];
   }
 
-  function normalizeTranslationMode(value, fallback = "full") {
+  function normalizeTranslationMode(value, fallback = "title") {
     const candidate = String(value || "").trim().toLowerCase();
     return translationModes[candidate] ? candidate : fallback;
   }
@@ -115,7 +119,67 @@ export function createAccountService({ store, config, secretBox }) {
   }
 
   function getTranslationModeLabel(code) {
-    return translationModes[normalizeTranslationMode(code)] || translationModes.full;
+    return translationModes[normalizeTranslationMode(code)] || translationModes.title;
+  }
+
+  function normalizeTranslationFallbackProviders(value) {
+    const rawProviders = Array.isArray(value)
+      ? value
+      : String(value || "")
+          .split(/[,\s，、]+/u)
+          .filter(Boolean);
+    const providers = rawProviders
+      .map((provider) => String(provider || "").trim().toLowerCase())
+      .filter((provider) => ["google", "bing", "deeplx", "ai"].includes(provider))
+      .filter((provider, index, all) => all.indexOf(provider) === index);
+    return providers.length ? providers : defaultTranslationFallbackProviders;
+  }
+
+  function parseJsonSafe(value, fallback) {
+    try {
+      return value ? JSON.parse(value) : fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  function getSystemTranslationProviderPool() {
+    const settings = listSettingsMap();
+    const configs = parseJsonSafe(settings.translation_provider_pool?.configs_secret, []);
+    return (Array.isArray(configs) ? configs : [])
+      .map((entry, index) => ({
+        id: String(entry?.id || `${entry?.provider || "provider"}-${index + 1}`).trim(),
+        name: String(entry?.name || "").trim(),
+        provider: String(entry?.provider || "").trim().toLowerCase(),
+        baseUrl: String(entry?.baseUrl ?? entry?.base_url ?? "").trim(),
+        apiKey: String(entry?.apiKey ?? entry?.api_key ?? "").trim(),
+        region: String(entry?.region || "").trim(),
+        model: String(entry?.model || "").trim(),
+        enabled: entry?.enabled !== false,
+        priority: Number.isFinite(Number(entry?.priority)) ? Number(entry.priority) : index + 1
+      }))
+      .filter((entry) => ["google", "bing", "deeplx", "ai"].includes(entry.provider))
+      .sort((left, right) => left.priority - right.priority);
+  }
+
+  function getSystemAiProviderPool() {
+    const settings = listSettingsMap();
+    const configs = parseJsonSafe(settings.ai_provider_pool?.configs_secret, []);
+    return (Array.isArray(configs) ? configs : [])
+      .map((entry, index) => ({
+        id: String(entry?.id || `ai-${index + 1}`).trim(),
+        name: String(entry?.name || "").trim(),
+        baseUrl: String(entry?.baseUrl ?? entry?.base_url ?? "").trim(),
+        apiKey: String(entry?.apiKey ?? entry?.api_key ?? "").trim(),
+        model: String(entry?.model || "").trim(),
+        translatePrompt: String(entry?.translatePrompt ?? entry?.translate_prompt ?? "").trim(),
+        summaryPrompt: String(entry?.summaryPrompt ?? entry?.summary_prompt ?? "").trim(),
+        maxInputChars: Number.isFinite(Number(entry?.maxInputChars ?? entry?.max_input_chars)) ? Number(entry?.maxInputChars ?? entry?.max_input_chars) : 0,
+        enabled: entry?.enabled !== false,
+        priority: Number.isFinite(Number(entry?.priority)) ? Number(entry.priority) : index + 1
+      }))
+      .filter((entry) => entry.baseUrl || entry.apiKey)
+      .sort((left, right) => left.priority - right.priority);
   }
 
   function listSettingsMap() {
@@ -180,6 +244,9 @@ export function createAccountService({ store, config, secretBox }) {
   }
 
   function hasTranslationProviderCredentials(providerConfig) {
+    if (String(providerConfig?.provider || "").trim().toLowerCase() === "ai") {
+      return Boolean(String(providerConfig?.baseUrl || "").trim() && String(providerConfig?.apiKey || "").trim());
+    }
     if (String(providerConfig?.provider || "").trim().toLowerCase() === "deeplx") {
       return Boolean(String(providerConfig?.baseUrl || "").trim());
     }
@@ -217,6 +284,13 @@ export function createAccountService({ store, config, secretBox }) {
     };
   }
 
+  function getSystemTranslationProviderPoolConfigs(provider) {
+    const normalizedProvider = String(provider || "").trim().toLowerCase();
+    return getSystemTranslationProviderPool()
+      .filter((entry) => entry.enabled && entry.provider === normalizedProvider)
+      .filter((entry) => hasTranslationProviderCredentials(entry));
+  }
+
   function getTranslationProviderStatus(userId, provider) {
     const normalizedProvider = allowedTranslationProviders.has(String(provider || "").trim())
       ? String(provider || "").trim()
@@ -236,11 +310,14 @@ export function createAccountService({ store, config, secretBox }) {
     }
 
     const effectiveConfig = resolveTranslationProviderConfig(userId, normalizedProvider);
+    const poolConfigs = getSystemTranslationProviderPoolConfigs(normalizedProvider);
     return {
       provider: normalizedProvider,
       providerLabel: getTranslationProviderLabel(normalizedProvider),
       configured:
-        normalizedProvider === "sogou"
+        poolConfigs.length
+          ? true
+          : normalizedProvider === "sogou"
           ? false
           : normalizedProvider === "google"
             ? true
@@ -272,21 +349,42 @@ export function createAccountService({ store, config, secretBox }) {
   }
 
   function getEffectiveTranslationSettings(userId, overrides = null) {
-    const translation = listUserSettingsMap(userId).translation || {};
-    const provider = allowedTranslationProviders.has(String(translation.provider || "").trim())
-      ? String(translation.provider || "").trim()
+    const systemTranslation = listSettingsMap().translation || {};
+    const userTranslation = listUserSettingsMap(userId).translation || {};
+    const systemProvider = allowedTranslationProviders.has(String(systemTranslation.provider || "").trim())
+      ? String(systemTranslation.provider || "").trim()
       : "google";
-    const targetLanguage = normalizeTranslationTarget(translation.target_language, "zh-CN");
+    const provider = allowedTranslationProviders.has(String(userTranslation.provider || "").trim())
+      ? String(userTranslation.provider || "").trim()
+      : systemProvider;
+    const targetLanguage = normalizeTranslationTarget(
+      userTranslation.target_language,
+      normalizeTranslationTarget(systemTranslation.target_language, "zh-CN")
+    );
+    const translationMode = normalizeTranslationMode(
+      userTranslation.translation_mode,
+      normalizeTranslationMode(systemTranslation.translation_mode, "title")
+    );
+    const hasUserAutoTranslate = Object.prototype.hasOwnProperty.call(userTranslation, "auto_translate");
+    const hasUserDisplayTranslated = Object.prototype.hasOwnProperty.call(userTranslation, "display_translated");
 
     const globalSettings = {
       provider,
       targetLanguage,
-      autoTranslate: normalizeStoredBoolean(translation.auto_translate, false),
-      displayTranslated: normalizeStoredBoolean(translation.display_translated, true),
-      translationMode: "full"
+      autoTranslate: hasUserAutoTranslate ? normalizeStoredBoolean(userTranslation.auto_translate, false) : false,
+      displayTranslated: hasUserDisplayTranslated ? normalizeStoredBoolean(userTranslation.display_translated, true) : true,
+      translationMode
     };
 
     return overrides ? resolveTranslationSettings(globalSettings, overrides) : globalSettings;
+  }
+
+  function parseTranslationModeForUpdate(value) {
+    const candidate = String(value || "").trim().toLowerCase();
+    if (!translationModes[candidate]) {
+      throw badRequest("翻译范围无效", { code: "invalid_translation_mode" });
+    }
+    return candidate;
   }
 
   function listUserSettingsOrDefault(userId, options = {}) {
@@ -362,6 +460,26 @@ export function createAccountService({ store, config, secretBox }) {
         targetLanguage: options.targetLanguage || null
       });
     },
+    getEffectiveAiRuntimes(userId, options = {}) {
+      const userAi = this.getEffectiveAiConfig(userId, options);
+      const pool = getSystemAiProviderPool().filter((entry) => entry.enabled);
+      const poolRuntimes = pool.map((entry) => ({
+        provider: "ai",
+        id: entry.id,
+        baseUrl: entry.baseUrl,
+        apiKey: entry.apiKey,
+        model: entry.model || userAi.model,
+        translatePrompt: entry.translatePrompt || userAi.translatePrompt,
+        summaryPrompt: entry.summaryPrompt || userAi.summaryPrompt,
+        maxInputChars: entry.maxInputChars || 0,
+        targetLanguage: userAi.targetLanguage,
+        targetLanguageCode: userAi.targetLanguageCode,
+        source: "system_pool",
+        label: entry.name || entry.id
+      }));
+      return [userAi, ...poolRuntimes].filter((entry) => entry.baseUrl && entry.apiKey);
+    },
+    getSystemAiProviderPool,
     getEffectiveTranslationRuntime(userId, options = {}) {
       const provider = allowedTranslationProviders.has(String(options.provider || "").trim())
         ? String(options.provider || "").trim()
@@ -386,10 +504,59 @@ export function createAccountService({ store, config, secretBox }) {
         source: systemProvider.source
       };
     },
+    getEffectiveTranslationRuntimes(userId, options = {}) {
+      const provider = allowedTranslationProviders.has(String(options.provider || "").trim())
+        ? String(options.provider || "").trim()
+        : getEffectiveTranslationSettings(userId).provider;
+      const targetLanguage = normalizeTranslationTarget(
+        options.targetLanguage,
+        getEffectiveTranslationSettings(userId).targetLanguage
+      );
+      if (provider === "ai") {
+        const userAi = this.getEffectiveAiConfig(userId, { targetLanguage });
+        const poolAi = getSystemTranslationProviderPoolConfigs("ai").map((entry) => ({
+          provider: "ai",
+          targetLanguage,
+          targetLanguageCode: getProviderTargetCode("ai", targetLanguage),
+          id: entry.id,
+          baseUrl: entry.baseUrl,
+          apiKey: entry.apiKey,
+          model: entry.model || userAi.model,
+          translatePrompt: userAi.translatePrompt,
+          summaryPrompt: userAi.summaryPrompt,
+          source: "system_pool",
+          label: entry.name || entry.id
+        }));
+        return [userAi, ...poolAi].filter((entry) => entry.baseUrl && entry.apiKey);
+      }
+      const primary = this.getEffectiveTranslationRuntime(userId, { provider, targetLanguage });
+      const pool = getSystemTranslationProviderPoolConfigs(provider).map((entry) => ({
+        provider,
+        targetLanguage,
+        targetLanguageCode: getProviderTargetCode(provider, targetLanguage),
+        id: entry.id,
+        apiKey: entry.apiKey,
+        baseUrl: entry.baseUrl,
+        region: entry.region,
+        source: "system_pool",
+        label: entry.name || entry.id
+      }));
+      return [primary, ...pool];
+    },
     getEffectiveTranslationSettings,
-    getEffectiveFeedTranslationSettings(userId, feed = {}) {
-      const effective = getEffectiveTranslationSettings(userId, feed);
-      const providerStatus = getTranslationProviderStatus(userId, effective.provider);
+    getTranslationFallbackProviders() {
+      const systemTranslation = listSettingsMap().translation || {};
+      return normalizeTranslationFallbackProviders(systemTranslation.fallback_providers);
+    },
+    getTranslationProviderStatus,
+    getEffectiveFeedTranslationSettings(userId, feed = {}, options = {}) {
+      const effective = options.baseTranslation
+        ? resolveTranslationSettings(options.baseTranslation, feed)
+        : getEffectiveTranslationSettings(userId, feed);
+      const providerStatus =
+        options.providerStatus?.provider === effective.provider
+          ? options.providerStatus
+          : getTranslationProviderStatus(userId, effective.provider);
       return {
         ...effective,
         providerLabel: providerStatus.providerLabel,
@@ -413,7 +580,8 @@ export function createAccountService({ store, config, secretBox }) {
         provider: translation.provider,
         target_language: translation.targetLanguage,
         auto_translate: translation.autoTranslate ? "1" : "0",
-        display_translated: translation.displayTranslated ? "1" : "0"
+        display_translated: translation.displayTranslated ? "1" : "0",
+        translation_mode: translation.translationMode
       };
       settings.reader = {
         ...reader,
@@ -528,12 +696,14 @@ export function createAccountService({ store, config, secretBox }) {
       if (payload.autoTranslate && !supportsServerTranslation(provider)) {
         throw badRequest("当前翻译工具暂不支持自动翻译", { code: "translation_auto_unsupported" });
       }
+      const translationMode = parseTranslationModeForUpdate(payload.translationMode ?? payload.translation_mode ?? "title");
 
       const translationSettings = {
         provider,
         target_language: targetLanguage,
         auto_translate: payload.autoTranslate ? "1" : "0",
-        display_translated: payload.displayTranslated === false ? "0" : "1"
+        display_translated: payload.displayTranslated === false ? "0" : "1",
+        translation_mode: translationMode
       };
 
       for (const [key, value] of Object.entries(translationSettings)) {
@@ -561,6 +731,7 @@ export function createAccountService({ store, config, secretBox }) {
       const safeUser = sanitizeUser(user);
       const { plan, subscription } = getResolvedPlan(user.id);
       const feedCount = store.countUserFeeds(user.id);
+      const savedItemCount = store.countUserItems(user.id, null);
       const favoriteCount = store.countUserFavorites(user.id);
       const aiConfig = this.getEffectiveAiConfig(user.id);
       const translation = getEffectiveTranslationSettings(user.id);
@@ -578,6 +749,17 @@ export function createAccountService({ store, config, secretBox }) {
         };
         return acc;
       }, {});
+      const translationProviderPool = getSystemTranslationProviderPool().map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        provider: entry.provider,
+        providerLabel: getTranslationProviderLabel(entry.provider),
+        baseUrl: entry.baseUrl,
+        region: entry.region,
+        enabled: entry.enabled,
+        priority: entry.priority,
+        apiKeyConfigured: Boolean(entry.apiKey)
+      }));
 
       return {
         user: safeUser,
@@ -586,6 +768,7 @@ export function createAccountService({ store, config, secretBox }) {
         usage: {
           feedCount,
           feedLimit: plan.max_feeds,
+          savedItemCount,
           savedItemLimit: plan.max_saved_items,
           favoriteCount,
           favoriteLimit: plan.max_favorite_items,
@@ -615,6 +798,8 @@ export function createAccountService({ store, config, secretBox }) {
           providerSource: providerStatus.scope,
           targetLanguage: translation.targetLanguage,
           targetLabel: getTranslationTargetLabel(translation.targetLanguage),
+          translationMode: translation.translationMode,
+          translationModeLabel: getTranslationModeLabel(translation.translationMode),
           autoTranslate: translation.autoTranslate,
           displayTranslated: translation.displayTranslated,
           providerConfigured: providerStatus.configured,
@@ -627,7 +812,8 @@ export function createAccountService({ store, config, secretBox }) {
           ),
           autoTranslateSupported: providerStatus.autoTranslateSupported
         },
-        translationProviders
+        translationProviders,
+        translationProviderPool
       };
     },
     getResolvedPlan

@@ -113,7 +113,7 @@ export function createAdminDashboard({
                 <div class="list-main">
                   <strong>${escapeHtml(plan.name)}</strong>
                   <span class="muted">${escapeHtml(plan.code)} · ${plan.subscriber_count || 0} 位订阅者</span>
-                  <span class="muted">订阅源上限 ${plan.max_feeds} · 文章保留 ${plan.max_saved_items} 篇 / 源 · 收藏上限 ${plan.max_favorite_items} 篇</span>
+                  <span class="muted">订阅源上限 ${plan.max_feeds} · 总文章保留 ${plan.max_saved_items} 篇 · 收藏上限 ${plan.max_favorite_items} 篇</span>
                   <span class="muted">翻译 ${plan.ai_translation_enabled ? "开" : "关"} · 总结 ${plan.ai_summary_enabled ? "开" : "关"} · 自定义 AI ${plan.custom_ai_enabled ? "开" : "关"}</span>
                 </div>
                 <span class="pill accent">${formatPrice(plan.price_monthly_cents)}</span>
@@ -219,7 +219,7 @@ export function createAdminDashboard({
                   <input type="number" min="0" step="1" value="${Number(plan.max_feeds || 0)}" data-plan-feeds="${escapeHtml(plan.code)}" />
                 </label>
                 <label class="inline-field narrow-field">
-                  <span>文章保存上限</span>
+                  <span>总文章保留</span>
                   <input type="number" min="0" step="1" value="${Number(plan.max_saved_items || 0)}" data-plan-saved="${escapeHtml(plan.code)}" />
                 </label>
                 <label class="inline-field narrow-field">
@@ -263,12 +263,42 @@ export function createAdminDashboard({
     const ai = state.admin.settings.ai || {}
     const digest = state.admin.settings.digest || {}
     const backups = state.admin.database?.backups || {}
+    const cleanup = state.admin.database?.cleanup || {}
     const google = state.admin.settings.translation_google || {}
     const deeplx = state.admin.settings.translation_deeplx || {}
     const bing = state.admin.settings.translation_bing || {}
     const translation = state.admin.settings.translation || {}
+    const providerPool = Array.isArray(state.admin.settings.translation_provider_pool?.configs)
+      ? state.admin.settings.translation_provider_pool.configs
+      : []
     if (els.settingTranslationProvider) els.settingTranslationProvider.value = translation.provider || "google"
     if (els.settingTranslationTarget) els.settingTranslationTarget.value = translation.target_language || "zh-CN"
+    if (els.settingTranslationMode) els.settingTranslationMode.value = translation.translation_mode || "title"
+    if (els.settingTranslationFallbackProviders) els.settingTranslationFallbackProviders.value = translation.fallback_providers || "deeplx,bing,ai,google"
+    if (els.settingTranslationProviderPool) els.settingTranslationProviderPool.value = ""
+    if (els.settingTranslationProviderPoolList) {
+      const draftPool = state.translationProviderPoolDraft || []
+      safeHtml(
+        els.settingTranslationProviderPoolList,
+        draftPool.length
+          ? draftPool
+              .map((entry, index) => `
+                <article class="list-row">
+                  <div class="list-main">
+                    <strong>${escapeHtml(entry.name || entry.id || entry.provider || "翻译 API")}</strong>
+                    <span class="muted">${escapeHtml(entry.provider || "-")} · ${escapeHtml(entry.baseUrl || "默认接口")} · ${entry.apiKeyConfigured ? "Key 已配置" : "无 Key"} · 优先级 ${escapeHtml(String(entry.priority || "-"))}</span>
+                  </div>
+                  <div class="reader-actions toolbar-wrap">
+                    <span class="pill ${entry.enabled === false ? "muted" : "success"}">${entry.enabled === false ? "停用" : "启用"}</span>
+                    <button class="secondary" type="button" data-pool-edit="${escapeHtml(entry.id)}">修改</button>
+                    <button class="secondary" type="button" data-pool-delete="${escapeHtml(entry.id)}">删除</button>
+                  </div>
+                </article>
+              `)
+              .join("")
+          : `<article class="list-row"><div class="list-main"><strong>未配置额外 API</strong><span class="muted">仍会使用上方单个供应商配置。</span></div></article>`
+      )
+    }
     if (els.settingSiteName) els.settingSiteName.value = general.site_name || state.config?.appName || ""
     if (els.settingSiteDomain) {
       els.settingSiteDomain.value = general.site_domain || ""
@@ -286,18 +316,29 @@ export function createAdminDashboard({
           ? "已配置，留空表示不修改"
           : ""
     }
-    if (els.settingAiBaseUrl) els.settingAiBaseUrl.value = ai.base_url || ""
-    if (els.settingAiApiKey) {
-      els.settingAiApiKey.value = ""
-      els.settingAiApiKey.placeholder = ai.api_key_unavailable
-        ? "旧密钥不可用，请重新保存"
-        : ai.api_key_configured
-          ? "已配置，留空表示不修改"
-          : ""
+    if (els.settingAiProviderPoolList) {
+      const draftAiPool = state.aiProviderPoolDraft || []
+      safeHtml(
+        els.settingAiProviderPoolList,
+        draftAiPool.length
+          ? draftAiPool
+              .map((entry, index) => `
+                <article class="list-row">
+                  <div class="list-main">
+                    <strong>${escapeHtml(entry.name || entry.id || "AI API")}</strong>
+                    <span class="muted">${escapeHtml(entry.model || "-")} · ${escapeHtml(entry.baseUrl || "未配置")} · ${entry.apiKeyConfigured ? "Key 已配置" : "无 Key"} · 优先级 ${escapeHtml(String(entry.priority || "-"))}${entry.maxInputChars > 0 ? ` · 限 ${entry.maxInputChars} 字` : ""}</span>
+                  </div>
+                  <div class="reader-actions toolbar-wrap">
+                    <span class="pill ${entry.enabled === false ? "muted" : "success"}">${entry.enabled === false ? "停用" : "启用"}</span>
+                    <button class="secondary" type="button" data-ai-pool-edit="${escapeHtml(entry.id)}">修改</button>
+                    <button class="secondary" type="button" data-ai-pool-delete="${escapeHtml(entry.id)}">删除</button>
+                  </div>
+                </article>
+              `)
+              .join("")
+          : `<article class="list-row"><div class="list-main"><strong>未配置 AI 接口</strong><span class="muted">翻译、总结、分类和简报需要 AI 接口。</span></div></article>`
+      )
     }
-    if (els.settingAiModel) els.settingAiModel.value = ai.model || ""
-    if (els.settingAiTranslatePrompt) els.settingAiTranslatePrompt.value = ai.translate_prompt || ""
-    if (els.settingAiSummaryPrompt) els.settingAiSummaryPrompt.value = ai.summary_prompt || ""
     if (els.settingDigestInputMode) els.settingDigestInputMode.value = digest.input_mode || "title_summary"
     if (els.settingDigestMaxItems) els.settingDigestMaxItems.value = digest.max_items || "30"
     if (els.settingDigestMaxCharsPerItem) els.settingDigestMaxCharsPerItem.value = digest.max_chars_per_item || "300"
@@ -305,9 +346,29 @@ export function createAdminDashboard({
     if (els.settingDatabaseBackupEnabled) els.settingDatabaseBackupEnabled.value = backups.enabled === false ? "false" : "true"
     if (els.settingDatabaseBackupRetentionDays) els.settingDatabaseBackupRetentionDays.value = String(backups.retentionDays ?? 14)
     if (els.settingDatabaseBackupMaxFiles) els.settingDatabaseBackupMaxFiles.value = String(backups.maxFiles ?? 24)
+    if (els.settingDatabaseBackupScheduleFrequency) {
+      els.settingDatabaseBackupScheduleFrequency.value = backups.scheduleFrequency || "daily"
+      const isWeekly = els.settingDatabaseBackupScheduleFrequency.value === "weekly"
+      if (els.settingDatabaseBackupTimeRow) els.settingDatabaseBackupTimeRow.classList.toggle("hidden", isWeekly)
+      if (els.settingDatabaseBackupWeekdaysRow) els.settingDatabaseBackupWeekdaysRow.classList.toggle("hidden", !isWeekly)
+    }
+    if (els.settingDatabaseBackupScheduleTime) els.settingDatabaseBackupScheduleTime.value = backups.scheduleTime || "00:00"
+    if (els.settingDatabaseBackupScheduleWeekdays) {
+      const weekdays = backups.scheduleWeekdays || [1]
+      els.settingDatabaseBackupScheduleWeekdays.value = String(weekdays[0] ?? 1)
+    }
+    if (els.settingDatabaseCleanupMaxItemsTotal) els.settingDatabaseCleanupMaxItemsTotal.value = cleanup.maxItemsTotal ?? ""
+    if (els.settingDatabaseCleanupMaxAgeDays) els.settingDatabaseCleanupMaxAgeDays.value = String(cleanup.maxAgeDays ?? 0)
+    if (els.settingDatabaseCleanupProtectFavorites) els.settingDatabaseCleanupProtectFavorites.value = cleanup.protectFavorites !== false ? "true" : "false"
+    if (els.settingDatabaseCleanupProtectUnread) els.settingDatabaseCleanupProtectUnread.value = cleanup.protectUnread ? "true" : "false"
+    if (els.settingDatabaseCleanupMinKeepItems) els.settingDatabaseCleanupMinKeepItems.value = String(cleanup.minKeepItems ?? 0)
     if (els.settingGoogleTranslateApiKey) {
       els.settingGoogleTranslateApiKey.value = ""
-      els.settingGoogleTranslateApiKey.placeholder = google.api_key_configured ? "已配置，留空表示保留当前 Key" : "留空则使用 Google 免 Key 模式"
+      els.settingGoogleTranslateApiKey.placeholder = google.api_key_configured ? "已配置，留空表示保留当前 Key；勾选下方可清空" : "留空则使用 Google 免 Key 模式"
+    }
+    if (els.settingGoogleTranslateClearApiKey) {
+      els.settingGoogleTranslateClearApiKey.checked = false
+      els.settingGoogleTranslateClearApiKey.disabled = !google.api_key_configured
     }
     if (els.settingDeepLXBaseUrl) {
       els.settingDeepLXBaseUrl.value = deeplx.base_url || ""
@@ -315,12 +376,20 @@ export function createAdminDashboard({
     }
     if (els.settingDeepLXApiKey) {
       els.settingDeepLXApiKey.value = ""
-      els.settingDeepLXApiKey.placeholder = deeplx.api_key_configured ? "已配置，留空表示不修改" : "如需认证可填写"
+      els.settingDeepLXApiKey.placeholder = deeplx.api_key_configured ? "已配置，留空表示不修改；勾选下方可清空" : "如需认证可填写"
+    }
+    if (els.settingDeepLXClearApiKey) {
+      els.settingDeepLXClearApiKey.checked = false
+      els.settingDeepLXClearApiKey.disabled = !deeplx.api_key_configured
     }
     if (els.settingBingTranslateBaseUrl) els.settingBingTranslateBaseUrl.value = bing.base_url || ""
     if (els.settingBingTranslateApiKey) {
       els.settingBingTranslateApiKey.value = ""
-      els.settingBingTranslateApiKey.placeholder = bing.api_key_configured ? "已配置，留空表示不修改" : ""
+      els.settingBingTranslateApiKey.placeholder = bing.api_key_configured ? "已配置，留空表示不修改；勾选下方可清空" : ""
+    }
+    if (els.settingBingTranslateClearApiKey) {
+      els.settingBingTranslateClearApiKey.checked = false
+      els.settingBingTranslateClearApiKey.disabled = !bing.api_key_configured
     }
     if (els.settingBingTranslateRegion) els.settingBingTranslateRegion.value = bing.region || ""
 
@@ -475,6 +544,12 @@ export function createAdminDashboard({
               <button class="secondary" type="button" data-user-security-toggle="${user.id}">
                 ${securityExpanded ? "收起安全" : "安全管理"}
               </button>
+              <button class="secondary" type="button" data-user-export-id="${user.id}">
+                导出
+              </button>
+              <button class="secondary" type="button" data-user-import-id="${user.id}">
+                导入
+              </button>
               <button class="secondary" type="button" data-user-id="${user.id}" data-make-admin="${user.is_admin ? "0" : "1"}">
                 ${user.is_admin ? "撤销管理员" : "设为管理员"}
               </button>
@@ -607,6 +682,12 @@ export function createAdminDashboard({
     document.querySelectorAll("[data-user-delete-id]").forEach((button) => {
       button.addEventListener("click", () => actions.deleteUser(Number(button.dataset.userDeleteId), button.dataset.userLabel || ""))
     })
+    document.querySelectorAll("[data-user-export-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.exportUserData(Number(button.dataset.userExportId)))
+    })
+    document.querySelectorAll("[data-user-import-id]").forEach((button) => {
+      button.addEventListener("click", () => actions.importUserData(Number(button.dataset.userImportId)))
+    })
     document.querySelectorAll("[data-user-subscription-id]").forEach((button) => {
       button.addEventListener("click", () => {
         const userId = Number(button.dataset.userSubscriptionId)
@@ -651,6 +732,18 @@ export function createAdminDashboard({
     })
     document.querySelectorAll("[data-ip-value]").forEach((button) => {
       button.addEventListener("click", () => actions.toggleBlockedIp(button.dataset.ipValue, button.dataset.ipActive === "1"))
+    })
+    document.querySelectorAll("[data-pool-edit]").forEach((button) => {
+      button.addEventListener("click", () => actions.editTranslationProviderPoolEntry(button.dataset.poolEdit))
+    })
+    document.querySelectorAll("[data-pool-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.removeTranslationProviderPoolEntry(button.dataset.poolDelete))
+    })
+    document.querySelectorAll("[data-ai-pool-edit]").forEach((button) => {
+      button.addEventListener("click", () => actions.editAiPoolEntry(button.dataset.aiPoolEdit))
+    })
+    document.querySelectorAll("[data-ai-pool-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.removeAiPoolEntry(button.dataset.aiPoolDelete))
     })
 
     renderMaintenanceStatus()

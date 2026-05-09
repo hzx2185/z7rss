@@ -59,14 +59,18 @@ export function createFeedRouter({ feedService, config }) {
   });
 
   router.get("/", route(async (req, res) => {
-    res.json(await feedService.listFeeds(req.auth.user.id));
+    const skipImmediateTranslations = req.query.skipImmediateTranslations === undefined
+      ? false
+      : parseBoolean(req.query.skipImmediateTranslations, "跳过即时翻译");
+    res.json(await feedService.listFeeds(req.auth.user.id, { skipImmediateTranslations }));
   }));
 
   router.post("/", feedWriteLimiter, route(async (req, res) => {
     const body = expectObject(req.body || {});
     const result = await feedService.addFeed(req.auth.user.id, {
       title: parseTrimmedString(body.title, "订阅源标题", { maxLength: 200 }),
-      url: parseUrl(body.url, "Feed URL")
+      url: parseUrl(body.url, "Feed URL"),
+      isPublic: body.isPublic === false ? false : true
     });
     res.status(201).json(result);
   }));
@@ -165,8 +169,11 @@ export function createFeedRouter({ feedService, config }) {
   }));
 
   router.post("/refresh-all", feedWriteLimiter, route(async (req, res) => {
-    const results = await feedService.refreshAllForUser(req.auth.user.id);
-    res.json(results);
+    res.status(202).json(feedService.startRefreshAllForUser(req.auth.user.id));
+  }));
+
+  router.get("/refresh-all/:jobId", route(async (req, res) => {
+    res.json(feedService.getRefreshAllForUserJob(req.auth.user.id, req.params.jobId));
   }));
 
   return router;

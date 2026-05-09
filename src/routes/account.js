@@ -3,7 +3,7 @@ import { createRateLimiter } from "../lib/rate-limit.js";
 import { route } from "../lib/routes.js";
 import { expectObject, parseBoolean, parseIntegerArray, parsePassword, parsePositiveInt, parseTrimmedString } from "../lib/validation.js";
 
-export function createAccountRouter({ accountService, aiConfigService, authService, config, digestService }) {
+export function createAccountRouter({ accountService, aiConfigService, authService, config, digestService, feedService, mailService, opmlBackupService }) {
   const router = express.Router();
   const hasOwn = (body, key) => Object.prototype.hasOwnProperty.call(body || {}, key);
   const aiLimiter = createRateLimiter({
@@ -95,6 +95,7 @@ export function createAccountRouter({ accountService, aiConfigService, authServi
     const preferences = accountService.updateUserTranslationSettings(req.auth.user, {
       provider: parseTrimmedString(body.provider, "翻译工具", { required: true, maxLength: 32 }),
       targetLanguage: parseTrimmedString(body.targetLanguage, "目标语言", { required: true, maxLength: 32 }),
+      translationMode: parseTrimmedString(body.translationMode ?? body.translation_mode, "翻译范围", { maxLength: 32 }),
       autoTranslate: body.autoTranslate,
       displayTranslated: body.displayTranslated
     });
@@ -145,7 +146,7 @@ export function createAccountRouter({ accountService, aiConfigService, authServi
   }));
 
   router.post("/preferences/ai/test", aiLimiter, route(async (req, res) => {
-    const result = await aiConfigService.testUserAi(req.auth.user);
+    const result = await aiConfigService.testAi(req.auth.user.id);
     res.json(result);
   }));
 
@@ -163,6 +164,26 @@ export function createAccountRouter({ accountService, aiConfigService, authServi
 
   router.post("/sessions/revoke-others", route(async (req, res) => {
     res.json(authService.revokeOtherSessions(req.auth.user.id, req.auth.session?.token || null));
+  }));
+
+  router.post("/backup-opml", route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    const email = parseTrimmedString(body.email, "接收邮箱", { required: true, maxLength: 200 });
+    const result = await opmlBackupService.sendBackupNow(req.auth.user.id, { email });
+    res.json(result);
+  }));
+
+  router.get("/backup-opml/config", (req, res) => {
+    res.json(opmlBackupService.getBackupConfig(req.auth.user.id));
+  });
+
+  router.post("/backup-opml/config", route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    const payload = {};
+    if (hasOwn(body, "email")) payload.email = parseTrimmedString(body.email, "接收邮箱", { maxLength: 200 });
+    if (hasOwn(body, "sendTime")) payload.sendTime = parseTrimmedString(body.sendTime, "发送时间", { maxLength: 5 });
+    if (hasOwn(body, "enabled")) payload.enabled = parseBoolean(body.enabled, "启用定时备份");
+    res.json(opmlBackupService.updateBackupConfig(req.auth.user.id, payload));
   }));
 
   return router;

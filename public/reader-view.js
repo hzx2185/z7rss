@@ -74,6 +74,13 @@ function sanitizeRichHtmlFragment(value = "", baseUrl = "") {
         const safeSrc = toSafeRichUrl(currentValue, baseUrl, { allowRelative: true, allowDataImage: true, allowMailto: false })
         if (safeSrc) {
           element.setAttribute(attribute.name, safeSrc)
+          const tagName = element.tagName.toLowerCase()
+          if (tagName === "img") {
+            element.setAttribute("loading", "lazy")
+            element.setAttribute("referrerpolicy", "no-referrer")
+          } else if (tagName === "video" || tagName === "audio") {
+            element.setAttribute("referrerpolicy", "no-referrer")
+          }
         } else {
           element.removeAttribute(attribute.name)
         }
@@ -136,7 +143,7 @@ function renderInlineMarkdown(text = "") {
     })
 }
 
-function renderMarkdownishText(value = "", fallback = "暂无内容") {
+function renderMarkdownishText(value = "", fallback = "暂无内容", { splitOnSingleNewline = false } = {}) {
   const raw = String(value || "").trim()
   if (!raw) return `<span class="muted">${escapeHtml(fallback)}</span>`
 
@@ -148,7 +155,8 @@ function renderMarkdownishText(value = "", fallback = "暂无内容") {
     return token
   })
 
-  const blocks = protectedText.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+  const blockSeparator = splitOnSingleNewline ? /\n+/ : /\n{2,}/
+  const blocks = protectedText.split(blockSeparator).map((block) => block.trim()).filter(Boolean)
   const html = blocks
     .map((block) => {
       const codeIndex = /^__CODE_BLOCK_(\d+)__$/.exec(block)?.[1]
@@ -180,7 +188,7 @@ function renderMarkdownishText(value = "", fallback = "暂无内容") {
   return html || `<span class="muted">${escapeHtml(fallback)}</span>`
 }
 
-export function renderRichFallback(value = "", fallback = "暂无内容", baseUrl = "") {
+export function renderRichFallback(value = "", fallback = "暂无内容", baseUrl = "", { splitOnSingleNewline = false } = {}) {
   const raw = String(value || "").trim()
   if (!raw) {
     return renderMarkdownishText("", fallback)
@@ -189,7 +197,7 @@ export function renderRichFallback(value = "", fallback = "暂无内容", baseUr
     const sanitized = sanitizeRichHtmlFragment(raw, baseUrl)
     if (sanitized) return sanitized
   }
-  return renderMarkdownishText(raw, fallback)
+  return renderMarkdownishText(raw, fallback, { splitOnSingleNewline })
 }
 
 export function getItemBodyHtml(item) {
@@ -303,8 +311,8 @@ function getCompactFeedLabel(label = "", url = "") {
 }
 
 function getStoredDisplayFeedTranslation(source = {}) {
-  const translatedTitle = normalizeDisplayText(source?.translated_title || source?.feed_translated_title || "")
-  const translatedLanguage = normalizeDisplayText(source?.translated_language || source?.feed_translated_language || "")
+  const translatedTitle = normalizeDisplayText(source?.feed_translated_title || "")
+  const translatedLanguage = normalizeDisplayText(source?.feed_translated_language || "")
   const expectedLanguage = normalizeDisplayText(
     source?.translation?.targetLanguage || source?.translation_target_language || ""
   )

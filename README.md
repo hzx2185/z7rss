@@ -181,7 +181,19 @@ http://localhost:39118/
 - `http://localhost:39118/reader.html`
 - `http://localhost:39118/admin.html`
 
-更完整的 Docker 部署、端口、持久化和隐私说明见 [DOCKER.md](/Users/a33/docker/z7rss/DOCKER.md)。
+更完整的 Docker 部署、端口、持久化和隐私说明见 [DOCKER.md](DOCKER.md)。
+
+## 性能优化
+
+- 启动优化：维护任务延迟 30 秒执行，数据库优化在后台异步执行
+- 阅读中心订阅源列表分批渲染（默认 80 个），按需加载更多
+- 文章列表支持虚拟滚动和分页加载
+
+## 代码质量
+
+- 删除未使用的 `getSystemAiConfig` 函数
+- 合并重复的 `testSystemAi` / `testUserAi` 为单一函数 `testAi(userId)`
+- 提取公共工具函数 `describeFetchError` 和 `normalizeText` 到 `src/lib/http.js`
 
 ## 主要接口
 

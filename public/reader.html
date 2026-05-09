@@ -5,7 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Z7 RSS - 阅读中心</title>
     <script src="/theme-init.js"></script>
-    <link rel="stylesheet" href="/css/pages/reader.css" />
+    <link rel="stylesheet" href="/css/pages/reader.css?v=5" />
+
+    <link rel="modulepreload" href="/reader-api.js" />
+    <link rel="modulepreload" href="/reader-controller.js" />
+    <link rel="modulepreload" href="/reader-state.js" />
+    <link rel="modulepreload" href="/reader-view.js" />
+    <link rel="modulepreload" href="/reader-collapsible-body.js" />
+    <link rel="modulepreload" href="/reader-article-detail.js" />
+    <link rel="modulepreload" href="/reader-derived-data.js" />
+    <link rel="modulepreload" href="/reader-elements.js" />
+    <link rel="modulepreload" href="/reader-ui-state.js" />
+    <link rel="modulepreload" href="/reader-list-renderer.js" />
+    <link rel="modulepreload" href="/reader-virtual-list.js" />
+    <link rel="modulepreload" href="/reader-feed-controller.js" />
+    <link rel="modulepreload" href="/reader-item-controller.js" />
+    <link rel="modulepreload" href="/reader-feed-controls.js" />
+    <link rel="modulepreload" href="/reader-feed-settings.js" />
+    <link rel="modulepreload" href="/reader-feed-actions.js" />
+    <link rel="modulepreload" href="/reader-item-tools.js" />
+    <link rel="modulepreload" href="/reader-detail-sections.js" />
+    <link rel="modulepreload" href="/reader-menus.js" />
+    <link rel="modulepreload" href="/reader-events.js" />
+    <link rel="modulepreload" href="/translation-options.js" />
   </head>
   <body class="reader-page">
     <div class="site-shell">
@@ -166,8 +188,12 @@
 
               <section id="reader-feed-compose" class="reader-compose hidden">
                 <form id="reader-feed-form" class="stack compact-form">
-                  <div class="reader-inline-form">
-                    <input id="reader-feed-url" type="url" autocomplete="url" placeholder="https://..." required />
+                  <input id="reader-feed-url" type="url" autocomplete="url" placeholder="https://..." required />
+                  <div class="reader-compose-option-row">
+                    <label class="reader-compose-option">
+                      <input id="reader-feed-public" type="checkbox" checked />
+                      <span>公开分享</span>
+                    </label>
                     <button type="submit">添加</button>
                   </div>
                 </form>
@@ -263,9 +289,9 @@
               <div id="reader-item-list" class="reader-item-list"></div>
               <div class="reader-list-footer">
                 <div class="reader-list-footer-actions">
-                  <button id="reader-feed-prev-btn" class="secondary reader-footer-nav-btn" type="button" title="上一个订阅源" aria-label="上一个订阅源">前源</button>
-                  <button id="reader-feed-next-btn" class="secondary reader-footer-nav-btn" type="button" title="下一个订阅源" aria-label="下一个订阅源">后源</button>
-                  <button id="reader-mark-read-footer-btn" class="secondary reader-footer-mark-read-btn" type="button">已读</button>
+                  <button id="reader-feed-prev-btn" class="secondary reader-footer-nav-btn" type="button" title="上一个订阅源" aria-label="上一个订阅源">‹</button>
+                  <button id="reader-feed-next-btn" class="secondary reader-footer-nav-btn" type="button" title="下一个订阅源" aria-label="下一个订阅源">›</button>
+                  <button id="reader-mark-read-footer-btn" class="secondary reader-footer-mark-read-btn" type="button" title="标记已读" aria-label="标记已读">✓</button>
                 </div>
               </div>
             </div>
@@ -316,6 +342,7 @@
                       <span id="reader-content-hint" class="status-text">正在准备正文...</span>
                     </div>
                     <div class="reader-section-tools">
+                      <button id="reader-body-toggle-translation-btn" class="secondary reader-section-action-btn hidden" type="button" aria-label="切换原文/译文">原文</button>
                       <button id="reader-body-page-btn" class="secondary reader-section-action-btn" type="button" aria-label="显示网页正文">网页</button>
                     </div>
                   </div>
@@ -567,6 +594,6 @@
     </div>
 
     <script type="module" src="/theme.js"></script>
-    <script type="module" src="/reader.js"></script>
+    <script type="module" src="/reader.js?v=7"></script>
   </body>
 </html>

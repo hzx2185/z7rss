@@ -12,3 +12,76 @@
 @import url("/css/admin/shell-extended.css");
 @import url("/css/shared/mobile-compact.css");
 @import url("/css/shared/top-navigation.css");
+body.admin-modal-open {
+  overflow: hidden;
+}
+
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.admin-modal.hidden {
+  display: none;
+}
+
+.admin-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(17, 24, 39, 0.42);
+}
+
+.admin-modal-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100vh - 40px);
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  overflow-y: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-modal-copy {
+  min-width: 0;
+}
+
+.admin-modal-copy h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.admin-modal-card .stack {
+  gap: 12px;
+}
+
+@media (max-width: 560px) {
+  .admin-modal {
+    align-items: flex-end;
+    padding: 10px;
+  }
+  .admin-modal-card {
+    width: 100%;
+    max-height: min(82vh, 720px);
+    padding: 14px;
+    border-radius: 16px 16px 0 0;
+  }
+}

@@ -612,18 +612,36 @@ body.reader-page .reader-list-footer-actions > .secondary:hover:not(:disabled) {
   background: var(--bg-sunken);
 }
 
+@media (hover: none) {
+  body.reader-page .reader-list-footer-actions > .secondary:hover:not(:disabled),
+  body.reader-page .reader-list-footer-actions > .secondary:focus:not(:focus-visible) {
+    border-color: var(--border-strong);
+    background: var(--bg-elevated);
+  }
+}
+
 body.reader-page .reader-flash {
   position: fixed !important;
-  top: calc(66px + env(safe-area-inset-top, 0px));
+  top: auto;
   left: 50%;
   right: auto;
-  bottom: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   margin: 0;
   z-index: 160;
   width: fit-content;
   max-width: min(420px, calc(100vw - 24px));
+  text-align: center;
   pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  body.reader-page .reader-flash {
+    left: 50%;
+    right: auto;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    max-width: min(360px, calc(100vw - 20px));
+  }
 }
 
 body.reader-page .reader-feed-tool-strip,
@@ -816,5 +834,61 @@ body.reader-page .reader-import-actions > button {
     min-height: 28px;
     padding: 0 8px;
     font-size: 11px;
+  }
+}
+
+body.reader-page .reader-item-list {
+  padding-bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+body.reader-page .reader-list-footer {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 150;
+  width: min(210px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  margin: 0 !important;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+body.reader-page .reader-list-footer-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  width: 100%;
+  gap: 4px;
+  overflow: visible !important;
+}
+
+body.reader-page .reader-footer-nav-btn,
+body.reader-page .reader-footer-mark-read-btn {
+  width: 100% !important;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 17px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  body.reader-page .reader-list-footer {
+    width: min(190px, calc(100vw - 20px));
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 5px;
+  }
+
+  body.reader-page .reader-footer-nav-btn,
+  body.reader-page .reader-footer-mark-read-btn {
+    min-height: 30px;
+    font-size: 16px;
   }
 }

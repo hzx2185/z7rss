@@ -7,8 +7,11 @@ const server = app.listen(config.port, () => {
 });
 services.refreshService.startSchedule();
 services.digestService.startSchedule();
+services.opmlBackupService.startSchedule();
 if (services.maintenanceService.startSchedule()) {
-  services.maintenanceService.triggerRun({ trigger: "startup" });
+  setTimeout(() => {
+    services.maintenanceService.triggerRun({ trigger: "startup" });
+  }, 30000);
 }
 
 let isShuttingDown = false;

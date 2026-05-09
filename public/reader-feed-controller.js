@@ -78,7 +78,9 @@ export function createReaderFeedController(deps) {
       return
     }
 
-    state.feeds = await readerApi.listFeeds(Boolean(options.force))
+    state.feeds = await readerApi.listFeeds(Boolean(options.force), {
+      skipImmediateTranslations: Boolean(options.skipImmediateTranslations)
+    })
     if (
       state.feedSettingsFeedId &&
       !state.feeds.some((feed) => Number(feed.feed_id) === Number(state.feedSettingsFeedId))
@@ -93,7 +95,10 @@ export function createReaderFeedController(deps) {
     }
     pruneSelectedFeedIds()
     renderFeeds()
-    await loadScopeCounts(options)
+    const countsRequest = loadScopeCounts(options)
+    if (options.awaitCounts) {
+      await countsRequest
+    }
   }
 
   async function refreshFeed(feedId) {
@@ -111,10 +116,14 @@ export function createReaderFeedController(deps) {
       const result = await readerApi.refreshFeed(normalizedFeedId)
       state.lastOperation = { type: "refreshFeed", result }
       renderOperationSummary()
-      await loadFeeds({ force: true })
+      await loadFeeds({ force: true, skipImmediateTranslations: true })
       if (state.selectedFeedId === null || Number(state.selectedFeedId) === normalizedFeedId) {
         state.itemPage = 1
-        await loadItems(state.selectedFeedId, { force: true, targetPage: 1 })
+        await loadItems(state.selectedFeedId, {
+          force: true,
+          targetPage: 1,
+          preserveSelection: true
+        })
       }
     } catch (error) {
       setStatus(error.message, "error")
@@ -171,7 +180,7 @@ export function createReaderFeedController(deps) {
       const selectedItemId = state.selectedItem?.id || null
       const selectedItemFeedId = Number(state.selectedItem?.feed_id || 0)
 
-      await loadFeeds()
+      await loadFeeds({})
       await loadItems(state.selectedFeedId)
 
       if (selectedItemId && selectedItemFeedId === feedId) {
@@ -198,7 +207,7 @@ export function createReaderFeedController(deps) {
         state.expandedItemId = null
         state.itemPage = 1
       }
-      await loadFeeds()
+      await loadFeeds({})
       await loadItems(state.selectedFeedId)
       setStatus("订阅已删除", "success")
     } catch (error) {
@@ -207,7 +216,8 @@ export function createReaderFeedController(deps) {
   }
 
   async function addFeed() {
-    const result = await readerApi.addFeed(els.feedUrl.value.trim())
+    const isPublic = els.feedPublic?.checked ?? true
+    const result = await readerApi.addFeed(els.feedUrl.value.trim(), { isPublic })
     state.lastOperation = { type: "addFeed", result }
     renderOperationSummary()
     els.feedUrl.value = ""
@@ -216,7 +226,7 @@ export function createReaderFeedController(deps) {
     if (result.feed?.feed_id) {
       state.selectedFeedId = result.feed.feed_id
     }
-    await loadFeeds()
+    await loadFeeds({})
     await loadItems(state.selectedFeedId)
   }
 
@@ -225,8 +235,23 @@ export function createReaderFeedController(deps) {
     state.lastOperation = { type: "import", result }
     renderOperationSummary()
     resetImportComposer()
-    await loadFeeds()
+    await loadFeeds({})
     await loadItems(state.selectedFeedId)
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+  }
+
+  async function waitForRefreshAllJob(job) {
+    let currentJob = job
+    while (currentJob?.status === "running") {
+      state.lastOperation = { type: "refreshAll", result: currentJob }
+      renderOperationSummary()
+      await wait(1500)
+      currentJob = await readerApi.getRefreshAllJob(currentJob.jobId)
+    }
+    return currentJob
   }
 
   async function refreshAllFeeds() {
@@ -236,12 +261,19 @@ export function createReaderFeedController(deps) {
         return
       }
       setStatus("正在刷新全部订阅源...")
-      const result = await readerApi.refreshAllFeeds()
+      const startedJob = await readerApi.refreshAllFeeds()
+      state.lastOperation = { type: "refreshAll", result: startedJob }
+      renderOperationSummary()
+      const result = startedJob?.jobId ? await waitForRefreshAllJob(startedJob) : startedJob
       state.lastOperation = { type: "refreshAll", result }
       renderOperationSummary()
-      await loadFeeds({ force: true })
+      await loadFeeds({ force: true, skipImmediateTranslations: true })
       state.itemPage = 1
-      await loadItems(state.selectedFeedId, { force: true, targetPage: 1 })
+      await loadItems(state.selectedFeedId, {
+        force: true,
+        targetPage: 1,
+        preserveSelection: true
+      })
     } catch (error) {
       setStatus(error.message, "error")
     }
@@ -280,9 +312,13 @@ export function createReaderFeedController(deps) {
       }
     }
 
-    await loadFeeds()
+    await loadFeeds({})
     state.itemPage = 1
-    await loadItems(state.selectedFeedId, { force: true, targetPage: 1 })
+    await loadItems(state.selectedFeedId, {
+      force: true,
+      targetPage: 1,
+      preserveSelection: true
+    })
     setStatus(`批量刷新完成 · 成功 ${successCount} · 失败 ${failedCount}`, failedCount ? "warning" : "success")
   }
 
@@ -328,7 +364,7 @@ export function createReaderFeedController(deps) {
       }
     }
 
-    await loadFeeds()
+    await loadFeeds({})
     setStatus(
       `${shouldUnshare ? "批量取消分享完成" : "批量分享完成"} · 成功 ${updatedCount} · 失败 ${failedCount}`,
       failedCount ? "warning" : "success"
@@ -374,7 +410,7 @@ export function createReaderFeedController(deps) {
       state.itemPage = 1
     }
     state.selectedFeedIds = []
-    await loadFeeds()
+    await loadFeeds({})
     await loadItems(state.selectedFeedId)
     setStatus(`批量删除完成 · 删除 ${deletedCount} · 失败 ${failedCount}`, failedCount ? "warning" : "success")
   }

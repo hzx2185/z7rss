@@ -31,8 +31,20 @@ export function createItemRouter({ itemService, config }) {
     const publishedSince = req.query.publishedSince
       ? parseIsoDateTime(req.query.publishedSince, "发布时间", { allowNull: true })
       : null;
+    const skipImmediateTranslations = req.query.skipImmediateTranslations === undefined
+      ? false
+      : parseBoolean(req.query.skipImmediateTranslations, "跳过即时翻译");
+    const includeTotal = req.query.includeTotal === undefined
+      ? true
+      : parseBoolean(req.query.includeTotal, "包含总数");
 
-    res.json(await itemService.listItems(req.auth.user.id, feedId, limit, { page, filter, publishedSince }));
+    res.json(await itemService.listItems(req.auth.user.id, feedId, limit, {
+      page,
+      filter,
+      publishedSince,
+      skipImmediateTranslations,
+      includeTotal
+    }));
   }));
 
   router.get("/counts", (req, res) => {
@@ -98,7 +110,11 @@ export function createItemRouter({ itemService, config }) {
   }));
 
   router.post("/:id/translate", aiLimiter, route(async (req, res) => {
-    res.json(await itemService.translateItem(req.auth.user, parseItemId(req.params.id)));
+    const body = expectObject(req.body || {});
+    const translationMode = body.translationMode === undefined && body.translation_mode === undefined
+      ? null
+      : parseEnum(body.translationMode ?? body.translation_mode, "翻译范围", ["title", "full"]);
+    res.json(await itemService.translateItem(req.auth.user, parseItemId(req.params.id), { translationMode }));
   }));
 
   router.post("/:id/summarize", aiLimiter, route(async (req, res) => {

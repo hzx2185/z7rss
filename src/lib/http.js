@@ -40,3 +40,15 @@ export function setSessionCookie(res, name, value, maxAgeSeconds, options = {}) 
 export function clearSessionCookie(res, name, options = {}) {
   res.setHeader("Set-Cookie", buildSessionCookie(name, "", 0, options));
 }
+
+export function describeFetchError(error) {
+  const code = String(error?.cause?.code || error?.code || "").trim().toUpperCase();
+  if (code === "ENOTFOUND") return "域名无法解析";
+  if (code === "ECONNREFUSED") return "连接被拒绝";
+  if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return "连接超时";
+  return String(error?.message || "连接失败").trim();
+}
+
+export function normalizeText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}

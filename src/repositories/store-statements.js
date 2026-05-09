@@ -429,6 +429,18 @@ export function createStoreStatements(db) {
       title = @title,
       site_url = @siteUrl,
       description = @description,
+      etag = COALESCE(@etag, etag),
+      last_modified = COALESCE(@lastModified, last_modified),
+      updated_at = CURRENT_TIMESTAMP,
+      last_fetched_at = CURRENT_TIMESTAMP,
+      last_error = NULL
+    WHERE id = @id
+  `);
+  const touchFeedFetchedStmt = db.prepare(`
+    UPDATE feeds
+    SET
+      etag = COALESCE(@etag, etag),
+      last_modified = COALESCE(@lastModified, last_modified),
       updated_at = CURRENT_TIMESTAMP,
       last_fetched_at = CURRENT_TIMESTAMP,
       last_error = NULL
@@ -447,6 +459,42 @@ export function createStoreStatements(db) {
     VALUES (@userId, @feedId, @customTitle, NULL, NULL, NULL)
   `);
   const listUserFeedsStmt = db.prepare(`
+    WITH user_feed_rows AS (
+      SELECT
+        uf.id,
+        uf.user_id,
+        uf.feed_id,
+        uf.custom_title,
+        uf.translated_title,
+        uf.translated_language,
+        uf.translated_source_title,
+        uf.category,
+        uf.is_archived,
+        uf.is_collapsed,
+        uf.translation_target_language,
+        uf.auto_translate,
+        uf.display_translated,
+        uf.translation_mode,
+        uf.is_public,
+        uf.created_at
+      FROM user_feeds uf
+      WHERE uf.user_id = @userId
+    ),
+    feed_item_counts AS (
+      SELECT i.feed_id, COUNT(*) AS item_count
+      FROM items i
+      JOIN user_feed_rows uf ON uf.feed_id = i.feed_id
+      GROUP BY i.feed_id
+    ),
+    feed_read_counts AS (
+      SELECT i.feed_id, COUNT(*) AS read_count
+      FROM user_item_states uis
+      JOIN items i ON i.id = uis.item_id
+      JOIN user_feed_rows uf ON uf.feed_id = i.feed_id
+      WHERE uis.user_id = @userId
+        AND uis.is_read = 1
+      GROUP BY i.feed_id
+    )
     SELECT
       uf.id,
       uf.user_id,
@@ -470,14 +518,13 @@ export function createStoreStatements(db) {
       f.description,
       f.last_fetched_at,
       f.last_error,
-      COUNT(i.id) AS item_count,
-      COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND COALESCE(uis.is_read, 0) = 0 THEN 1 ELSE 0 END), 0) AS unread_count
-    FROM user_feeds uf
+      COALESCE(fic.item_count, 0) AS item_count,
+      MAX(COALESCE(fic.item_count, 0) - COALESCE(frc.read_count, 0), 0) AS unread_count
+    FROM user_feed_rows uf
     JOIN feeds f ON f.id = uf.feed_id
-    LEFT JOIN items i ON i.feed_id = f.id
-    LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
-    WHERE uf.user_id = ?
-    GROUP BY uf.id
+    LEFT JOIN feed_item_counts fic ON fic.feed_id = f.id
+    LEFT JOIN feed_read_counts frc ON frc.feed_id = f.id
+    WHERE uf.user_id = @userId
     ORDER BY uf.created_at DESC
   `);
   const countUserFeedsStmt = db.prepare(`SELECT COUNT(*) AS count FROM user_feeds WHERE user_id = ?`);
@@ -487,6 +534,19 @@ export function createStoreStatements(db) {
     WHERE user_id = ? AND is_favorited = 1
   `);
   const getUserFeedStmt = db.prepare(`
+    WITH feed_item_count AS (
+      SELECT COUNT(*) AS item_count
+      FROM items
+      WHERE feed_id = @feedId
+    ),
+    feed_read_count AS (
+      SELECT COUNT(*) AS read_count
+      FROM user_item_states uis
+      JOIN items i ON i.id = uis.item_id
+      WHERE uis.user_id = @userId
+        AND uis.is_read = 1
+        AND i.feed_id = @feedId
+    )
     SELECT
       uf.id,
       uf.user_id,
@@ -510,14 +570,13 @@ export function createStoreStatements(db) {
       f.description,
       f.last_fetched_at,
       f.last_error,
-      COUNT(i.id) AS item_count,
-      COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND COALESCE(uis.is_read, 0) = 0 THEN 1 ELSE 0 END), 0) AS unread_count
+      COALESCE(fic.item_count, 0) AS item_count,
+      MAX(COALESCE(fic.item_count, 0) - COALESCE(frc.read_count, 0), 0) AS unread_count
     FROM user_feeds uf
     JOIN feeds f ON f.id = uf.feed_id
-    LEFT JOIN items i ON i.feed_id = f.id
-    LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
-    WHERE uf.user_id = ? AND uf.feed_id = ?
-    GROUP BY uf.id
+    CROSS JOIN feed_item_count fic
+    CROSS JOIN feed_read_count frc
+    WHERE uf.user_id = @userId AND uf.feed_id = @feedId
   `);
   const unlinkUserFeedStmt = db.prepare(`DELETE FROM user_feeds WHERE user_id = ? AND feed_id = ?`);
   const updateUserFeedCustomTitleStmt = db.prepare(`
@@ -569,6 +628,22 @@ export function createStoreStatements(db) {
     LIMIT ?
   `);
   const listUserItemsStmt = db.prepare(`
+    WITH page_items AS (
+      SELECT
+        i.id,
+        COALESCE(i.published_at, i.created_at) AS sort_at
+      FROM items i
+      JOIN user_feeds page_uf ON page_uf.feed_id = i.feed_id
+      LEFT JOIN user_item_states page_uis ON page_uis.item_id = i.id AND page_uis.user_id = page_uf.user_id
+      WHERE page_uf.user_id = @userId
+        AND (@feedId IS NULL OR i.feed_id = @feedId)
+        AND (@favoritesOnly = 0 OR COALESCE(page_uis.is_favorited, 0) = 1)
+        AND (@readState = -1 OR COALESCE(page_uis.is_read, 0) = @readState)
+        AND (@publishedSince IS NULL OR COALESCE(i.published_at, i.created_at) >= @publishedSince)
+      ORDER BY COALESCE(i.published_at, i.created_at) DESC, i.id DESC
+      LIMIT @limit
+      OFFSET @offset
+    )
     SELECT
       i.id,
       i.feed_id,
@@ -604,18 +679,68 @@ export function createStoreStatements(db) {
       COALESCE(uis.is_read, 0) AS is_read,
       COALESCE(uis.is_favorited, 0) AS is_favorited,
       uis.last_opened_at
-    FROM items i
+    FROM page_items page
+    JOIN items i ON i.id = page.id
     JOIN feeds f ON f.id = i.feed_id
-    JOIN user_feeds uf ON uf.feed_id = f.id
+    JOIN user_feeds uf ON uf.feed_id = f.id AND uf.user_id = @userId
     LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
-    WHERE uf.user_id = @userId
-      AND (@feedId IS NULL OR i.feed_id = @feedId)
-      AND (@favoritesOnly = 0 OR COALESCE(uis.is_favorited, 0) = 1)
-      AND (@readState = -1 OR COALESCE(uis.is_read, 0) = @readState)
-      AND (@publishedSince IS NULL OR COALESCE(i.published_at, i.created_at) >= @publishedSince)
-    ORDER BY COALESCE(i.published_at, i.created_at) DESC
-    LIMIT @limit
-    OFFSET @offset
+    ORDER BY page.sort_at DESC, i.id DESC
+  `);
+  const listUserItemsFastStmt = db.prepare(`
+    WITH page_items AS (
+      SELECT
+        i.id,
+        COALESCE(i.published_at, i.created_at) AS sort_at
+      FROM items i
+      JOIN user_feeds page_uf ON page_uf.feed_id = i.feed_id
+      WHERE page_uf.user_id = @userId
+        AND (@feedId IS NULL OR i.feed_id = @feedId)
+        AND (@publishedSince IS NULL OR COALESCE(i.published_at, i.created_at) >= @publishedSince)
+      ORDER BY COALESCE(i.published_at, i.created_at) DESC, i.id DESC
+      LIMIT @limit
+      OFFSET @offset
+    )
+    SELECT
+      i.id,
+      i.feed_id,
+      i.title,
+      i.link,
+      i.author,
+      i.summary,
+      CASE
+        WHEN COALESCE(i.summary, '') <> '' THEN ''
+        ELSE substr(COALESCE(NULLIF(i.content_text, ''), NULLIF(i.content_html, ''), ''), 1, 240)
+      END AS content_excerpt,
+      CASE
+        WHEN COALESCE(NULLIF(i.content_text, ''), NULLIF(i.content_html, '')) IS NOT NULL THEN 1
+        ELSE 0
+      END AS content_loaded,
+      i.published_at,
+      i.created_at,
+      NULLIF(i.ai_summary, '') IS NOT NULL AS has_ai_summary,
+      COALESCE(NULLIF(uf.custom_title, ''), f.title) AS feed_title,
+      uf.translated_title AS feed_user_translated_title,
+      uf.translated_language AS feed_user_translated_language,
+      uf.translated_source_title AS feed_user_translated_source_title,
+      uf.translation_target_language AS feed_translation_target_language,
+      uf.auto_translate AS feed_auto_translate,
+      uf.display_translated AS feed_display_translated,
+      uf.translation_mode AS feed_translation_mode,
+      uis.translated_title AS user_translated_title,
+      uis.translated_text AS user_translated_text,
+      uis.translated_language AS user_translated_language,
+      i.translated_title AS legacy_translated_title,
+      i.translated_text AS legacy_translated_text,
+      i.translated_language AS legacy_translated_language,
+      COALESCE(uis.is_read, 0) AS is_read,
+      COALESCE(uis.is_favorited, 0) AS is_favorited,
+      uis.last_opened_at
+    FROM page_items page
+    JOIN items i ON i.id = page.id
+    JOIN feeds f ON f.id = i.feed_id
+    JOIN user_feeds uf ON uf.feed_id = f.id AND uf.user_id = @userId
+    LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
+    ORDER BY page.sort_at DESC, i.id DESC
   `);
   const countUserItemsStmt = db.prepare(`
     SELECT COUNT(*) AS count
@@ -639,6 +764,38 @@ export function createStoreStatements(db) {
     JOIN user_feeds uf ON uf.feed_id = i.feed_id
     LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
     WHERE uf.user_id = @userId
+  `);
+  const getUserItemStatsStmt = db.prepare(`SELECT * FROM user_item_stats WHERE user_id = ?`);
+  const upsertUserItemStatsStmt = db.prepare(`
+    INSERT INTO user_item_stats (
+      user_id, all_count, today_since, today_count, favorite_count, unread_count, dirty, updated_at
+    ) VALUES (
+      @userId, @allCount, @todaySince, @todayCount, @favoriteCount, @unreadCount, 0, CURRENT_TIMESTAMP
+    )
+    ON CONFLICT(user_id) DO UPDATE SET
+      all_count = excluded.all_count,
+      today_since = excluded.today_since,
+      today_count = excluded.today_count,
+      favorite_count = excluded.favorite_count,
+      unread_count = excluded.unread_count,
+      dirty = 0,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  const markUserItemStatsDirtyStmt = db.prepare(`
+    INSERT INTO user_item_stats (user_id, dirty)
+    VALUES (?, 1)
+    ON CONFLICT(user_id) DO UPDATE SET
+      dirty = 1,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  const markFeedSubscribersItemStatsDirtyStmt = db.prepare(`
+    INSERT INTO user_item_stats (user_id, dirty)
+    SELECT user_id, 1
+    FROM user_feeds
+    WHERE feed_id = ?
+    ON CONFLICT(user_id) DO UPDATE SET
+      dirty = 1,
+      updated_at = CURRENT_TIMESTAMP
   `);
   const listUserItemIdsStmt = db.prepare(`
     SELECT i.id
@@ -735,6 +892,16 @@ export function createStoreStatements(db) {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = @id
   `);
+  const listFeedItemsShortContentStmt = db.prepare(`
+    SELECT id, title, link, original_url, content_text, content_html, author, summary
+    FROM items
+    WHERE feed_id = @feedId
+      AND LENGTH(COALESCE(content_text, '')) < @minLength
+      AND link IS NOT NULL
+      AND link != ''
+    ORDER BY created_at DESC
+    LIMIT @limit
+  `);
   const updateTranslationStmt = db.prepare(`
     UPDATE items
     SET
@@ -811,6 +978,11 @@ export function createStoreStatements(db) {
       translated_text = excluded.translated_text,
       translated_language = excluded.translated_language,
       updated_at = CURRENT_TIMESTAMP
+  `);
+  const clearItemTranslationsStmt = db.prepare(`
+    UPDATE user_item_states
+    SET translated_title = NULL, translated_text = NULL, translated_language = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE item_id = @itemId AND translated_text IS NOT NULL
   `);
   const getFeedRetentionLimitStmt = db.prepare(`
     SELECT MAX(COALESCE(p.max_saved_items, free_plan.max_saved_items)) AS keep_count
@@ -1089,6 +1261,7 @@ export function createStoreStatements(db) {
     getFeedByUrlStmt,
     createFeedStmt,
     updateFeedMetaStmt,
+    touchFeedFetchedStmt,
     updateFeedAutoCategoryStmt,
     updateFeedErrorStmt,
     linkUserFeedStmt,
@@ -1103,8 +1276,13 @@ export function createStoreStatements(db) {
     listAdminFeedsStmt,
     listPublicFeedsStmt,
     listUserItemsStmt,
+    listUserItemsFastStmt,
     countUserItemsStmt,
     countUserItemBucketsStmt,
+    getUserItemStatsStmt,
+    upsertUserItemStatsStmt,
+    markUserItemStatsDirtyStmt,
+    markFeedSubscribersItemStatsDirtyStmt,
     listUserItemIdsStmt,
     listAdminItemsStmt,
     getUserItemStmt,
@@ -1119,6 +1297,7 @@ export function createStoreStatements(db) {
     upsertUserItemReadStateBulkTx,
     upsertUserItemFavoriteStateStmt,
     upsertUserItemTranslationStmt,
+    clearItemTranslationsStmt,
     getFeedRetentionLimitStmt,
     deleteFeedItemsStmt,
     deleteOrphanFeedsStmt,

@@ -1,7 +1,9 @@
 import { badGateway, badRequest } from "../lib/errors.js";
+import { describeFetchError } from "../lib/http.js";
 
 const SERVER_TRANSLATION_PROVIDERS = new Set(["ai", "google", "bing", "deeplx"]);
 const PROVIDER_LABELS = {
+  local: "本地转换",
   ai: "AI 翻译",
   google: "谷歌翻译",
   bing: "必应翻译",
@@ -79,6 +81,11 @@ function parseResponseError(payload, fallbackText = "") {
   return String(fallbackText || "").trim();
 }
 
+function parseResponseErrorCode(payload) {
+  const code = payload?.error?.code ?? payload?.code ?? "";
+  return String(code || "").trim();
+}
+
 function readGoogleWebTranslation(payload) {
   if (!Array.isArray(payload)) return "";
   const segments = Array.isArray(payload[0]) ? payload[0] : [];
@@ -86,6 +93,40 @@ function readGoogleWebTranslation(payload) {
     .map((entry) => (Array.isArray(entry) ? String(entry[0] || "") : ""))
     .join("")
     .trim();
+}
+
+function normalizeAzureRegion(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function buildBingTranslateUrl(baseUrl, target) {
+  const normalizedBaseUrl =
+    String(baseUrl || "").trim().replace(/[,\/]+$/, "") || "https://api.cognitive.microsofttranslator.com";
+  const params = `api-version=3.0&to=${encodeURIComponent(target)}&textType=plain`;
+  let parsed;
+  try {
+    parsed = new URL(normalizedBaseUrl);
+  } catch (_error) {
+    return `${normalizedBaseUrl}/translate?${params}`;
+  }
+
+  const path = parsed.pathname.replace(/\/+$/, "");
+  if (path.endsWith("/translate")) {
+    parsed.search = parsed.search ? `${parsed.search}&to=${encodeURIComponent(target)}&textType=plain` : `?${params}`;
+    return parsed.toString();
+  }
+
+  if (path.endsWith("/translator/text/v3.0")) {
+    parsed.pathname = `${path}/translate`;
+  } else if (parsed.hostname === "api.cognitive.microsofttranslator.com") {
+    parsed.pathname = `${path}/translate`;
+  } else if (parsed.hostname.endsWith(".cognitiveservices.azure.com")) {
+    parsed.pathname = `${path}/translator/text/v3.0/translate`;
+  } else {
+    parsed.pathname = `${path}/translate`;
+  }
+  parsed.search = `?${params}`;
+  return parsed.toString();
 }
 
 export function getTranslationProviderLabel(provider) {
@@ -107,14 +148,6 @@ export function supportsServerTranslation(provider) {
 }
 
 export function createTranslator({ ai }) {
-  function describeFetchError(error) {
-    const code = String(error?.cause?.code || error?.code || "").trim().toUpperCase();
-    if (code === "ENOTFOUND") return "域名无法解析";
-    if (code === "ECONNREFUSED") return "连接被拒绝";
-    if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return "连接超时";
-    return String(error?.message || "连接失败").trim();
-  }
-
   async function translateWithGoogle(runtimeConfig, text) {
     const apiKey = String(runtimeConfig?.apiKey || "").trim();
     const target = getProviderTargetCode("google", runtimeConfig?.targetLanguage);
@@ -142,7 +175,11 @@ export function createTranslator({ ai }) {
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         const errorText = parseResponseError(payload);
-        throw badGateway(`谷歌翻译请求失败: ${response.status}${errorText ? ` ${errorText}` : ""}`, {
+        const authHint =
+          response.status === 400 && /api key not valid|api_key_invalid|key not valid/i.test(errorText)
+            ? " 请确认这是已启用 Cloud Translation API 的 Google Cloud API Key；如果想使用免 Key 翻译，请清空谷歌翻译 API Key。"
+            : "";
+        throw badGateway(`谷歌翻译请求失败: ${response.status}${errorText ? ` ${errorText}` : ""}${authHint}`, {
           code: "translation_request_failed"
         });
       }
@@ -182,21 +219,33 @@ export function createTranslator({ ai }) {
       throw badRequest("系统未配置必应翻译 API Key", { code: "translation_provider_unconfigured" });
     }
 
-    const baseUrl = String(runtimeConfig?.baseUrl || "").trim().replace(/\/$/, "") || "https://api.cognitive.microsofttranslator.com";
     const target = getProviderTargetCode("bing", runtimeConfig?.targetLanguage);
+    const url = buildBingTranslateUrl(runtimeConfig?.baseUrl, target);
+    const region = normalizeAzureRegion(runtimeConfig?.region);
+    const createHeaders = (includeRegion = true) => ({
+      "content-type": "application/json",
+      "Ocp-Apim-Subscription-Key": apiKey,
+      ...(includeRegion && region
+        ? { "Ocp-Apim-Subscription-Region": region }
+        : {})
+    });
+    const body = JSON.stringify([{ Text: String(text || "") }]);
     let response;
+    let sentRegion = Boolean(region);
     try {
-      response = await fetch(`${baseUrl}/translate?api-version=3.0&to=${encodeURIComponent(target)}&textType=plain`, {
+      response = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "Ocp-Apim-Subscription-Key": apiKey,
-          ...(String(runtimeConfig?.region || "").trim()
-            ? { "Ocp-Apim-Subscription-Region": String(runtimeConfig.region).trim() }
-            : {})
-        },
-        body: JSON.stringify([{ text: String(text || "") }])
+        headers: createHeaders(true),
+        body
       });
+      if (response.status === 401 && region) {
+        response = await fetch(url, {
+          method: "POST",
+          headers: createHeaders(false),
+          body
+        });
+        sentRegion = false;
+      }
     } catch (error) {
       throw badGateway(`必应翻译连接失败: ${describeFetchError(error)}`, {
         code: "translation_request_failed"
@@ -206,7 +255,19 @@ export function createTranslator({ ai }) {
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       const errorText = parseResponseError(payload);
-      throw badGateway(`必应翻译请求失败: ${response.status}${errorText ? ` ${errorText}` : ""}`, {
+      const errorCode = parseResponseErrorCode(payload);
+      const errorDetail = errorCode ? ` 错误码: ${errorCode}.` : "";
+      const authHint =
+        response.status === 401
+          ? ` 微软返回认证失败，这不是额度用完；请确认 API Key 来自 Translator 资源、Region 与资源一致，Endpoint 使用资源页的地址或 https://api.cognitive.microsofttranslator.com。${
+              !region ? " 当前未配置 Region，大多数 Azure Translator 资源是区域资源，需要在后台填写 Region（如 eastasia、southeastasia）。" : sentRegion ? "" : " 已自动尝试不带 Region 的全局资源认证。"
+            }`
+          : response.status === 403
+            ? " 微软拒绝访问，通常是订阅、权限、资源类型或配额状态不允许当前请求。"
+            : response.status === 429
+              ? " 微软返回限流或额度耗尽，请稍后重试或检查 Azure Translator 配额。"
+              : "";
+      throw badGateway(`必应翻译请求失败: ${response.status}${errorCode ? ` ${errorCode}` : ""}${errorText ? ` ${errorText}` : ""}${errorDetail}${authHint}`, {
         code: "translation_request_failed"
       });
     }
@@ -220,13 +281,15 @@ export function createTranslator({ ai }) {
       throw badRequest("系统未配置 DeepLX 接口地址", { code: "translation_provider_unconfigured" });
     }
 
+    const apiKey = String(runtimeConfig?.apiKey || "").trim();
     const target = getProviderTargetCode("deeplx", runtimeConfig?.targetLanguage);
     let response;
     try {
       response = await fetch(baseUrl, {
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
         },
         body: JSON.stringify({
           text: String(text || ""),

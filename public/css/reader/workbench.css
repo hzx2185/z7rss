@@ -44,6 +44,48 @@
   gap: 8px;
 }
 
+.reader-compose-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.reader-compose-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.reader-compose-option span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.reader-compose-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-compose-option-row .reader-compose-option {
+  flex: 0 0 auto;
+}
+
+.reader-compose-option-row button {
+  flex: 1 1 auto;
+  min-width: 60px;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .reader-feed-panel > input[type="search"],
 .reader-search-input {
   width: 100%;

@@ -4,21 +4,23 @@ import {
   formatDate,
   safeHtml,
   safeSet
-} from "./shared-ui.js"
+} from "./shared-ui.js?v=2"
 import {
   formatDuration,
   formatRefreshStatus,
   formatRefreshTrigger
-} from "./admin-formatters.js"
-import { getAdminUserSecurityState } from "./admin-user-security.js"
-import { getAdminElements } from "./admin-elements.js"
-import { createAdminRefreshPanel } from "./admin-refresh-panel.js"
-import { createAdminDashboard } from "./admin-dashboard.js"
+} from "./admin-formatters.js?v=2"
+import { getAdminUserSecurityState } from "./admin-user-security.js?v=2"
+import { getAdminElements } from "./admin-elements.js?v=2"
+import { createAdminRefreshPanel } from "./admin-refresh-panel.js?v=2"
+import { createAdminDashboard } from "./admin-dashboard.js?v=2"
 
 const state = {
   me: null,
   admin: null,
   config: null,
+  translationProviderPoolDraft: [],
+  aiProviderPoolDraft: [],
   expandedUserSecurityId: null,
   userSecurity: {}
 }
@@ -67,6 +69,8 @@ const {
 const dashboard = createAdminDashboard({
   actions: {
     deleteUser: (...args) => deleteUser(...args),
+    exportUserData: (...args) => exportUserData(...args),
+    importUserData: (...args) => importUserData(...args),
     resetUserPassword: (...args) => resetUserPassword(...args),
     revokeAllUserSessions: (...args) => revokeAllUserSessions(...args),
     revokeUserSession: (...args) => revokeUserSession(...args),
@@ -79,6 +83,10 @@ const dashboard = createAdminDashboard({
     toggleBlockedSite: (...args) => toggleBlockedSite(...args),
     togglePlugin: (...args) => togglePlugin(...args),
     toggleRule: (...args) => toggleRule(...args),
+    editTranslationProviderPoolEntry: (...args) => editTranslationProviderPoolEntry(...args),
+    removeTranslationProviderPoolEntry: (...args) => removeTranslationProviderPoolEntry(...args),
+    editAiPoolEntry: (...args) => editAiPoolEntry(...args),
+    removeAiPoolEntry: (...args) => removeAiPoolEntry(...args),
     toggleUserSecurity: (...args) => toggleUserSecurity(...args),
     updateUser: (...args) => updateUser(...args),
     updateUserSubscription: (...args) => updateUserSubscription(...args)
@@ -118,6 +126,315 @@ async function loadAdmin() {
     return
   }
   state.admin = await api("/api/admin/dashboard")
+  state.translationProviderPoolDraft = getTranslationProviderPoolFromSettings()
+  state.aiProviderPoolDraft = getAiProviderPoolFromSettings()
+  renderAdminDashboard()
+}
+
+function getTranslationProviderPoolFromSettings() {
+  const configs = state.admin?.settings?.translation_provider_pool?.configs
+  return (Array.isArray(configs) ? configs : []).map((entry, index) => ({
+    id: String(entry.id || `${entry.provider || "provider"}-${index + 1}`),
+    provider: String(entry.provider || "deeplx"),
+    name: String(entry.name || ""),
+    baseUrl: String(entry.baseUrl || entry.base_url || ""),
+    region: String(entry.region || ""),
+    enabled: entry.enabled !== false,
+    priority: Number(entry.priority || index + 1),
+    apiKeyConfigured: Boolean(entry.api_key_configured || entry.apiKeyConfigured),
+    apiKey: String(entry.apiKey || entry.api_key || "")
+  })).sort((a, b) => a.priority - b.priority)
+}
+
+function openTranslationPoolModal() {
+  els.adminTranslationPoolModal?.classList.remove("hidden")
+  els.adminTranslationPoolModal?.setAttribute("aria-hidden", "false")
+  document.body.classList.add("admin-modal-open")
+}
+
+function closeTranslationPoolModal() {
+  if (els.adminTranslationPoolModal?.contains(document.activeElement)) {
+    document.activeElement.blur()
+  }
+  els.adminTranslationPoolModal?.classList.add("hidden")
+  els.adminTranslationPoolModal?.setAttribute("aria-hidden", "true")
+  document.body.classList.remove("admin-modal-open")
+}
+
+function updateTranslationPoolProviderFields() {
+  const provider = els.settingTranslationProviderPoolProvider?.value || "deeplx"
+  const showRegion = provider === "bing"
+  if (els.settingTranslationProviderPoolRegionRow) {
+    els.settingTranslationProviderPoolRegionRow.classList.toggle("hidden", !showRegion)
+  }
+  if (!showRegion && els.settingTranslationProviderPoolRegion) {
+    els.settingTranslationProviderPoolRegion.value = ""
+  }
+  if (els.settingTranslationProviderPoolBaseUrl) {
+    const placeholders = {
+      google: "留空使用 Google 官方接口",
+      bing: "https://api.cognitive.microsofttranslator.com 或 Azure Endpoint",
+      deeplx: "https://你的 DeepLX 服务/translate",
+      ai: "https://api.openai.com/v1"
+    }
+    els.settingTranslationProviderPoolBaseUrl.placeholder = placeholders[provider] || "https://..."
+  }
+  if (els.settingTranslationProviderPoolApiKey) {
+    const id = String(els.settingTranslationProviderPoolEditId?.value || "").trim()
+    const existing = id ? state.translationProviderPoolDraft?.find((entry) => entry.id === id) : null
+    const canKeep = Boolean(existing?.apiKeyConfigured && existing.provider === provider)
+    els.settingTranslationProviderPoolApiKey.placeholder = canKeep
+      ? "已回填，清空后保存会删除 Key"
+      : provider === "google"
+        ? "留空使用 Google 免 Key 模式"
+        : "请输入此供应商的 API Key"
+  }
+}
+
+function resetTranslationProviderPoolForm() {
+  if (els.settingTranslationProviderPoolEditId) els.settingTranslationProviderPoolEditId.value = ""
+  if (els.settingTranslationProviderPoolProvider) {
+    els.settingTranslationProviderPoolProvider.value = "deeplx"
+  }
+  if (els.settingTranslationProviderPoolName) els.settingTranslationProviderPoolName.value = ""
+  if (els.settingTranslationProviderPoolEnabled) els.settingTranslationProviderPoolEnabled.value = "1"
+  if (els.settingTranslationProviderPoolBaseUrl) els.settingTranslationProviderPoolBaseUrl.value = ""
+  if (els.settingTranslationProviderPoolRegion) els.settingTranslationProviderPoolRegion.value = ""
+  if (els.settingTranslationProviderPoolApiKey) {
+    els.settingTranslationProviderPoolApiKey.value = ""
+    els.settingTranslationProviderPoolApiKey.placeholder = "编辑时留空表示保留"
+  }
+  if (els.settingTranslationProviderPoolPriority) els.settingTranslationProviderPoolPriority.value = ""
+  if (els.adminTranslationPoolTitle) els.adminTranslationPoolTitle.textContent = "添加翻译 API"
+  updateTranslationPoolProviderFields()
+  closeTranslationPoolModal()
+}
+
+function normalizeTranslationProviderPoolPriorities() {
+  state.translationProviderPoolDraft = [...state.translationProviderPoolDraft].sort((a, b) => (a.priority || 1) - (b.priority || 1))
+}
+
+async function saveTranslationProviderPoolDraft() {
+  try {
+    await api("/api/admin/settings/translation_provider_pool", {
+      method: "POST",
+      body: JSON.stringify({
+        configs: JSON.stringify([...state.translationProviderPoolDraft]
+          .sort((a, b) => (a.priority || 1) - (b.priority || 1))
+          .map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            provider: entry.provider,
+            baseUrl: entry.baseUrl,
+            region: entry.region,
+            apiKey: entry.apiKey || (entry.apiKeyConfigured ? "__KEEP__" : ""),
+            priority: entry.priority || 1,
+            enabled: entry.enabled !== false
+          })))
+      })
+    })
+    setStatus("翻译接口已保存")
+  } catch (error) {
+    setStatus(error.message)
+  }
+}
+
+async function upsertTranslationProviderPoolEntry() {
+  const editId = String(els.settingTranslationProviderPoolEditId?.value || "").trim()
+  const existing = editId ? state.translationProviderPoolDraft.find((entry) => entry.id === editId) : null
+  const provider = els.settingTranslationProviderPoolProvider?.value || "deeplx"
+  const name = String(els.settingTranslationProviderPoolName?.value || "").trim()
+  const baseUrl = String(els.settingTranslationProviderPoolBaseUrl?.value || "").trim()
+  const region = String(els.settingTranslationProviderPoolRegion?.value || "").trim()
+  const rawApiKey = String(els.settingTranslationProviderPoolApiKey?.value || "").trim()
+  const id = editId || `${provider}-${Date.now().toString(36)}`
+  const entry = {
+    id,
+    provider,
+    name: name || `${provider.toUpperCase()} API`,
+    baseUrl,
+    region,
+    enabled: (els.settingTranslationProviderPoolEnabled?.value || "1") === "1",
+    priority: Math.max(1, Number(els.settingTranslationProviderPoolPriority?.value) || (existing?.priority || state.translationProviderPoolDraft.length + 1)),
+    apiKeyConfigured: Boolean(rawApiKey),
+    apiKey: rawApiKey
+  }
+  if (existing) {
+    state.translationProviderPoolDraft = state.translationProviderPoolDraft.map((item) => (item.id === editId ? entry : item))
+  } else {
+    state.translationProviderPoolDraft = [...state.translationProviderPoolDraft, entry]
+  }
+  normalizeTranslationProviderPoolPriorities()
+  await saveTranslationProviderPoolDraft()
+  resetTranslationProviderPoolForm()
+  renderAdminDashboard()
+}
+
+function editTranslationProviderPoolEntry(id) {
+  const entry = state.translationProviderPoolDraft.find((item) => item.id === id)
+  if (!entry) return
+  if (els.settingTranslationProviderPoolEditId) els.settingTranslationProviderPoolEditId.value = entry.id
+  if (els.settingTranslationProviderPoolProvider) {
+    els.settingTranslationProviderPoolProvider.value = entry.provider
+  }
+  if (els.settingTranslationProviderPoolName) els.settingTranslationProviderPoolName.value = entry.name || ""
+  if (els.settingTranslationProviderPoolEnabled) els.settingTranslationProviderPoolEnabled.value = entry.enabled === false ? "0" : "1"
+  if (els.settingTranslationProviderPoolBaseUrl) els.settingTranslationProviderPoolBaseUrl.value = entry.baseUrl || ""
+  if (els.settingTranslationProviderPoolRegion) els.settingTranslationProviderPoolRegion.value = entry.region || ""
+  if (els.settingTranslationProviderPoolApiKey) {
+    els.settingTranslationProviderPoolApiKey.value = entry.apiKey || ""
+  }
+  if (els.settingTranslationProviderPoolPriority) els.settingTranslationProviderPoolPriority.value = String(entry.priority || 1)
+  if (els.adminTranslationPoolTitle) els.adminTranslationPoolTitle.textContent = "修改翻译 API"
+  updateTranslationPoolProviderFields()
+  openTranslationPoolModal()
+}
+
+async function removeTranslationProviderPoolEntry(id) {
+  state.translationProviderPoolDraft = state.translationProviderPoolDraft.filter((entry) => entry.id !== id)
+  normalizeTranslationProviderPoolPriorities()
+  await saveTranslationProviderPoolDraft()
+  resetTranslationProviderPoolForm()
+  renderAdminDashboard()
+}
+
+function getAiProviderPoolFromSettings() {
+  const configs = state.admin?.settings?.ai_provider_pool?.configs
+  return (Array.isArray(configs) ? configs : []).map((entry, index) => ({
+    id: String(entry.id || `ai-${index + 1}`),
+    name: String(entry.name || ""),
+    baseUrl: String(entry.baseUrl || entry.base_url || ""),
+    model: String(entry.model || ""),
+    translatePrompt: String(entry.translatePrompt || entry.translate_prompt || ""),
+    summaryPrompt: String(entry.summaryPrompt || entry.summary_prompt || ""),
+    maxInputChars: Number(entry.maxInputChars || entry.max_input_chars || 0),
+    enabled: entry.enabled !== false,
+    priority: Number(entry.priority || index + 1),
+    apiKeyConfigured: Boolean(entry.api_key_configured || entry.apiKeyConfigured),
+    apiKey: String(entry.apiKey || entry.api_key || "")
+  })).sort((a, b) => a.priority - b.priority)
+}
+
+function openAiPoolModal() {
+  els.adminAiPoolModal?.classList.remove("hidden")
+  els.adminAiPoolModal?.setAttribute("aria-hidden", "false")
+  document.body.classList.add("admin-modal-open")
+}
+
+function closeAiPoolModal() {
+  if (els.adminAiPoolModal?.contains(document.activeElement)) {
+    document.activeElement.blur()
+  }
+  els.adminAiPoolModal?.classList.add("hidden")
+  els.adminAiPoolModal?.setAttribute("aria-hidden", "true")
+  document.body.classList.remove("admin-modal-open")
+}
+
+function resetAiPoolForm() {
+  if (els.settingAiPoolEditId) els.settingAiPoolEditId.value = ""
+  if (els.settingAiPoolName) els.settingAiPoolName.value = ""
+  if (els.settingAiPoolEnabled) els.settingAiPoolEnabled.value = "1"
+  if (els.settingAiPoolPriority) els.settingAiPoolPriority.value = ""
+  if (els.settingAiPoolBaseUrl) els.settingAiPoolBaseUrl.value = ""
+  if (els.settingAiPoolApiKey) {
+    els.settingAiPoolApiKey.value = ""
+    els.settingAiPoolApiKey.placeholder = "编辑时留空表示保留"
+  }
+  if (els.settingAiPoolModel) els.settingAiPoolModel.value = ""
+  if (els.settingAiPoolTranslatePrompt) els.settingAiPoolTranslatePrompt.value = ""
+  if (els.settingAiPoolSummaryPrompt) els.settingAiPoolSummaryPrompt.value = ""
+  if (els.settingAiPoolMaxInputChars) els.settingAiPoolMaxInputChars.value = ""
+  if (els.adminAiPoolTitle) els.adminAiPoolTitle.textContent = "添加 AI"
+  closeAiPoolModal()
+}
+
+function normalizeAiPoolPriorities() {
+  state.aiProviderPoolDraft = [...state.aiProviderPoolDraft].sort((a, b) => (a.priority || 1) - (b.priority || 1))
+}
+
+async function saveAiProviderPoolDraft() {
+  try {
+    await api("/api/admin/settings/ai_provider_pool", {
+      method: "POST",
+      body: JSON.stringify({
+        configs: JSON.stringify([...state.aiProviderPoolDraft]
+          .sort((a, b) => (a.priority || 1) - (b.priority || 1))
+          .map((entry) => ({
+            id: entry.id,
+            name: entry.name,
+            baseUrl: entry.baseUrl,
+            apiKey: entry.apiKey || (entry.apiKeyConfigured ? "__KEEP__" : ""),
+            model: entry.model,
+            translatePrompt: entry.translatePrompt,
+            summaryPrompt: entry.summaryPrompt,
+            maxInputChars: entry.maxInputChars || 0,
+            priority: entry.priority || 1,
+            enabled: entry.enabled !== false
+          })))
+      })
+    })
+    setStatus("AI 接口已保存")
+  } catch (error) {
+    setStatus(error.message)
+  }
+}
+
+async function upsertAiPoolEntry() {
+  const editId = String(els.settingAiPoolEditId?.value || "").trim()
+  const existing = editId ? state.aiProviderPoolDraft.find((entry) => entry.id === editId) : null
+  const name = String(els.settingAiPoolName?.value || "").trim()
+  const baseUrl = String(els.settingAiPoolBaseUrl?.value || "").trim()
+  const rawApiKey = String(els.settingAiPoolApiKey?.value || "").trim()
+  const id = editId || `ai-${Date.now().toString(36)}`
+  const entry = {
+    id,
+    name: name || "AI API",
+    baseUrl,
+    model: String(els.settingAiPoolModel?.value || "").trim(),
+    translatePrompt: String(els.settingAiPoolTranslatePrompt?.value || "").trim(),
+    summaryPrompt: String(els.settingAiPoolSummaryPrompt?.value || "").trim(),
+    maxInputChars: Math.max(0, Number(els.settingAiPoolMaxInputChars?.value) || 0),
+    enabled: (els.settingAiPoolEnabled?.value || "1") === "1",
+    priority: Math.max(1, Number(els.settingAiPoolPriority?.value) || (existing?.priority || state.aiProviderPoolDraft.length + 1)),
+    apiKeyConfigured: Boolean(rawApiKey),
+    apiKey: rawApiKey
+  }
+  if (existing) {
+    state.aiProviderPoolDraft = state.aiProviderPoolDraft.map((item) => (item.id === editId ? entry : item))
+  } else {
+    state.aiProviderPoolDraft = [...state.aiProviderPoolDraft, entry]
+  }
+  normalizeAiPoolPriorities()
+  await saveAiProviderPoolDraft()
+  resetAiPoolForm()
+  renderAdminDashboard()
+}
+
+function editAiPoolEntry(id) {
+  const entry = state.aiProviderPoolDraft.find((item) => item.id === id)
+  if (!entry) return
+  if (els.settingAiPoolEditId) els.settingAiPoolEditId.value = entry.id
+  if (els.settingAiPoolName) els.settingAiPoolName.value = entry.name || ""
+  if (els.settingAiPoolEnabled) els.settingAiPoolEnabled.value = entry.enabled === false ? "0" : "1"
+  if (els.settingAiPoolBaseUrl) els.settingAiPoolBaseUrl.value = entry.baseUrl || ""
+  if (els.settingAiPoolApiKey) {
+    els.settingAiPoolApiKey.value = entry.apiKey || ""
+    els.settingAiPoolApiKey.placeholder = entry.apiKeyConfigured ? "已回填，清空后保存会删除 Key" : "请输入 API Key"
+  }
+  if (els.settingAiPoolModel) els.settingAiPoolModel.value = entry.model || ""
+  if (els.settingAiPoolTranslatePrompt) els.settingAiPoolTranslatePrompt.value = entry.translatePrompt || ""
+  if (els.settingAiPoolSummaryPrompt) els.settingAiPoolSummaryPrompt.value = entry.summaryPrompt || ""
+  if (els.settingAiPoolMaxInputChars) els.settingAiPoolMaxInputChars.value = String(entry.maxInputChars || 0)
+  if (els.settingAiPoolPriority) els.settingAiPoolPriority.value = String(entry.priority || 1)
+  if (els.adminAiPoolTitle) els.adminAiPoolTitle.textContent = "修改 AI"
+  openAiPoolModal()
+}
+
+async function removeAiPoolEntry(id) {
+  state.aiProviderPoolDraft = state.aiProviderPoolDraft.filter((entry) => entry.id !== id)
+  normalizeAiPoolPriorities()
+  await saveAiProviderPoolDraft()
+  resetAiPoolForm()
   renderAdminDashboard()
 }
 
@@ -250,11 +567,33 @@ async function saveDatabaseBackupSettings() {
       body: JSON.stringify({
         enabled: els.settingDatabaseBackupEnabled.value,
         retention_days: els.settingDatabaseBackupRetentionDays.value,
-        max_files: els.settingDatabaseBackupMaxFiles.value
+        max_files: els.settingDatabaseBackupMaxFiles.value,
+        schedule_frequency: els.settingDatabaseBackupScheduleFrequency?.value || "daily",
+        schedule_time: els.settingDatabaseBackupScheduleTime?.value || "00:00",
+        schedule_weekdays: els.settingDatabaseBackupScheduleWeekdays?.value || "1"
       })
     })
     await loadAdmin()
     setStatus("数据库备份设置已保存", "success")
+  } catch (error) {
+    setStatus(error.message, "error")
+  }
+}
+
+async function saveDatabaseCleanupSettings() {
+  try {
+    await api("/api/admin/settings/database_cleanup", {
+      method: "POST",
+      body: JSON.stringify({
+        max_items_total: els.settingDatabaseCleanupMaxItemsTotal.value,
+        max_age_days: els.settingDatabaseCleanupMaxAgeDays.value,
+        protect_favorites: els.settingDatabaseCleanupProtectFavorites.value,
+        protect_unread: els.settingDatabaseCleanupProtectUnread.value,
+        min_keep_items: els.settingDatabaseCleanupMinKeepItems.value
+      })
+    })
+    await loadAdmin()
+    setStatus("数据库清理策略已保存", "success")
   } catch (error) {
     setStatus(error.message, "error")
   }
@@ -313,6 +652,54 @@ async function updateUser(userId, payload) {
   } catch (error) {
     setStatus(error.message)
   }
+}
+
+async function exportUserData(userId) {
+  try {
+    const token = document.cookie.match(/z7rss_session=([^;]+)/)?.[1] || ""
+    const url = `/api/admin/users/${userId}/export`
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json", "Authorization": `Bearer ${token}` }
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || `导出失败: ${res.status}`)
+    }
+    const data = await res.json()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `z7rss-user-${userId}-export.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    setStatus(`用户 #${userId} 数据已导出`, "success")
+  } catch (error) {
+    setStatus(error.message, "error")
+  }
+}
+
+async function importUserData(userId) {
+  const input = document.createElement("input")
+  input.type = "file"
+  input.accept = ".json"
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!window.confirm(`确认将 "${file.name}" 的数据导入到用户 #${userId} 吗？\n将导入订阅源、配置和简报规则（不含文章内容）。`)) return
+      const result = await api(`/api/admin/users/${userId}/import`, {
+        method: "POST",
+        body: JSON.stringify(data)
+      })
+      await loadAdmin()
+      setStatus(`导入完成：${result.feedsImported} 订阅源，${result.settingsImported} 配置，${result.digestImported} 简报规则`, "success")
+    } catch (error) {
+      setStatus(error.message, "error")
+    }
+  }
+  input.click()
 }
 
 async function deleteUser(userId, userLabel = "") {
@@ -620,10 +1007,6 @@ els.adminRefreshTriggerBtn.addEventListener("click", async () => {
   await startGlobalRefresh()
 })
 
-els.adminMaintenanceTriggerBtn.addEventListener("click", async () => {
-  await startMaintenance()
-})
-
 els.adminDatabaseCleanupBtn.addEventListener("click", async () => {
   await startDatabaseCleanup()
 })
@@ -642,6 +1025,20 @@ els.adminDatabaseBackupBtn.addEventListener("click", async () => {
 
 els.adminDatabaseBackupSettingsSaveBtn.addEventListener("click", async () => {
   await saveDatabaseBackupSettings()
+})
+
+els.settingDatabaseBackupScheduleFrequency?.addEventListener("change", () => {
+  const isWeekly = els.settingDatabaseBackupScheduleFrequency?.value === "weekly"
+  if (els.settingDatabaseBackupTimeRow) {
+    els.settingDatabaseBackupTimeRow.classList.toggle("hidden", isWeekly)
+  }
+  if (els.settingDatabaseBackupWeekdaysRow) {
+    els.settingDatabaseBackupWeekdaysRow.classList.toggle("hidden", !isWeekly)
+  }
+})
+
+els.adminDatabaseCleanupSettingsSaveBtn.addEventListener("click", async () => {
+  await saveDatabaseCleanupSettings()
 })
 
 els.settingsForm.addEventListener("submit", async (event) => {
@@ -664,16 +1061,6 @@ els.settingsForm.addEventListener("submit", async (event) => {
         password: els.settingMailPassword.value
       })
     })
-    await api("/api/admin/settings/ai", {
-      method: "POST",
-      body: JSON.stringify({
-        base_url: els.settingAiBaseUrl.value,
-        api_key: els.settingAiApiKey.value,
-        model: els.settingAiModel.value,
-        translate_prompt: els.settingAiTranslatePrompt.value,
-        summary_prompt: els.settingAiSummaryPrompt.value
-      })
-    })
     await api("/api/admin/settings/digest", {
       method: "POST",
       body: JSON.stringify({
@@ -686,30 +1073,8 @@ els.settingsForm.addEventListener("submit", async (event) => {
     await api("/api/admin/settings/translation", {
       method: "POST",
       body: JSON.stringify({
-        provider: els.settingTranslationProvider.value,
-        target_language: els.settingTranslationTarget.value
-      })
-    })
-    await api("/api/admin/settings/translation_google", {
-      method: "POST",
-      body: JSON.stringify({
-        base_url: els.settingGoogleTranslateBaseUrl.value,
-        api_key: els.settingGoogleTranslateApiKey.value
-      })
-    })
-    await api("/api/admin/settings/translation_deeplx", {
-      method: "POST",
-      body: JSON.stringify({
-        base_url: els.settingDeepLXBaseUrl.value,
-        api_key: els.settingDeepLXApiKey.value
-      })
-    })
-    await api("/api/admin/settings/translation_bing", {
-      method: "POST",
-      body: JSON.stringify({
-        base_url: els.settingBingTranslateBaseUrl.value,
-        api_key: els.settingBingTranslateApiKey.value,
-        region: els.settingBingTranslateRegion.value
+        target_language: els.settingTranslationTarget?.value || "zh-CN",
+        translation_mode: els.settingTranslationMode?.value || "title"
       })
     })
     await loadAdmin()
@@ -719,12 +1084,129 @@ els.settingsForm.addEventListener("submit", async (event) => {
   }
 })
 
-els.settingAiTestBtn.addEventListener("click", async () => {
+els.settingTranslationProviderPoolAddBtn?.addEventListener("click", () => {
+  upsertTranslationProviderPoolEntry()
+})
+
+els.settingTranslationProviderPoolCancelBtn?.addEventListener("click", () => {
+  resetTranslationProviderPoolForm()
+})
+
+els.adminTranslationPoolOpenBtn?.addEventListener("click", () => {
+  resetTranslationProviderPoolForm()
+  openTranslationPoolModal()
+})
+
+els.adminTranslationPoolCloseBtn?.addEventListener("click", () => {
+  closeTranslationPoolModal()
+})
+
+els.adminTranslationPoolBackdrop?.addEventListener("click", () => {
+  closeTranslationPoolModal()
+})
+
+els.settingTranslationProviderPoolProvider?.addEventListener("change", () => {
+  updateTranslationPoolProviderFields()
+})
+
+els.settingTranslationProviderPoolTestBtn?.addEventListener("click", async () => {
   try {
-    const result = await api("/api/admin/ai/test", { method: "POST" })
-    setStatus(`默认 AI 测试成功: ${result.output}`)
+    if (els.adminTranslationPoolTestStatus) {
+      els.adminTranslationPoolTestStatus.textContent = "正在测试此翻译配置..."
+      els.adminTranslationPoolTestStatus.className = "status-text muted"
+      els.adminTranslationPoolTestStatus.classList.remove("hidden")
+    }
+    const provider = els.settingTranslationProviderPoolProvider?.value || "google"
+    const baseUrl = els.settingTranslationProviderPoolBaseUrl?.value || ""
+    const region = els.settingTranslationProviderPoolRegion?.value || ""
+    const rawApiKey = String(els.settingTranslationProviderPoolApiKey?.value || "").trim()
+    const id = els.settingTranslationProviderPoolEditId?.value || ""
+
+    const result = await api("/api/admin/translation/test-runtime", {
+      method: "POST",
+      body: JSON.stringify({
+        id,
+        provider,
+        baseUrl,
+        region,
+        apiKey: rawApiKey || (id ? "__KEEP__" : "")
+      })
+    })
+
+    if (!els.adminTranslationPoolTestStatus) return
+
+    if (result.ok) {
+      els.adminTranslationPoolTestStatus.textContent = `此 API 测试成功 (${result.provider}): ${result.output}`
+      els.adminTranslationPoolTestStatus.className = "status-text success-text"
+    } else {
+      els.adminTranslationPoolTestStatus.textContent = result.error || "翻译测试失败"
+      els.adminTranslationPoolTestStatus.className = "status-text error-text"
+    }
   } catch (error) {
-    setStatus(error.message)
+    if (els.adminTranslationPoolTestStatus) {
+      els.adminTranslationPoolTestStatus.textContent = error.message
+      els.adminTranslationPoolTestStatus.className = "status-text error-text"
+    }
+  }
+})
+
+els.adminAiPoolOpenBtn?.addEventListener("click", () => {
+  resetAiPoolForm()
+  openAiPoolModal()
+})
+
+els.adminAiPoolCloseBtn?.addEventListener("click", () => {
+  closeAiPoolModal()
+})
+
+els.adminAiPoolBackdrop?.addEventListener("click", () => {
+  closeAiPoolModal()
+})
+
+els.settingAiPoolAddBtn?.addEventListener("click", () => {
+  upsertAiPoolEntry()
+})
+
+els.settingAiPoolCancelBtn?.addEventListener("click", () => {
+  resetAiPoolForm()
+})
+
+els.settingAiPoolTestBtn?.addEventListener("click", async () => {
+  try {
+    if (els.adminAiPoolTestStatus) {
+      els.adminAiPoolTestStatus.textContent = "正在测试此 AI 配置..."
+      els.adminAiPoolTestStatus.className = "status-text muted"
+      els.adminAiPoolTestStatus.classList.remove("hidden")
+    }
+    const baseUrl = els.settingAiPoolBaseUrl?.value || ""
+    const rawApiKey = String(els.settingAiPoolApiKey?.value || "").trim()
+    const id = els.settingAiPoolEditId?.value || ""
+    const model = els.settingAiPoolModel?.value || ""
+
+    const result = await api("/api/admin/ai/test-runtime", {
+      method: "POST",
+      body: JSON.stringify({
+        id,
+        baseUrl,
+        apiKey: rawApiKey || (id ? "__KEEP__" : ""),
+        model
+      })
+    })
+
+    if (!els.adminAiPoolTestStatus) return
+
+    if (result.ok) {
+      els.adminAiPoolTestStatus.textContent = `此 AI 测试成功: ${result.output}`
+      els.adminAiPoolTestStatus.className = "status-text success-text"
+    } else {
+      els.adminAiPoolTestStatus.textContent = result.error || "AI 测试失败"
+      els.adminAiPoolTestStatus.className = "status-text error-text"
+    }
+  } catch (error) {
+    if (els.adminAiPoolTestStatus) {
+      els.adminAiPoolTestStatus.textContent = error.message
+      els.adminAiPoolTestStatus.className = "status-text error-text"
+    }
   }
 })
 

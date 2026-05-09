@@ -22,7 +22,7 @@ export function createAdminService({
   maintenanceService = null
 }) {
   function isSecretSettingKey(key) {
-    return key === "api_key" || key === "password";
+    return key === "api_key" || key === "password" || key === "configs_secret";
   }
 
   function normalizePeriodEnd(value) {
@@ -63,6 +63,9 @@ export function createAdminService({
     if (key === "password") {
       output[category].password_unavailable = hasRawValue && !hasDecryptedValue;
     }
+    if (key === "configs_secret") {
+      output[category].configs_unavailable = hasRawValue && !hasDecryptedValue;
+    }
   }
 
   function maskApiKey(output, category) {
@@ -77,12 +80,50 @@ export function createAdminService({
     delete output[category].password;
   }
 
+  function maskTranslationProviderPool(output) {
+    const pool = output?.translation_provider_pool;
+    if (!pool?.configs_secret) return;
+    try {
+      const configs = JSON.parse(pool.configs_secret);
+      pool.configs = Array.isArray(configs)
+        ? configs.map((entry) => ({
+            ...entry,
+            api_key_configured: Boolean(entry?.apiKey || entry?.api_key)
+          }))
+        : [];
+    } catch (_error) {
+      pool.configs = [];
+      pool.configs_unavailable = true;
+    }
+    delete pool.configs_secret;
+  }
+
+  function maskAiProviderPool(output) {
+    const pool = output?.ai_provider_pool;
+    if (!pool?.configs_secret) return;
+    try {
+      const configs = JSON.parse(pool.configs_secret);
+      pool.configs = Array.isArray(configs)
+        ? configs.map((entry) => ({
+            ...entry,
+            api_key_configured: Boolean(entry?.apiKey || entry?.api_key)
+          }))
+        : [];
+    } catch (_error) {
+      pool.configs = [];
+      pool.configs_unavailable = true;
+    }
+    delete pool.configs_secret;
+  }
+
   function withMaskedSecrets(settings) {
     const output = structuredClone(settings || {});
     maskApiKey(output, "ai");
     maskApiKey(output, "translation_google");
     maskApiKey(output, "translation_bing");
     maskPassword(output, "mail");
+    maskTranslationProviderPool(output);
+    maskAiProviderPool(output);
     return output;
   }
 
@@ -217,8 +258,13 @@ export function createAdminService({
 
   function getDatabaseSnapshot() {
     const metrics = store.getDatabaseMetrics?.() || {};
-    const backupSettings = store.listSettings().reduce((acc, row) => {
+    const settingsRows = store.listSettings();
+    const backupSettings = settingsRows.reduce((acc, row) => {
       if (row.category === "database_backup") acc[row.key] = row.value;
+      return acc;
+    }, {});
+    const cleanupSettings = settingsRows.reduce((acc, row) => {
+      if (row.category === "database_cleanup") acc[row.key] = row.value;
       return acc;
     }, {});
     const backupEnabledValue = String(backupSettings.enabled ?? "").trim().toLowerCase();
@@ -227,6 +273,15 @@ export function createAdminService({
       : config.databaseBackupEnabled !== false;
     const backupRetentionDays = Math.max(0, Number(backupSettings.retention_days ?? config.databaseBackupRetentionDays ?? 14) || 0);
     const backupMaxFiles = Math.max(1, Number(backupSettings.max_files ?? config.databaseBackupMaxFiles ?? 24) || 24);
+    const backupScheduleFrequency =
+      String(backupSettings.schedule_frequency || "daily").trim().toLowerCase() === "weekly" ? "weekly" : "daily";
+    const backupScheduleTime = /^\d{2}:\d{2}$/.test(String(backupSettings.schedule_time || "").trim())
+      ? String(backupSettings.schedule_time).trim()
+      : "00:00";
+    const backupScheduleWeekdays = String(backupSettings.schedule_weekdays || "")
+      .split(",")
+      .map((entry) => Number(entry))
+      .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6);
     const mainBytes = getFileSize(config.dbPath);
     const walBytes = getFileSize(`${config.dbPath}-wal`);
     const shmBytes = getFileSize(`${config.dbPath}-shm`);
@@ -254,11 +309,23 @@ export function createAdminService({
         directory: backupDir,
         retentionDays: backupRetentionDays,
         maxFiles: backupMaxFiles,
+        scheduleFrequency: backupScheduleFrequency,
+        scheduleTime: backupScheduleTime,
+        scheduleWeekdays: backupScheduleWeekdays,
         count: backupFiles.length,
         automaticCount: backupFiles.filter((entry) => entry.automatic).length,
         totalBytes: backupFiles.reduce((total, entry) => total + Number(entry.size || 0), 0),
         latest: backupFiles[0] || null,
         files: backupFiles.slice(0, 100)
+      },
+      cleanup: {
+        maxItemsTotal: String(cleanupSettings.max_items_total ?? cleanupSettings.max_items_per_feed ?? ""),
+        maxAgeDays: Math.max(0, Number(cleanupSettings.max_age_days || 0) || 0),
+        protectFavorites: cleanupSettings.protect_favorites === undefined
+          ? true
+          : ["1", "true", "yes", "on"].includes(String(cleanupSettings.protect_favorites).trim().toLowerCase()),
+        protectUnread: ["1", "true", "yes", "on"].includes(String(cleanupSettings.protect_unread ?? "").trim().toLowerCase()),
+        minKeepItems: Math.max(0, Number(cleanupSettings.min_keep_items || 0) || 0)
       },
       maintenance: maintenanceService ? maintenanceService.getStatus() : null
     };
@@ -624,7 +691,7 @@ export function createAdminService({
         maxSavedItems:
           payload?.maxSavedItems === undefined
             ? undefined
-            : normalizePositiveInteger(payload.maxSavedItems, "文章保存数量上限"),
+            : normalizePositiveInteger(payload.maxSavedItems, "总文章保留数"),
         maxFavoriteItems:
           payload?.maxFavoriteItems === undefined
             ? undefined
@@ -712,7 +779,29 @@ export function createAdminService({
       }, {});
 
       for (const [key, value] of Object.entries(values)) {
-        const normalizedInput = String(value ?? "");
+        let normalizedInput = String(value ?? "");
+        if (isSecretSettingKey(key) && normalizedInput === "__CLEAR__") {
+          store.setSetting(category, key, "");
+          continue;
+        }
+
+        if (key === "configs_secret" && normalizedInput.trim()) {
+          try {
+            const parsed = JSON.parse(normalizedInput);
+            if (Array.isArray(parsed)) {
+              const currentRaw = current[category]?.[key] || "[]";
+              const currentParsed = JSON.parse(currentRaw);
+              parsed.forEach(entry => {
+                if (entry.apiKey === "__KEEP__") {
+                  const existing = currentParsed.find(e => e.id === entry.id);
+                  entry.apiKey = existing?.apiKey || "";
+                }
+              });
+              normalizedInput = JSON.stringify(parsed);
+            }
+          } catch (e) {}
+        }
+
         const normalizedValue =
           isSecretSettingKey(key)
             ? normalizedInput.trim()
@@ -979,6 +1068,112 @@ export function createAdminService({
     isBlockedIp(ip) {
       const requestIp = normalizeIp(ip);
       return store.listBlockedIps().some((entry) => entry.is_active && normalizeIp(entry.ip) === requestIp);
+    },
+    exportUserData(userId) {
+      const user = store.getUserById(userId);
+      if (!user) throw notFound("用户不存在");
+      const settings = store.listUserSettings(userId).map((row) => ({
+        category: row.category,
+        key: row.key,
+        value: isSecretSettingKey(row.key) ? "" : row.value
+      }));
+      const feeds = store.listUserFeeds(userId).map((feed) => ({
+        title: feed.title,
+        url: feed.url,
+        site_url: feed.site_url || "",
+        category: feed.category || "",
+        custom_title: feed.custom_title || "",
+        is_archived: feed.is_archived || 0,
+        is_collapsed: feed.is_collapsed || 0,
+        is_public: feed.is_public || 0
+      }));
+      const digestRules = (store.listDigestRulesByUser ? store.listDigestRulesByUser(userId) : []).map((rule) => ({
+        name: rule.name,
+        isEnabled: Boolean(rule.is_enabled),
+        sendTime: rule.send_time,
+        timezone: rule.timezone,
+        recipientEmails: parseJsonSafe(rule.recipient_emails, []),
+        aiSource: rule.ai_source,
+        prompt: rule.prompt,
+        lookbackHours: Number(rule.lookback_hours || 24),
+        unreadOnly: Boolean(rule.unread_only),
+        feedScope: rule.feed_scope,
+        feedIds: parseJsonSafe(rule.feed_ids_json, []),
+        category: rule.category || ""
+      }));
+      return {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        user: {
+          email: user.email,
+          displayName: user.display_name || ""
+        },
+        settings,
+        feeds,
+        digestRules
+      };
+    },
+    importUserData(userId, data, context = null) {
+      const user = store.getUserById(userId);
+      if (!user) throw notFound("用户不存在");
+      if (!data || data.version !== 1) throw badRequest("导入数据格式无效");
+      let feedsImported = 0;
+      let settingsImported = 0;
+      let digestImported = 0;
+      if (Array.isArray(data.feeds)) {
+        for (const feed of data.feeds) {
+          const url = String(feed.url || "").trim();
+          if (!url) continue;
+          try {
+            feedService.addFeed(userId, { title: String(feed.title || ""), url });
+            feedsImported += 1;
+          } catch (_error) {
+            // skip duplicate or invalid feeds
+          }
+        }
+      }
+      if (Array.isArray(data.settings)) {
+        for (const setting of data.settings) {
+          const category = String(setting.category || "").trim();
+          const key = String(setting.key || "").trim();
+          const value = String(setting.value ?? "").trim();
+          if (!category || !key || isSecretSettingKey(key) || !value) continue;
+          store.setUserSetting(userId, category, key, value);
+          settingsImported += 1;
+        }
+      }
+      if (Array.isArray(data.digestRules) && store.createDigestRule) {
+        for (const rule of data.digestRules) {
+          try {
+            store.createDigestRule({
+              userId,
+              name: String(rule.name || "每日简报").trim().slice(0, 80),
+              isEnabled: rule.isEnabled !== false ? 1 : 0,
+              sendTime: String(rule.sendTime || "09:00").trim(),
+              timezone: String(rule.timezone || "Asia/Shanghai").trim().slice(0, 80),
+              recipientEmails: JSON.stringify(Array.isArray(rule.recipientEmails) ? rule.recipientEmails : []),
+              aiSource: String(rule.aiSource || "system"),
+              prompt: String(rule.prompt || "").trim().slice(0, 4000),
+              lookbackHours: Number(rule.lookbackHours || 24),
+              unreadOnly: rule.unreadOnly ? 1 : 0,
+              feedScope: String(rule.feedScope || "all"),
+              feedIdsJson: JSON.stringify(Array.isArray(rule.feedIds) ? rule.feedIds : []),
+              category: rule.category || null
+            });
+            digestImported += 1;
+          } catch (_error) {
+            // skip invalid rules
+          }
+        }
+      }
+      logAudit(context, {
+        action: "admin.user-data.imported",
+        targetType: "user",
+        targetId: userId,
+        summary: `导入用户数据：${feedsImported} 订阅源，${settingsImported} 配置，${digestImported} 简报规则`,
+        details: { feedsImported, settingsImported, digestImported }
+      });
+      return { feedsImported, settingsImported, digestImported };
     }
   };
 }

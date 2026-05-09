@@ -23,6 +23,7 @@ export function createConfig(env) {
     port: parseInteger(env.PORT, 39018),
     dbPath: env.DB_PATH || path.join(process.cwd(), "data/rss.db"),
     refreshMinutes: parseInteger(env.REFRESH_INTERVAL_MINUTES, 30),
+    userRefreshConcurrency: Math.max(1, Math.min(10, parseInteger(env.USER_REFRESH_CONCURRENCY, 4))),
     crawlTimeoutMs: parseInteger(env.CRAWL_TIMEOUT_MS, 15000),
     userAgent: env.USER_AGENT || "Z7RSSBot/0.1",
     sessionCookieName: env.SESSION_COOKIE_NAME || "z7rss_session",

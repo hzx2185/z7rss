@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Z7 RSS - 管理后台</title>
     <script src="/theme-init.js"></script>
-    <link rel="stylesheet" href="/css/pages/admin.css" />
+    <link rel="stylesheet" href="/css/pages/admin.css?v=2" />
   </head>
   <body class="admin-page" data-admin-mode="guest">
     <div class="site-shell">
@@ -160,30 +160,14 @@
 
                   <div class="admin-settings-group">
                     <div class="admin-settings-group-head">
-                      <strong>默认 AI</strong>
-                      <span class="muted">模型和提示词集中维护。</span>
+                      <strong>AI 接口</strong>
+                      <span class="muted">各配置按优先级回退，用于翻译、总结、分类和简报。</span>
                     </div>
                     <div class="admin-form-grid">
-                      <label class="field-label admin-span-2">
-                        <span>默认 AI 接口地址</span>
-                        <input id="setting-ai-base-url" type="text" autocomplete="url" placeholder="https://api.openai.com/v1" />
-                      </label>
-                      <label class="field-label">
-                        <span>默认 AI 模型</span>
-                        <input id="setting-ai-model" type="text" autocomplete="off" placeholder="gpt-4.1-mini" />
-                      </label>
-                      <label class="field-label admin-span-3">
-                        <span>默认 AI Key</span>
-                        <input id="setting-ai-api-key" type="password" autocomplete="new-password" />
-                      </label>
-                      <label class="field-label admin-span-3">
-                        <span>默认翻译提示词</span>
-                        <textarea id="setting-ai-translate-prompt" placeholder="留空则使用内置默认提示词"></textarea>
-                      </label>
-                      <label class="field-label admin-span-3">
-                        <span>默认总结提示词</span>
-                        <textarea id="setting-ai-summary-prompt" placeholder="留空则使用内置默认提示词"></textarea>
-                      </label>
+                      <div class="inline-row admin-span-3">
+                        <button id="admin-ai-pool-open-btn" class="secondary" type="button">添加 AI</button>
+                      </div>
+                      <div id="setting-ai-provider-pool-list" class="compact-list admin-span-3"></div>
                     </div>
                   </div>
 
@@ -219,19 +203,11 @@
                   <div class="admin-settings-group">
                     <div class="admin-settings-group-head">
                       <strong>翻译接口</strong>
-                      <span class="muted">设置系统默认翻译工具，支持 Google、必应、DeepLX。</span>
+                      <span class="muted">各供应商配置通过 API 池管理，按优先级回退。</span>
                     </div>
                     <div class="admin-form-grid">
                       <label class="field-label">
-                        <span>默认翻译工具</span>
-                        <select id="setting-translation-provider">
-                          <option value="google">谷歌翻译</option>
-                          <option value="bing">必应翻译</option>
-                          <option value="deeplx">DeepLX 翻译</option>
-                        </select>
-                      </label>
-                      <label class="field-label">
-                        <span>默认目标语言</span>
+                        <span>目标语言</span>
                         <select id="setting-translation-target">
                           <option value="zh-CN">简体中文</option>
                           <option value="zh-TW">繁體中文</option>
@@ -240,43 +216,22 @@
                           <option value="ko">한국어</option>
                         </select>
                       </label>
-
-                      <label class="field-label admin-span-2">
-                        <span>Google 接口地址（选填）</span>
-                        <input id="setting-google-translate-base-url" type="text" autocomplete="url" placeholder="默认无需填写" />
-                      </label>
                       <label class="field-label">
-                        <span>Google API Key（选填）</span>
-                        <input id="setting-google-translate-api-key" type="password" autocomplete="new-password" placeholder="留空则使用 Google 免 Key 模式" />
+                        <span>翻译范围</span>
+                        <select id="setting-translation-mode">
+                          <option value="title">仅标题</option>
+                          <option value="full">标题 + 正文</option>
+                        </select>
                       </label>
-
-                      <label class="field-label admin-span-3">
-                        <span>DeepLX 接口地址</span>
-                        <input id="setting-deeplx-base-url" type="text" autocomplete="url" placeholder="https://api.deeplx.你的域名.com" />
-                      </label>
-                      <label class="field-label admin-span-3">
-                        <span>DeepLX API Key（选填）</span>
-                        <input id="setting-deeplx-api-key" type="password" autocomplete="new-password" placeholder="如需认证可填写" />
-                      </label>
-
-                      <label class="field-label admin-span-2">
-                        <span>必应翻译接口地址</span>
-                        <input id="setting-bing-translate-base-url" type="text" autocomplete="url" placeholder="https://api.cognitive.microsofttranslator.com" />
-                      </label>
-                      <label class="field-label">
-                        <span>必应翻译区域</span>
-                        <input id="setting-bing-translate-region" type="text" autocomplete="off" placeholder="eastasia（选填）" />
-                      </label>
-                      <label class="field-label admin-span-3">
-                        <span>必应翻译 API Key</span>
-                        <input id="setting-bing-translate-api-key" type="password" autocomplete="new-password" />
-                      </label>
+                      <div class="inline-row admin-span-3">
+                        <button id="admin-translation-pool-open-btn" class="secondary" type="button">添加 API</button>
+                      </div>
+                      <div id="setting-translation-provider-pool-list" class="compact-list admin-span-3"></div>
                     </div>
                   </div>
 
                   <div class="inline-row">
                     <button type="submit">保存配置</button>
-                    <button id="setting-ai-test-btn" class="secondary" type="button">测试 AI</button>
                   </div>
                 </form>
               </div>
@@ -305,22 +260,6 @@
 
               <div class="card">
                 <div class="card-head">
-                  <h3>数据库维护</h3>
-                </div>
-                <div class="admin-subsection-head-row">
-                  <div>
-                    <strong>清理旧文章与运行记录</strong>
-                    <span class="muted">按套餐文章保留上限清理普通文章，并优化数据库。</span>
-                  </div>
-                  <button id="admin-maintenance-trigger-btn" class="secondary" type="button">立即清理数据库</button>
-                </div>
-                <p id="admin-maintenance-status" class="status-text">正在加载维护状态...</p>
-                <div id="admin-maintenance-metrics" class="feature-flags"></div>
-                <div id="admin-maintenance-history" class="compact-list"></div>
-              </div>
-
-              <div class="card">
-                <div class="card-head">
                   <h3>审计日志</h3>
                 </div>
                 <p class="muted">管理员关键操作统一记录。</p>
@@ -333,64 +272,147 @@
                 <h2>数据库</h2>
               </div>
 
-              <div class="card">
-                <div class="card-head">
-                  <h3>数据库状态</h3>
-                </div>
-                <p id="admin-database-status" class="status-text">正在加载数据库状态...</p>
-                <div id="admin-database-metrics" class="metrics-grid admin-database-metrics-grid"></div>
-                <div id="admin-database-flags" class="feature-flags"></div>
-              </div>
-
-              <div class="card">
-                <div class="card-head">
-                  <h3>维护操作</h3>
-                </div>
-                <div class="admin-settings-group">
-                  <div class="admin-settings-group-head">
-                    <strong>自动备份</strong>
-                    <span class="muted">自动维护时创建备份，并轮转旧自动备份。</span>
-                  </div>
-                  <div class="admin-form-grid admin-database-backup-settings-grid">
-                    <label class="field-label">
-                      <span>自动备份</span>
-                      <select id="setting-database-backup-enabled">
-                        <option value="true">开启</option>
-                        <option value="false">关闭</option>
-                      </select>
-                    </label>
-                    <label class="field-label">
-                      <span>保留天数</span>
-                      <input id="setting-database-backup-retention-days" type="number" min="0" max="3650" step="1" placeholder="14" />
-                    </label>
-                    <label class="field-label">
-                      <span>最多保留份数</span>
-                      <input id="setting-database-backup-max-files" type="number" min="1" max="1000" step="1" placeholder="24" />
-                    </label>
-                    <button id="admin-database-backup-settings-save-btn" class="secondary" type="button">保存备份设置</button>
+              <div class="admin-database-grid">
+                <div class="admin-db-row admin-db-metrics-row">
+                  <div class="card admin-db-metrics-card">
+                    <p id="admin-database-status" class="status-text">正在加载数据库状态...</p>
+                    <div id="admin-database-metrics" class="metrics-grid"></div>
+                    <div id="admin-database-flags" class="feature-flags"></div>
                   </div>
                 </div>
-                <div class="toolbar-wrap">
-                  <button id="admin-database-cleanup-btn" class="secondary" type="button">数据清理</button>
-                  <button id="admin-database-optimize-btn" class="secondary" type="button">优化</button>
-                  <button id="admin-database-vacuum-btn" class="secondary" type="button">碎片整理</button>
-                  <button id="admin-database-backup-btn" class="secondary" type="button">备份下载</button>
-                </div>
-                <p class="status-text">数据清理会按当前套餐保留上限删除旧普通文章，并清理孤儿订阅源、孤儿文章、孤儿文章状态、过期会话、旧日志和旧刷新记录；定期维护会自动创建数据库备份并轮转旧自动备份。碎片整理会短暂占用数据库，适合低峰期执行。</p>
-              </div>
 
-              <div class="card">
-                <div class="card-head">
-                  <h3>备份文件</h3>
+                <div class="admin-db-row admin-db-actions-row">
+                  <div class="card">
+                    <div class="card-head">
+                      <h3>维护操作</h3>
+                    </div>
+                    <div class="admin-db-actions-grid">
+                      <div class="admin-db-action-item">
+                        <button id="admin-database-cleanup-btn" class="secondary action-btn" type="button">数据清理</button>
+                        <span class="action-desc">清理旧文章、孤儿数据、过期记录</span>
+                      </div>
+                      <div class="admin-db-action-item">
+                        <button id="admin-database-optimize-btn" class="secondary action-btn" type="button">优化</button>
+                        <span class="action-desc">回收空闲页</span>
+                      </div>
+                      <div class="admin-db-action-item">
+                        <button id="admin-database-vacuum-btn" class="secondary action-btn" type="button">碎片整理</button>
+                        <span class="action-desc">减少文件大小</span>
+                      </div>
+                      <div class="admin-db-action-item">
+                        <button id="admin-database-backup-btn" class="secondary action-btn" type="button">备份下载</button>
+                        <span class="action-desc">手动备份</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div id="admin-database-backups" class="compact-list"></div>
-              </div>
 
-              <div class="card">
-                <div class="card-head">
-                  <h3>表统计</h3>
+                <div class="admin-db-row admin-db-settings-row">
+                  <div class="card admin-db-settings-card">
+                    <div class="card-head">
+                      <h3>备份与清理</h3>
+                    </div>
+                    <div class="admin-db-settings-grid">
+                      <div class="admin-db-settings-section">
+                        <h4>自动备份</h4>
+                        <div class="admin-db-settings-form">
+                          <label class="field-label">
+                            <span>开关</span>
+                            <select id="setting-database-backup-enabled">
+                              <option value="true">开启</option>
+                              <option value="false">关闭</option>
+                            </select>
+                          </label>
+                          <label class="field-label">
+                            <span>保留天数</span>
+                            <input id="setting-database-backup-retention-days" type="number" min="0" max="3650" step="1" placeholder="14" />
+                          </label>
+                          <label class="field-label">
+                            <span>份数</span>
+                            <input id="setting-database-backup-max-files" type="number" min="1" max="1000" step="1" placeholder="24" />
+                          </label>
+                          <label class="field-label">
+                            <span>频率</span>
+                            <select id="setting-database-backup-schedule-frequency">
+                              <option value="daily">每天</option>
+                              <option value="weekly">每周</option>
+                            </select>
+                          </label>
+                          <label class="field-label" id="setting-database-backup-time-row">
+                            <span>时间</span>
+                            <input id="setting-database-backup-schedule-time" type="time" step="60" />
+                          </label>
+                          <label class="field-label hidden" id="setting-database-backup-weekdays-row">
+                            <span>周几</span>
+                            <select id="setting-database-backup-schedule-weekdays" multiple size="1">
+                              <option value="1">周一</option>
+                              <option value="2">周二</option>
+                              <option value="3">周三</option>
+                              <option value="4">周四</option>
+                              <option value="5">周五</option>
+                              <option value="6">周六</option>
+                              <option value="0">周日</option>
+                            </select>
+                          </label>
+                          <button id="admin-database-backup-settings-save-btn" class="secondary" type="button">保存</button>
+                        </div>
+                      </div>
+                      <div class="admin-db-settings-section">
+                        <h4>清理策略</h4>
+                        <div class="admin-db-settings-form">
+                          <label class="field-label">
+                            <span>总文章上限</span>
+                            <input id="setting-database-cleanup-max-items-total" type="number" min="0" max="1000000" step="1" placeholder="留空使用套餐" />
+                          </label>
+                          <label class="field-label">
+                            <span>保留天数</span>
+                            <input id="setting-database-cleanup-max-age-days" type="number" min="0" max="3650" step="1" placeholder="0 不限" />
+                          </label>
+                          <label class="field-label">
+                            <span>每源最少</span>
+                            <input id="setting-database-cleanup-min-keep-items" type="number" min="0" max="1000000" step="1" placeholder="0" />
+                          </label>
+                          <label class="field-label">
+                            <span>保护收藏</span>
+                            <select id="setting-database-cleanup-protect-favorites">
+                              <option value="true">开启</option>
+                              <option value="false">关闭</option>
+                            </select>
+                          </label>
+                          <label class="field-label">
+                            <span>保护未读</span>
+                            <select id="setting-database-cleanup-protect-unread">
+                              <option value="true">开启</option>
+                              <option value="false">关闭</option>
+                            </select>
+                          </label>
+                          <button id="admin-database-cleanup-settings-save-btn" class="secondary" type="button">保存</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div id="admin-database-tables" class="compact-list"></div>
+
+                <div class="admin-db-row admin-db-logs-row">
+                  <div class="card admin-db-logs-card">
+                    <div class="admin-db-logs-grid">
+                      <div class="admin-db-log-section">
+                        <div class="card-head"><h4>维护记录</h4></div>
+                        <p id="admin-maintenance-status" class="status-text muted">暂无维护记录</p>
+                        <div id="admin-maintenance-metrics" class="feature-flags"></div>
+                        <div id="admin-maintenance-history" class="compact-list"></div>
+                      </div>
+                      <div class="admin-db-log-section">
+                        <div class="card-head"><h4>表统计</h4></div>
+                        <div id="admin-database-tables" class="compact-list"></div>
+                      </div>
+                      <div class="admin-db-log-section">
+                        <div class="card-head"><h4>备份文件</h4></div>
+                        <div id="admin-database-backups" class="compact-list"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -597,8 +619,125 @@
       </main>
     </div>
 
-    <script type="module" src="/theme.js"></script>
-    <script type="module" src="/shared-settings.js"></script>
-    <script type="module" src="/admin.js"></script>
+    <div id="admin-translation-pool-modal" class="admin-modal hidden" aria-hidden="true">
+      <button id="admin-translation-pool-backdrop" class="admin-modal-backdrop" type="button" aria-label="关闭"></button>
+      <section class="admin-modal-card" role="dialog" aria-modal="true" aria-labelledby="admin-translation-pool-title">
+        <div class="admin-modal-head">
+          <div class="admin-modal-copy">
+            <h2 id="admin-translation-pool-title">添加翻译 API</h2>
+          </div>
+          <button id="admin-translation-pool-close-btn" class="secondary icon-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="admin-translation-pool-form" class="stack compact-form">
+          <input id="setting-translation-provider-pool-edit-id" type="hidden" />
+          <label>
+            <span>API 类型</span>
+            <select id="setting-translation-provider-pool-provider">
+              <option value="google">谷歌翻译</option>
+              <option value="bing">必应翻译</option>
+              <option value="deeplx">DeepLX</option>
+              <option value="ai">AI 翻译</option>
+            </select>
+          </label>
+          <label>
+            <span>名称</span>
+            <input id="setting-translation-provider-pool-name" type="text" autocomplete="off" placeholder="自定义标识" />
+          </label>
+          <label>
+            <span>启用状态</span>
+            <select id="setting-translation-provider-pool-enabled">
+              <option value="1">启用</option>
+              <option value="0">停用</option>
+            </select>
+          </label>
+          <label>
+            <span>优先级</span>
+            <input id="setting-translation-provider-pool-priority" type="number" min="1" step="1" autocomplete="off" placeholder="数字越小优先级越高" />
+          </label>
+          <label>
+            <span>接口地址</span>
+            <input id="setting-translation-provider-pool-base-url" type="url" autocomplete="off" placeholder="https://..." />
+          </label>
+          <label id="setting-translation-provider-pool-region-row">
+            <span>区域</span>
+            <input id="setting-translation-provider-pool-region" type="text" autocomplete="off" placeholder="必应需要，如 eastasia" />
+          </label>
+          <label>
+            <span>API Key</span>
+            <input id="setting-translation-provider-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+          </label>
+          <div class="inline-row">
+            <button id="setting-translation-provider-pool-add-btn" type="button">确认</button>
+            <button id="setting-translation-provider-pool-test-btn" class="secondary" type="button">测试 API</button>
+            <button id="setting-translation-provider-pool-cancel-btn" class="secondary" type="button">取消</button>
+          </div>
+          <p id="admin-translation-pool-test-status" class="status-text hidden"></p>
+        </form>
+      </section>
+    </div>
+
+    <div id="admin-ai-pool-modal" class="admin-modal hidden" aria-hidden="true">
+      <button id="admin-ai-pool-backdrop" class="admin-modal-backdrop" type="button" aria-label="关闭"></button>
+      <section class="admin-modal-card" role="dialog" aria-modal="true" aria-labelledby="admin-ai-pool-title">
+        <div class="admin-modal-head">
+          <div class="admin-modal-copy">
+            <h2 id="admin-ai-pool-title">添加 AI</h2>
+          </div>
+          <button id="admin-ai-pool-close-btn" class="secondary icon-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="admin-ai-pool-form" class="stack compact-form">
+          <input id="setting-ai-pool-edit-id" type="hidden" />
+          <label>
+            <span>名称</span>
+            <input id="setting-ai-pool-name" type="text" autocomplete="off" placeholder="自定义标识" />
+          </label>
+          <label>
+            <span>启用状态</span>
+            <select id="setting-ai-pool-enabled">
+              <option value="1">启用</option>
+              <option value="0">停用</option>
+            </select>
+          </label>
+          <label>
+            <span>优先级</span>
+            <input id="setting-ai-pool-priority" type="number" min="1" step="1" autocomplete="off" placeholder="数字越小优先级越高" />
+          </label>
+          <label>
+            <span>接口地址</span>
+            <input id="setting-ai-pool-base-url" type="url" autocomplete="off" placeholder="https://api.openai.com/v1" />
+          </label>
+          <label>
+            <span>API Key</span>
+            <input id="setting-ai-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+          </label>
+          <label>
+            <span>模型</span>
+            <input id="setting-ai-pool-model" type="text" autocomplete="off" placeholder="gpt-4.1-mini" />
+          </label>
+          <label>
+            <span>翻译提示词</span>
+            <textarea id="setting-ai-pool-translate-prompt" placeholder="留空则使用内置默认提示词"></textarea>
+          </label>
+          <label>
+            <span>总结提示词</span>
+            <textarea id="setting-ai-pool-summary-prompt" placeholder="留空则使用内置默认提示词"></textarea>
+          </label>
+          <label>
+            <span>最大输入字符数</span>
+            <input id="setting-ai-pool-max-input-chars" type="number" min="0" step="100" autocomplete="off" placeholder="0 = 不限制" />
+          </label>
+          <div class="inline-row">
+            <button id="setting-ai-pool-add-btn" type="button">确认</button>
+            <button id="setting-ai-pool-test-btn" class="secondary" type="button">测试 AI</button>
+            <button id="setting-ai-pool-cancel-btn" class="secondary" type="button">取消</button>
+          </div>
+          <p id="admin-ai-pool-test-status" class="status-text hidden"></p>
+        </form>
+      </section>
+    </div>
+
+    <script type="module" src="/theme.js?v=2"></script>
+    <script type="module" src="/shared-settings.js?v=2"></script>
+    <script type="module" src="/admin.js?v=2"></script>
   </body>
 </html>

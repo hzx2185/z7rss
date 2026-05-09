@@ -118,12 +118,13 @@ export const state = {
   selectedFeedIds: [],
   feedSettingsFeedId: null,
   detailView: null,
+  forceOriginalBody: false,
   translation: {
     provider: "google",
     targetLanguage: "zh-CN",
     targetLabel: "简体中文",
     autoTranslate: false,
     displayTranslated: true,
-    translationMode: "full"
+    translationMode: "title"
   }
 }

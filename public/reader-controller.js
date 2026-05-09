@@ -14,7 +14,6 @@ export function createReaderController(deps) {
   const itemController = createReaderItemController({
     ...deps,
     loadFeeds: (...args) => callFeedController("loadFeeds", args),
-    loadMe: (...args) => callFeedController("loadMe", args),
     loadScopeCounts: (...args) => callFeedController("loadScopeCounts", args)
   })
 

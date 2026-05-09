@@ -160,6 +160,7 @@ const {
   renderSearchState,
   renderViewMode,
   resetContentPaneScroll,
+  resetItemListScroll,
   scheduleDebouncedRender,
   scheduleReaderPreferenceSave,
   setStatus,
@@ -201,7 +202,18 @@ const virtualItems = createReaderVirtualList({
       Number(items[items.length - 1]?.id || 0)
     ].join(":"),
   getRangeKey: (range) =>
-    `${range.start}:${range.end}:${state.viewMode}:${shouldInlineDetail() ? "inline" : "split"}`,
+    [
+      range.start,
+      range.end,
+      state.viewMode,
+      shouldInlineDetail() ? "inline" : "split",
+      state.itemFilter,
+      state.itemQuery.trim().toLowerCase(),
+      state.publishedSince || "",
+      Number(state.selectedFeedId || 0),
+      Number(state.selectedItem?.id || 0),
+      Number(state.expandedItemId || 0)
+    ].join(":"),
   estimateRowHeight: estimateVirtualRowHeight,
   renderRow: (item) => buildItemRowMarkup(item, shouldInlineDetail())
 })
@@ -309,7 +321,7 @@ function getEffectiveTranslationForFeed(feed = null) {
     autoTranslateSupported: false,
     providerConfigured: false,
     displayTranslated: true,
-    translationMode: "full"
+    translationMode: "title"
   }
 
   if (!feed?.translation) {
@@ -325,12 +337,37 @@ function getEffectiveTranslationForFeed(feed = null) {
     autoTranslateSupported: feed.translation.autoTranslateSupported ?? base.autoTranslateSupported ?? false,
     providerConfigured: feed.translation.providerConfigured ?? base.providerConfigured ?? false,
     displayTranslated: feed.translation.displayTranslated ?? base.displayTranslated,
-    translationMode: feed.translation.translationMode || base.translationMode || "full"
+    translationMode: feed.translation.translationMode || base.translationMode || "title"
   }
 }
 
 function getEffectiveTranslationForItem(item = state.selectedItem) {
-  return getEffectiveTranslationForFeed(getFeedForItem(item))
+  const base = getEffectiveTranslationForFeed(getFeedForItem(item))
+  if (!item) return base
+
+  const translation = {
+    ...base,
+    targetLanguage: item.translation_target_language || base.targetLanguage,
+    targetLabel: item.translation_target_label || base.targetLabel,
+    autoTranslate: item.translation_auto_translate ?? base.autoTranslate,
+    displayTranslated: item.translation_display_translated ?? base.displayTranslated,
+    translationMode: item.translation_mode || base.translationMode || "title",
+    translationModeLabel: item.translation_mode_label || base.translationModeLabel
+  }
+
+  if (String(item.translated_text || "").trim()) {
+    return {
+      ...translation,
+      translationMode: "full"
+    }
+  }
+  return translation
+}
+
+function hasFullStoredTranslation(item = state.selectedItem) {
+  if (!item) return false
+  const hasTitle = Boolean(String(item.translated_title || "").trim())
+  return hasTitle && Boolean(String(item.translated_text || "").trim())
 }
 
 function getTodayStartIso() {
@@ -388,7 +425,23 @@ function refreshRenderedFeedRows(feedIds = []) {
 }
 
 function syncItemToList(itemId, patch) {
-  state.items = state.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+  state.items = state.items.map((item) => {
+    if (item.id !== itemId) return item
+    const nextPatch = { ...patch }
+    if (!String(nextPatch.translated_title || "").trim() && String(item.translated_title || "").trim()) {
+      delete nextPatch.translated_title
+    }
+    if (!String(nextPatch.translated_excerpt || "").trim() && String(item.translated_excerpt || "").trim()) {
+      delete nextPatch.translated_excerpt
+    }
+    if (!String(nextPatch.translated_text || "").trim() && String(item.translated_text || "").trim()) {
+      delete nextPatch.translated_text
+    }
+    if (nextPatch.has_translation === 0 && (item.has_translation || item.translated_title || item.translated_text)) {
+      delete nextPatch.has_translation
+    }
+    return { ...item, ...nextPatch }
+  })
   derivedData.invalidateItems()
 }
 
@@ -414,8 +467,10 @@ function canScheduleLoadNextPage({ checkGeometry = false } = {}) {
     return listRect.bottom - viewportBottom <= LOAD_MORE_EDGE_OFFSET
   }
 
-  if (container.scrollTop <= 0) return false
-  return container.scrollTop + container.clientHeight >= container.scrollHeight - LOAD_MORE_EDGE_OFFSET
+  const scrollContainer = els.itemColumn
+  if (!scrollContainer) return false
+  if (scrollContainer.scrollTop <= 0) return false
+  return scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - LOAD_MORE_EDGE_OFFSET
 }
 
 function scheduleMaybeLoadNextPage() {
@@ -476,6 +531,7 @@ function applySelectedItem(nextItem) {
       content_text: hasNextContentText ? nextItem.content_text : previous.content_text,
       content_excerpt: hasNextContentExcerpt ? nextItem.content_excerpt : previous.content_excerpt,
       content_loaded: nextItem.content_loaded || previous.content_loaded,
+      crawled_at: nextItem.crawled_at || previous.crawled_at || null,
       fetch_error: nextItem.fetch_error || previous.fetch_error || null,
       page_html: hasNextPageHtml ? nextItem.page_html : previous.page_html,
       page_text: hasNextPageText ? nextItem.page_text : previous.page_text,
@@ -485,6 +541,16 @@ function applySelectedItem(nextItem) {
       original_title: nextItem.original_title || previous.original_title || "",
       translated_title: nextItem.translated_title || previous.translated_title || "",
       translated_text: nextItem.translated_text || previous.translated_text || "",
+      translation_target_language: nextItem.translation_target_language || previous.translation_target_language || "",
+      translation_target_label: nextItem.translation_target_label || previous.translation_target_label || "",
+      translation_display_translated: Object.prototype.hasOwnProperty.call(nextItem, "translation_display_translated")
+        ? nextItem.translation_display_translated
+        : previous.translation_display_translated,
+      translation_auto_translate: Object.prototype.hasOwnProperty.call(nextItem, "translation_auto_translate")
+        ? nextItem.translation_auto_translate
+        : previous.translation_auto_translate,
+      translation_mode: nextItem.translation_mode || previous.translation_mode || "",
+      translation_mode_label: nextItem.translation_mode_label || previous.translation_mode_label || "",
       translate_error: Object.prototype.hasOwnProperty.call(nextItem, "translate_error")
         ? nextItem.translate_error
         : previous.translate_error || null,
@@ -608,8 +674,41 @@ function renderOperationSummary() {
   if (type === "import") {
     message = `导入完成 · 成功 ${result.imported} · 跳过 ${result.skipped} · 失败 ${result.failed}`
   } else if (type === "refreshAll") {
-    const successCount = result.filter((entry) => entry.ok).length
-    message = `全部刷新完成 · 订阅源 ${result.length} · 成功 ${successCount} · 失败 ${result.length - successCount}`
+    const isJob = result && !Array.isArray(result) && Array.isArray(result.results)
+    const entries = Array.isArray(result) ? result : Array.isArray(result?.results) ? result.results : []
+    const totalCount = isJob ? Number(result.total || entries.length) : entries.length
+    const processedCount = isJob ? Number(result.processed || entries.length) : entries.length
+    const running = isJob && result.status === "running"
+    const successCount = Number(result?.successCount ?? entries.filter((entry) => entry.ok).length)
+    const failedEntries = entries.filter((entry) => !entry.ok)
+    const failedCount = Number(result?.failedCount ?? failedEntries.length)
+    const insertedCount = Number(result?.insertedCount ?? entries.reduce((sum, entry) => sum + Number(entry.inserted || 0), 0))
+    const fetchedCount = Number(result?.fetchedCount ?? entries.reduce((sum, entry) => sum + Number(entry.fetched || 0), 0))
+    const unreadCount = Number(result?.unreadCount ?? entries.reduce((sum, entry) => sum + Number(entry.unreadCount || 0), 0))
+    message = running
+      ? `全部刷新中 · ${processedCount}/${totalCount || "?"} · 新增 ${insertedCount}`
+      : `全部刷新完成 · 订阅源 ${totalCount} · 成功 ${successCount} · 失败 ${failedCount} · 新增 ${insertedCount}`
+    els.syncSummary.innerHTML = `
+      <h3>${running ? "全部刷新中" : "全部刷新完成"}</h3>
+      <div class="metrics-grid">
+        <div><strong>${processedCount}/${totalCount || "?"}</strong><span>进度</span></div>
+        <div><strong>${successCount}</strong><span>成功</span></div>
+        <div><strong>${failedCount}</strong><span>失败</span></div>
+        <div><strong>${insertedCount}</strong><span>新增文章</span></div>
+        <div><strong>${fetchedCount}</strong><span>拉取文章</span></div>
+        <div><strong>${unreadCount}</strong><span>未读合计</span></div>
+      </div>
+      ${
+        failedEntries.length
+          ? `<div class="compact-list">${failedEntries
+              .slice(0, 5)
+              .map((entry) => `<span>源 #${Number(entry.feedId || 0)}：${escapeHtml(entry.error || "刷新失败")}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+    `
+    els.syncSummary.classList.remove("hidden")
+    tone = running ? "accent" : failedCount ? "warning" : "success"
   } else if (type === "refreshFeed") {
     const unreadPart = Number.isFinite(Number(result.unreadCount)) ? ` · 未读 ${Number(result.unreadCount)}` : ""
     const fetchedPart = Number(result.fetched || 0) > Number(result.inserted || 0) ? ` · 拉取 ${Number(result.fetched || 0)}` : ""
@@ -632,27 +731,32 @@ async function toggleDetailView(view) {
   if (!state.selectedItem) return
 
   const nextView = getActiveDetailView() === view ? "none" : view
-  if (nextView === "summary" && !state.selectedItem.ai_summary) {
-    await summarizeItem(state.selectedItem.id)
-  }
-  if (nextView === "translation" && !hasStoredTranslation(state.selectedItem)) {
-    const result = await translateItem(state.selectedItem.id)
-    if (result?.skipped) {
-      state.detailView = "none"
-      refreshRenderedItemRows([state.selectedItem.id])
-      renderArticle()
-      return
-    }
-  }
-  if (nextView === "page") {
-    await ensurePageLoaded(state.selectedItem.id)
-  }
-
   state.detailView = nextView
   if (shouldInlineDetail()) {
     refreshRenderedItemRows([state.selectedItem.id])
   }
   renderArticle()
+
+  if (nextView === "summary" && !state.selectedItem.ai_summary) {
+    void summarizeItem(state.selectedItem.id)
+  }
+  if (nextView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
+    const selectedItemId = state.selectedItem.id
+    void translateItem(selectedItemId).then((result) => {
+      if (
+        result?.skipped &&
+        state.selectedItem?.id === selectedItemId &&
+        getActiveDetailView() === "translation"
+      ) {
+        state.detailView = "none"
+        refreshRenderedItemRows([state.selectedItem.id])
+        renderArticle()
+      }
+    })
+  }
+  if (nextView === "page") {
+    await ensurePageLoaded(state.selectedItem.id)
+  }
 }
 
 function toggleContentColumn() {
@@ -701,6 +805,7 @@ const readerController = createReaderController({
   renderPager,
   renderScopeButtons,
   resetContentPaneScroll,
+  resetItemListScroll,
   clearDeferredReadItems,
   applySavedReaderPreferences,
   rememberDeferredReadItem,
@@ -760,12 +865,10 @@ const {
   normalizeFeedIds,
   openFeedSettingsModal,
   prefetchItemsPage,
-  renderArticle,
   renderFeedBulkState,
   renderFeeds,
-  refreshRenderedFeedRows,
   renderFilterMode,
-  renderItems,
+  renderComposeState,
   resetLoadedItems,
   selectFeed,
   setStatus
@@ -787,7 +890,7 @@ async function handleFeedListClick(event) {
   if (!Number.isInteger(feedId) || feedId < 1) return
 
   closeFeedDrawer()
-  await selectFeed(feedId, { smooth: true })
+  await selectFeed(feedId, { smooth: true, skipImmediateTranslations: true })
 }
 
 function handleFeedListPointerOver(event) {
@@ -797,7 +900,7 @@ function handleFeedListPointerOver(event) {
 
   const feedId = Number(selectButton.dataset.feedSelect)
   if (!Number.isInteger(feedId) || feedId < 1 || feedId === Number(state.selectedFeedId || 0)) return
-  void prefetchItemsPage(feedId, 1)
+  void prefetchItemsPage(feedId, 1, { skipImmediateTranslations: true })
 }
 
 function handleFeedListChange(event) {
@@ -816,6 +919,7 @@ async function handleItemListClick(event) {
 
   const selectButton = target.closest("[data-item-select]")
   if (selectButton && els.itemList?.contains(selectButton)) {
+    selectButton.blur?.()
     const itemId = Number(selectButton.dataset.itemSelect)
     if (Number.isInteger(itemId) && itemId > 0) {
       await toggleItem(itemId)
@@ -864,7 +968,32 @@ async function handleItemListClick(event) {
     return
   }
 
-  if (state.selectedItem?.id !== itemId) {
+  const wasSelected = state.selectedItem?.id === itemId
+  if (!wasSelected && item) {
+    applySelectedItem(item)
+    state.expandedItemId = shouldInlineDetail() ? itemId : state.expandedItemId
+    refreshRenderedItemRows([itemId])
+    renderArticle()
+
+    if (actionButton.matches("[data-item-ai-summary]") || actionButton.matches("[data-item-ai-translate]")) {
+      const requestedView = actionButton.matches("[data-item-ai-summary]") ? "summary" : "translation"
+      state.detailView = requestedView
+      refreshRenderedItemRows([itemId])
+      renderArticle()
+      void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true }).then(() => {
+        if (state.selectedItem?.id !== itemId || getActiveDetailView() !== requestedView) return
+        if (requestedView === "summary" && !state.selectedItem.ai_summary) {
+          void summarizeItem(itemId)
+        }
+        if (requestedView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
+          void translateItem(itemId)
+        }
+      })
+      return
+    }
+
+    void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true })
+  } else if (!wasSelected) {
     await openItem(itemId)
   }
 
@@ -898,11 +1027,14 @@ async function boot() {
   renderPager()
   renderTranslationMeta()
   await loadMe()
-  await loadFeeds()
   if (state.me?.user) {
-    await loadItems()
+    await loadFeeds({ skipImmediateTranslations: true })
+    if (!state.selectedFeedId && !state.items.length) {
+      await loadItems(null, { skipImmediateTranslations: true })
+    }
     prefetchNavigationTargets()
   } else {
+    await loadFeeds()
     renderItems()
     renderArticle()
   }

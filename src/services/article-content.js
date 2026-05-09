@@ -1,7 +1,78 @@
-function normalizeReadableText(value = "") {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
+import { normalizeText as normalizeReadableText } from "../lib/http.js";
+
+const RELEVANCE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "against",
+  "also",
+  "amid",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "been",
+  "before",
+  "being",
+  "but",
+  "by",
+  "can",
+  "could",
+  "for",
+  "from",
+  "has",
+  "have",
+  "her",
+  "his",
+  "how",
+  "into",
+  "its",
+  "may",
+  "more",
+  "new",
+  "not",
+  "of",
+  "off",
+  "on",
+  "one",
+  "or",
+  "our",
+  "out",
+  "over",
+  "said",
+  "say",
+  "says",
+  "she",
+  "that",
+  "the",
+  "their",
+  "they",
+  "this",
+  "to",
+  "was",
+  "were",
+  "when",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your"
+]);
+
+function getRelevanceTokens(value = "") {
+  const normalized = normalizeReadableText(value)
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ");
+  const latinTokens = normalized.match(/[a-z][a-z0-9'-]{2,}/g) || [];
+  const hanTokens = normalized.match(/\p{Script=Han}{2,}/gu) || [];
+  return [...new Set([...latinTokens, ...hanTokens].filter((token) => token.length >= 4 && !RELEVANCE_STOPWORDS.has(token)))];
+}
+
+function countTokenMatches(tokens, haystack = "") {
+  const normalizedHaystack = ` ${normalizeReadableText(haystack).toLowerCase()} `;
+  return tokens.filter((token) => normalizedHaystack.includes(token)).length;
 }
 
 function getHostname(articleUrl = "") {
@@ -66,6 +137,31 @@ export function isLikelyInvalidArticleContent({ articleUrl = "", text = "", html
   }
 
   return false;
+}
+
+export function isLikelyUnrelatedArticleContent({
+  sourceTitle = "",
+  sourceSummary = "",
+  text = "",
+  html = ""
+} = {}) {
+  const normalizedText = normalizeReadableText(text || html);
+  if (normalizedText.length < 80) {
+    return false;
+  }
+
+  const sourceTokens = getRelevanceTokens(`${sourceTitle} ${sourceSummary}`);
+  if (sourceTokens.length < 3) {
+    return false;
+  }
+
+  const titleTokens = getRelevanceTokens(sourceTitle);
+  const sourceMatches = countTokenMatches(sourceTokens, normalizedText);
+  const titleMatches = countTokenMatches(titleTokens, normalizedText);
+  const sourceRatio = sourceMatches / sourceTokens.length;
+  const titleRatio = titleTokens.length ? titleMatches / titleTokens.length : 1;
+
+  return sourceMatches === 0 || (sourceRatio < 0.15 && titleRatio < 0.25 && titleMatches < 2);
 }
 
 function hasUsableStoredContent({ articleUrl = "", text = "", html = "", author = "", summary = "" } = {}) {

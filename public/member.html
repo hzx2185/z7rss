@@ -58,6 +58,9 @@
               <a class="member-nav-item" href="#member-section-security" data-section-target="member-section-security">
                 <span>安全</span>
               </a>
+              <a class="member-nav-item" href="#member-section-backup" data-section-target="member-section-backup">
+                <span>备份</span>
+              </a>
               <a id="member-admin-entry" class="member-nav-item hidden" href="/admin.html">
                 <span>后台</span>
               </a>
@@ -207,7 +210,7 @@
                         <option value="google">谷歌翻译</option>
                         <option value="bing">必应翻译</option>
                         <option value="deeplx">DeepLX 翻译</option>
-                        <option value="sogou">搜狗翻译</option>
+                        <option value="sogou">搜狗翻译（外部手动）</option>
                         <option value="ai">AI 翻译</option>
                       </select>
                     </label>
@@ -219,6 +222,13 @@
                         <option value="en">English</option>
                         <option value="ja">日本語</option>
                         <option value="ko">한국어</option>
+                      </select>
+                    </label>
+                    <label class="field-label">
+                      <span>翻译范围</span>
+                      <select id="member-translation-mode">
+                        <option value="title">只翻译标题</option>
+                        <option value="full">翻译全文</option>
                       </select>
                     </label>
                   </div>
@@ -411,6 +421,54 @@
                 </div>
                 <p id="member-security-hint" class="status-text">当前设备的登录状态。</p>
                 <div id="member-device-list" class="device-list"></div>
+              </div>
+            </section>
+
+            <section id="member-section-backup" class="member-section hidden">
+              <div class="member-section-head">
+                <h2>订阅源备份</h2>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>手动备份</h3>
+                </div>
+                <p id="member-backup-hint" class="status-text">将当前所有订阅源导出为 OPML 格式，发送到指定邮箱。</p>
+                <form id="member-backup-form" class="stack">
+                  <label class="field-label">
+                    <span>接收邮箱</span>
+                    <input id="member-backup-email" type="email" autocomplete="email" required />
+                  </label>
+                  <div class="inline-row">
+                    <button type="submit">发送备份</button>
+                    <a id="member-backup-download-link" class="secondary" href="/api/feeds/export?format=opml" download>下载 OPML 文件</a>
+                  </div>
+                </form>
+              </div>
+              <div class="card">
+                <div class="card-head">
+                  <h3>定时自动备份</h3>
+                </div>
+                <p id="member-backup-schedule-hint" class="status-text">每天定时将订阅源 OPML 备份发送到邮箱，需要后台配置 SMTP。</p>
+                <form id="member-backup-schedule-form" class="stack">
+                  <div class="member-form-row">
+                    <label class="field-label">
+                      <span>备份邮箱</span>
+                      <input id="member-backup-schedule-email" type="email" autocomplete="email" placeholder="接收定时备份的邮箱" />
+                    </label>
+                    <label class="field-label">
+                      <span>发送时间</span>
+                      <input id="member-backup-schedule-time" type="time" value="09:00" />
+                    </label>
+                  </div>
+                  <label class="checkbox-row">
+                    <input id="member-backup-schedule-enabled" type="checkbox" />
+                    <span>启用每天定时备份</span>
+                  </label>
+                  <div class="inline-row">
+                    <button type="submit">保存定时备份</button>
+                    <button id="member-backup-schedule-test-btn" class="secondary" type="button">立即发送一次</button>
+                  </div>
+                </form>
               </div>
             </section>
           </div>

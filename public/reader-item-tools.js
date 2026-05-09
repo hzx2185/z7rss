@@ -143,20 +143,16 @@ export function createReaderItemTools({
     const translation = item ? getEffectiveTranslationForItem(item) : getEffectiveTranslationForFeed(getCurrentFeed())
 
     if (!item) {
-      return translation.translationMode === "title"
-        ? `翻译当前文章标题 · ${translation.targetLabel}`
-        : `翻译当前文章标题和正文 · ${translation.targetLabel}`
+      return `翻译当前文章标题和正文 · ${translation.targetLabel}`
     }
 
     if (shouldDisplayStoredTranslation(item) && hasStoredTranslation(item)) {
-      return translation.translationMode === "title"
+      return translation.translationMode === "title" && !String(item?.translated_text || "").trim()
         ? `当前显示 ${translation.targetLabel} 标题`
         : `当前显示 ${translation.targetLabel}`
     }
 
-    return translation.translationMode === "title"
-      ? `翻译当前文章标题 · ${translation.targetLabel}`
-      : `翻译当前文章标题和正文 · ${translation.targetLabel}`
+    return `翻译当前文章标题和正文 · ${translation.targetLabel}`
   }
 
   function getPreferredSummary(item) {

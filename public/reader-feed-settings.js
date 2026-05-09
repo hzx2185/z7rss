@@ -62,6 +62,11 @@ export function createReaderFeedSettings({ els, getFeedById, setStatus, state })
       return
     }
 
+    if (document.body.classList.contains("reader-feed-drawer-open")) {
+      document.body.classList.remove("reader-feed-drawer-open")
+      state.feedDrawerOpen = false
+    }
+
     state.feedSettingsFeedId = Number(feed.feed_id)
     resetForm()
     els.feedSettingsTitleInput.value = feed.custom_title || ""

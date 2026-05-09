@@ -310,6 +310,8 @@ function migrate(db) {
       site_url TEXT,
       description TEXT,
       auto_category TEXT,
+      etag TEXT,
+      last_modified TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       last_fetched_at TEXT,
@@ -382,17 +384,32 @@ function migrate(db) {
       FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_item_stats (
+      user_id INTEGER PRIMARY KEY,
+      all_count INTEGER NOT NULL DEFAULT 0,
+      today_since TEXT,
+      today_count INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      dirty INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_feeds_user_id ON user_feeds(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_feeds_feed_id ON user_feeds(feed_id);
+    CREATE INDEX IF NOT EXISTS idx_user_feeds_user_feed ON user_feeds(user_id, feed_id);
     CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id);
     CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at);
+    CREATE INDEX IF NOT EXISTS idx_items_effective_sort ON items(COALESCE(published_at, created_at) DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_items_feed_sort ON items(feed_id, published_at DESC, created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_items_feed_effective_sort ON items(feed_id, COALESCE(published_at, created_at) DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_user_item_states_user_item ON user_item_states(user_id, item_id);
     CREATE INDEX IF NOT EXISTS idx_user_item_states_item_user_read ON user_item_states(item_id, user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_user_item_states_user_read_item ON user_item_states(user_id, is_read, item_id);
+    CREATE INDEX IF NOT EXISTS idx_user_item_stats_dirty ON user_item_stats(dirty);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_refresh_runs_started_at ON refresh_runs(started_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_refresh_runs_status ON refresh_runs(status);
@@ -402,6 +419,12 @@ function migrate(db) {
 
   if (!hasColumn(db, "items", "translated_text")) {
     db.exec(`ALTER TABLE items ADD COLUMN translated_text TEXT`);
+  }
+  if (!hasColumn(db, "feeds", "etag")) {
+    db.exec(`ALTER TABLE feeds ADD COLUMN etag TEXT`);
+  }
+  if (!hasColumn(db, "feeds", "last_modified")) {
+    db.exec(`ALTER TABLE feeds ADD COLUMN last_modified TEXT`);
   }
   if (!hasColumn(db, "items", "translated_title")) {
     db.exec(`ALTER TABLE items ADD COLUMN translated_title TEXT`);
@@ -528,6 +551,8 @@ function migrate(db) {
   if (hasColumn(db, "user_feeds", "is_public")) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_user_feeds_public_feed ON user_feeds(is_public, feed_id)`);
   }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_feeds_user_feed ON user_feeds(user_id, feed_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_items_effective_sort ON items(COALESCE(published_at, created_at) DESC, id DESC)`);
   if (!hasColumn(db, "sessions", "ip_address")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN ip_address TEXT`);
   }
@@ -562,6 +587,8 @@ export function createDb(dbPath) {
   db.pragma("temp_store = MEMORY");
   db.pragma("busy_timeout = 5000");
   migrate(db);
-  db.pragma("optimize");
+  setImmediate(() => {
+    db.pragma("optimize");
+  });
   return db;
 }

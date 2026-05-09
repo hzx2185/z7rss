@@ -4,7 +4,8 @@ import {
   getReadableTextLength,
   hasUsableStoredArticleContent,
   hasUsableStoredPageContent,
-  isLikelyInvalidArticleContent
+  isLikelyInvalidArticleContent,
+  isLikelyUnrelatedArticleContent
 } from "./article-content.js";
 import { broadFeedCategories, cleanCategory, getDomainFromUrl, getFeedFreshness, inferFeedCategory } from "./feed-metadata.js";
 import { createFeedFetchSettings } from "./feed-fetch-settings.js";
@@ -12,6 +13,9 @@ import { buildOpml, normalizeImportUrl, parseImportPayload } from "./feed-import
 import { createFeedTitleTranslations } from "./feed-title-translations.js";
 
 export function createFeedService({ store, accountService, config, translator = null, secretBox = null, ai = null }) {
+  const userRefreshJobs = new Map();
+  let nextUserRefreshJobId = 1;
+  let refreshedItemTranslationScheduler = null;
   const secret = secretBox || {
     encrypt(value) {
       return String(value || "");
@@ -26,6 +30,36 @@ export function createFeedService({ store, accountService, config, translator = 
   const supportedTranslationTargets = accountService.getSupportedTranslationTargets();
   const supportedTranslationModes = accountService.getSupportedTranslationModes();
 
+  async function translateRefreshedItems(userId, feedId, inserted = 0) {
+    if (typeof refreshedItemTranslationScheduler !== "function") return null;
+    const normalizedUserId = Number(userId || 0);
+    const normalizedFeedId = Number(feedId || 0);
+    if (!normalizedUserId || !normalizedFeedId) return null;
+    const limit = Math.max(20, Math.min(80, Number(inserted || 0) || 20));
+    return refreshedItemTranslationScheduler({
+      userId: normalizedUserId,
+      feedId: normalizedFeedId,
+      limit
+    });
+  }
+
+  async function translateRefreshedItemsForSubscribers(feedId, inserted = 0) {
+    if (typeof refreshedItemTranslationScheduler !== "function") return { translatedCount: 0 };
+    if (typeof store.listUsers !== "function" || typeof store.getUserFeed !== "function") {
+      return { translatedCount: 0 };
+    }
+
+    let translatedCount = 0;
+    for (const user of store.listUsers() || []) {
+      if (String(user?.status || "active") !== "active") continue;
+      const userId = Number(user?.id || 0);
+      if (!userId || !store.getUserFeed(userId, feedId)) continue;
+      const result = await translateRefreshedItems(userId, feedId, inserted);
+      translatedCount += Number(result?.translatedCount || 0);
+    }
+    return { translatedCount };
+  }
+
   function normalizeOptionalBoolean(value) {
     if (value === undefined || value === null || value === "" || value === "inherit") {
       return null;
@@ -38,6 +72,65 @@ export function createFeedService({ store, accountService, config, translator = 
       return Boolean(fallback);
     }
     return value === true || value === 1 || value === "1" || value === "true";
+  }
+
+  function summarizeUserRefreshJob(job) {
+    const results = Array.isArray(job?.results) ? job.results : [];
+    return {
+      jobId: job?.id || "",
+      status: job?.status || "unknown",
+      total: Number(job?.total || 0),
+      processed: Number(job?.processed || 0),
+      startedAt: job?.startedAt || null,
+      finishedAt: job?.finishedAt || null,
+      error: job?.error || "",
+      results,
+      successCount: results.filter((entry) => entry.ok).length,
+      failedCount: results.filter((entry) => !entry.ok).length,
+      insertedCount: results.reduce((sum, entry) => sum + Number(entry.inserted || 0), 0),
+      fetchedCount: results.reduce((sum, entry) => sum + Number(entry.fetched || 0), 0),
+      unreadCount: results.reduce((sum, entry) => sum + Number(entry.unreadCount || 0), 0)
+    };
+  }
+
+  async function runUserRefreshJob(job) {
+    try {
+      const feeds = store.listUserFeeds(job.userId);
+      job.total = feeds.length;
+      let currentIndex = 0;
+      const workerCount = Math.min(Math.max(1, Number(config.userRefreshConcurrency || 4)), feeds.length || 1);
+      async function worker() {
+        while (currentIndex < feeds.length) {
+          const feed = feeds[currentIndex];
+          currentIndex += 1;
+          await refreshOne(feed);
+        }
+      }
+      async function refreshOne(feed) {
+        try {
+          const result = await refreshFeed(feed.feed_id, { userId: job.userId });
+          job.results.push({
+            feedId: feed.feed_id,
+            ok: true,
+            inserted: result.inserted,
+            fetched: result.fetched,
+            unreadCount: result.unreadCount
+          });
+        } catch (error) {
+          job.results.push({ feedId: feed.feed_id, ok: false, error: error.message });
+        } finally {
+          job.processed += 1;
+        }
+      }
+
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      job.status = "success";
+    } catch (error) {
+      job.status = "error";
+      job.error = error.message;
+    } finally {
+      job.finishedAt = new Date().toISOString();
+    }
   }
 
   const feedFetchSettings = createFeedFetchSettings({ store, secret });
@@ -124,6 +217,14 @@ export function createFeedService({ store, accountService, config, translator = 
     return hasUsableStoredPageContent(item);
   }
 
+  function shouldKeepStoredContentAfterArticleFetchError(error) {
+    const code = String(error?.code || "");
+    const message = String(error?.message || "");
+    if (code === "article_request_access_challenge") return true;
+    if (code === "article_request_failed" && /\b(401|403|429|503)\b/.test(message)) return true;
+    return /access challenge|403 forbidden|cloudflare/i.test(message);
+  }
+
   function toItemPreview(item, extra = {}) {
     if (!item) return null;
     const { content_html: _contentHtml, content_text: _contentText, ...preview } = item;
@@ -135,8 +236,27 @@ export function createFeedService({ store, accountService, config, translator = 
   }
 
   function pruneFeedItems(feedId) {
-    const keepCount = Math.max(0, Number(store.getFeedRetentionLimit(feedId) || 0));
-    return store.pruneFeedItems(feedId, keepCount);
+    const cleanupSettings = typeof store.listSettings === "function"
+      ? store.listSettings().reduce((acc, row) => {
+          if (row.category === "database_cleanup") acc[row.key] = row.value;
+          return acc;
+        }, {})
+      : {};
+    const configuredMaxItems = String(cleanupSettings.max_items_total ?? cleanupSettings.max_items_per_feed ?? "").trim();
+    const keepCount = configuredMaxItems === ""
+      ? Math.max(0, Number(store.getFeedRetentionLimit(feedId) || 0))
+      : Math.max(0, Number(configuredMaxItems) || 0);
+    return store.pruneFeedItems(feedId, keepCount, {
+      retentionRules: true,
+      scope: "user_total",
+      maxItemsTotal: configuredMaxItems === "" ? null : keepCount,
+      maxAgeDays: Math.max(0, Number(cleanupSettings.max_age_days || 0) || 0),
+      protectFavorites: cleanupSettings.protect_favorites === undefined
+        ? true
+        : ["1", "true", "yes", "on"].includes(String(cleanupSettings.protect_favorites).trim().toLowerCase()),
+      protectUnread: ["1", "true", "yes", "on"].includes(String(cleanupSettings.protect_unread ?? "").trim().toLowerCase()),
+      minKeepCount: Math.max(0, Number(cleanupSettings.min_keep_items || 0) || 0)
+    });
   }
 
   function normalizeAiCategory(value, fallback = "未分类") {
@@ -149,34 +269,40 @@ export function createFeedService({ store, accountService, config, translator = 
     if (!ai || !config.aiEnabled) {
       return { category: fallback, source: "rules" };
     }
-    const runtime = accountService.getEffectiveAiConfig(userId || 0);
-    if (!runtime.baseUrl || !runtime.apiKey) {
-      return { category: fallback, source: "rules" };
+    const aiRuntimes = accountService.getEffectiveAiRuntimes(userId || 0);
+    const errors = [];
+    for (const runtime of aiRuntimes) {
+      if (!runtime.baseUrl || !runtime.apiKey) continue;
+      const sourceText = [
+        `订阅源标题: ${feed.title || ""}`,
+        `订阅源网址: ${feed.url || ""}`,
+        `网站: ${feed.site_url || feed.siteUrl || ""}`,
+        `介绍: ${feed.description || ""}`,
+        "最近文章:",
+        ...items.slice(0, 8).map((item, index) => `${index + 1}. ${item.title || ""} ${item.summary || ""}`.slice(0, 500))
+      ].join("\n");
+      try {
+        const output = await ai.summarize(
+          {
+            ...runtime,
+            summaryPrompt: [
+              "你是 RSS 订阅源分类器。只能从以下大类选择一个输出，不要解释，不要输出其他文字。",
+              broadFeedCategories.join(" / "),
+              "如果不能确定，输出 未分类。"
+            ].join("\n")
+          },
+          sourceText
+        );
+        return {
+          category: normalizeAiCategory(output, fallback),
+          source: "ai",
+          raw: output
+        };
+      } catch (error) {
+        errors.push(`${runtime.label || runtime.source}: ${error?.message || String(error)}`);
+      }
     }
-    const sourceText = [
-      `订阅源标题: ${feed.title || ""}`,
-      `订阅源网址: ${feed.url || ""}`,
-      `网站: ${feed.site_url || feed.siteUrl || ""}`,
-      `介绍: ${feed.description || ""}`,
-      "最近文章:",
-      ...items.slice(0, 8).map((item, index) => `${index + 1}. ${item.title || ""} ${item.summary || ""}`.slice(0, 500))
-    ].join("\n");
-    const output = await ai.summarize(
-      {
-        ...runtime,
-        summaryPrompt: [
-          "你是 RSS 订阅源分类器。只能从以下大类选择一个输出，不要解释，不要输出其他文字。",
-          broadFeedCategories.join(" / "),
-          "如果不能确定，输出 未分类。"
-        ].join("\n")
-      },
-      sourceText
-    );
-    return {
-      category: normalizeAiCategory(output, fallback),
-      source: "ai",
-      raw: output
-    };
+    return { category: fallback, source: "rules" };
   }
 
   async function reclassifyOne(feedId, options = {}) {
@@ -216,13 +342,48 @@ export function createFeedService({ store, accountService, config, translator = 
       const result = await fetchFeed(fetchSettings?.feed_url || feed.url, {
         timeoutMs: config.crawlTimeoutMs,
         userAgent: config.userAgent,
+        etag: feed.etag || "",
+        lastModified: feed.last_modified || "",
         ...buildRuntimeFeedFetchOptions(fetchSettings || {})
       });
+      if (result.notModified) {
+        if (typeof store.touchFeedFetched === "function") {
+          store.touchFeedFetched({
+            id: feed.id,
+            etag: result.etag || feed.etag || null,
+            lastModified: result.lastModified || feed.last_modified || null
+          });
+        } else {
+          store.updateFeedMeta({
+            id: feed.id,
+            title: feed.title,
+            siteUrl: feed.site_url || "",
+            description: feed.description || "",
+            etag: result.etag || feed.etag || null,
+            lastModified: result.lastModified || feed.last_modified || null
+          });
+        }
+        const unreadCount =
+          Number.isInteger(Number(options.userId)) && Number(options.userId) > 0 && typeof store.countUserItems === "function"
+            ? store.countUserItems(Number(options.userId), feed.id, { readState: 0 })
+            : null;
+        return {
+          feed: store.getFeedById(feed.id),
+          inserted: 0,
+          fetched: 0,
+          unreadCount,
+          removed: 0,
+          translatedCount: 0,
+          notModified: true
+        };
+      }
       store.updateFeedMeta({
         id: feed.id,
         title: result.meta.title || feed.title,
         siteUrl: result.meta.siteUrl || "",
-        description: result.meta.description || ""
+        description: result.meta.description || "",
+        etag: result.etag || feed.etag || null,
+        lastModified: result.lastModified || feed.last_modified || null
       });
       const filteredItems = filterItems(result.items);
       const insertedResult = store.upsertItems(feed.id, filteredItems);
@@ -240,14 +401,78 @@ export function createFeedService({ store, accountService, config, translator = 
         )
       );
       const removed = pruneFeedItems(feed.id);
+      await hydrateShortItems(feed.id, config.crawlTimeoutMs, config.userAgent, fetchSettings);
       const unreadCount =
         Number.isInteger(Number(options.userId)) && Number(options.userId) > 0 && typeof store.countUserItems === "function"
           ? store.countUserItems(Number(options.userId), feed.id, { readState: 0 })
           : null;
-      return { feed: store.getFeedById(feed.id), inserted, fetched: filteredItems.length, unreadCount, removed };
+      let translatedCount = 0;
+      if (Number.isInteger(Number(options.userId)) && Number(options.userId) > 0) {
+        try {
+          const translationResult = await translateRefreshedItems(Number(options.userId), feed.id, inserted);
+          translatedCount = Number(translationResult?.translatedCount || 0);
+        } catch (error) {
+          console.warn(`Refresh translation failed for feed ${feed.id}: ${error.message}`);
+        }
+      } else {
+        try {
+          const translationResult = await translateRefreshedItemsForSubscribers(feed.id, inserted);
+          translatedCount = Number(translationResult?.translatedCount || 0);
+        } catch (error) {
+          console.warn(`Refresh translation failed for feed ${feed.id}: ${error.message}`);
+        }
+      }
+      return { feed: store.getFeedById(feed.id), inserted, fetched: filteredItems.length, unreadCount, removed, translatedCount };
     } catch (error) {
       store.updateFeedError(feed.id, error.message);
       throw error;
+    }
+  }
+
+  async function hydrateShortItems(feedId, crawlTimeoutMs, userAgent, fetchSettings = null) {
+    try {
+      const shortItems = store.listFeedItemsShortContent(feedId, 400, 10);
+      if (!shortItems.length) return;
+      const runtimeOptions = buildRuntimeFeedFetchOptions(fetchSettings || {});
+      for (const item of shortItems) {
+        try {
+          const article = await fetchArticleContent(item.original_url || item.link, {
+            timeoutMs: crawlTimeoutMs,
+            userAgent,
+            ...runtimeOptions
+          });
+          if (
+            isLikelyInvalidArticleContent({
+              articleUrl: item.original_url || item.link,
+              text: article.text,
+              html: article.html,
+              author: item.author,
+              summary: item.summary
+            }) ||
+            isLikelyUnrelatedArticleContent({
+              sourceTitle: item.title,
+              sourceSummary: item.summary || item.content_text,
+              text: article.text,
+              html: article.html
+            })
+          ) {
+            continue;
+          }
+          const oldTextLength = getReadableTextLength(item.content_text || item.content_html || "");
+          const newTextLength = getReadableTextLength(article.text || article.html || "");
+          if (newTextLength <= oldTextLength) {
+            continue;
+          }
+          store.updateItemContent(item.id, article.html, article.text, article.originalUrl, article.title);
+          if (oldTextLength > 0 && newTextLength > oldTextLength * 2) {
+            store.clearItemTranslations(item.id);
+          }
+        } catch (_error) {
+          // Skip failed hydrations silently during feed refresh
+        }
+      }
+    } catch (_error) {
+      // hydrateShortItems should never break the refresh flow
     }
   }
 
@@ -257,16 +482,24 @@ export function createFeedService({ store, accountService, config, translator = 
       throw notFound("Item not found");
     }
 
-    if (hasStoredContent(item) && getReadableTextLength(item.content_text || item.content_html || "") > 400) {
+    if (hasStoredContent(item) && (item.crawled_at || getReadableTextLength(item.content_text || item.content_html || "") > 400)) {
       return store.getUserItem(userId, itemId);
     }
 
     const fetchSettings = getFeedFetchSettings(userId, item.feed_id);
-    const article = await fetchArticleContent(item.original_url || item.link, {
-      timeoutMs: config.crawlTimeoutMs,
-      userAgent: config.userAgent,
-      ...buildRuntimeFeedFetchOptions(fetchSettings)
-    });
+    let article;
+    try {
+      article = await fetchArticleContent(item.original_url || item.link, {
+        timeoutMs: config.crawlTimeoutMs,
+        userAgent: config.userAgent,
+        ...buildRuntimeFeedFetchOptions(fetchSettings)
+      });
+    } catch (error) {
+      if (hasStoredContent(item) && shouldKeepStoredContentAfterArticleFetchError(error)) {
+        return store.getUserItem(userId, itemId) || item;
+      }
+      throw error;
+    }
     if (
       isLikelyInvalidArticleContent({
         articleUrl: item.original_url || item.link,
@@ -280,7 +513,27 @@ export function createFeedService({ store, accountService, config, translator = 
         code: "article_request_incomplete_content"
       });
     }
+    if (
+      isLikelyUnrelatedArticleContent({
+        sourceTitle: item.title,
+        sourceSummary: item.summary || item.content_text,
+        text: article.text,
+        html: article.html
+      })
+    ) {
+      if (hasStoredContent(item)) {
+        return store.getUserItem(userId, itemId);
+      }
+      throw badGateway("Article request returned content unrelated to the feed item", {
+        code: "article_request_unrelated_content"
+      });
+    }
     store.updateItemContent(item.id, article.html, article.text, article.originalUrl, article.title);
+    const oldTextLength = getReadableTextLength(item.content_text || item.content_html || "");
+    const newTextLength = getReadableTextLength(article.text || article.html || "");
+    if (oldTextLength > 0 && newTextLength > oldTextLength * 2) {
+      store.clearItemTranslations(item.id);
+    }
     return store.getUserItem(userId, itemId);
   }
 
@@ -386,17 +639,45 @@ export function createFeedService({ store, accountService, config, translator = 
   }
 
   return {
-    async listFeeds(userId) {
+    setItemTitleTranslationScheduler(scheduler) {
+      refreshedItemTranslationScheduler = typeof scheduler === "function" ? scheduler : null;
+    },
+    async listFeeds(userId, options = {}) {
       const rawFeeds = store.listUserFeeds(userId);
       const user = rawFeeds.length ? store.getUserById(userId) : null;
       const account = user ? accountService.getAccount(user) : null;
-      const displayFeeds = user ? await ensureImmediateFeedTitleTranslations(user, rawFeeds, account) : rawFeeds;
+      const baseTranslation = user && typeof accountService.getEffectiveTranslationSettings === "function"
+        ? accountService.getEffectiveTranslationSettings(userId)
+        : null;
+      const providerStatus = baseTranslation && typeof accountService.getTranslationProviderStatus === "function"
+        ? accountService.getTranslationProviderStatus(userId, baseTranslation.provider)
+        : null;
+      const displayFeeds = user && !options.skipImmediateTranslations
+        ? await ensureImmediateFeedTitleTranslations(user, rawFeeds, account)
+        : rawFeeds;
       const feedFetchSettingsIndex = buildFeedFetchSettingsIndex(userId);
       if (user && displayFeeds.length) {
-        scheduleFeedTitleTranslations(user, displayFeeds, account);
+        if (options.skipImmediateTranslations) {
+          setTimeout(() => {
+            try {
+              scheduleFeedTitleTranslations(user, displayFeeds, account);
+            } catch (_error) {
+              // Fast boot should never be held hostage by background translation setup.
+            }
+          }, 0);
+        } else {
+          scheduleFeedTitleTranslations(user, displayFeeds, account);
+        }
       }
       return displayFeeds.map((feed) =>
-        serializeUserFeed(userId, feed, null, feedFetchSettingsIndex.get(Number(feed.feed_id)) || null)
+        serializeUserFeed(
+          userId,
+          feed,
+          baseTranslation
+            ? accountService.getEffectiveFeedTranslationSettings(userId, feed, { baseTranslation, providerStatus })
+            : null,
+          feedFetchSettingsIndex.get(Number(feed.feed_id)) || null
+        )
       );
     },
     listPublicFeedPlaza(viewerUserId = null, options = {}) {
@@ -443,7 +724,7 @@ export function createFeedService({ store, accountService, config, translator = 
     countItems(userId, feedId, options = {}) {
       return store.countUserItems(userId, feedId, options);
     },
-    async addFeed(userId, { title, url }) {
+    async addFeed(userId, { title, url, isPublic }) {
       if (!url) {
         throw badRequest("Feed URL is required", { code: "feed_url_required" });
       }
@@ -479,6 +760,10 @@ export function createFeedService({ store, accountService, config, translator = 
           throw conflict("你已经订阅过这个源", { code: "feed_already_subscribed" });
         }
         throw error;
+      }
+
+      if (isPublic !== undefined && isPublic !== null) {
+        store.updateUserFeedPreferences(userId, canonicalFeed.id, { is_public: isPublic ? 1 : 0 });
       }
 
       let warning = null;
@@ -667,6 +952,36 @@ export function createFeedService({ store, accountService, config, translator = 
         }
       }
       return results;
+    },
+    startRefreshAllForUser(userId) {
+      const runningJob = Array.from(userRefreshJobs.values()).find(
+        (job) => Number(job.userId) === Number(userId) && job.status === "running"
+      );
+      if (runningJob) {
+        return summarizeUserRefreshJob(runningJob);
+      }
+
+      const job = {
+        id: String(nextUserRefreshJobId++),
+        userId,
+        status: "running",
+        total: 0,
+        processed: 0,
+        results: [],
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        error: ""
+      };
+      userRefreshJobs.set(job.id, job);
+      void runUserRefreshJob(job);
+      return summarizeUserRefreshJob(job);
+    },
+    getRefreshAllForUserJob(userId, jobId) {
+      const job = userRefreshJobs.get(String(jobId || ""));
+      if (!job || Number(job.userId) !== Number(userId)) {
+        throw notFound("刷新任务不存在", { code: "refresh_job_not_found" });
+      }
+      return summarizeUserRefreshJob(job);
     },
     removeFeed(userId, feedId) {
       store.unlinkUserFeed(userId, feedId);

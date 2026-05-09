@@ -18,6 +18,8 @@ export function createReaderUiState({
   shouldInlineDetail
 }) {
   let flashTimer = null
+  let lastStatusKey = ""
+  let lastActionAvailabilityKey = ""
   const debounceTimers = {
     feedSearch: null,
     itemSearch: null
@@ -62,7 +64,10 @@ export function createReaderUiState({
   }
 
   function setStatus(message = "", tone = "info") {
-    els.statusText.textContent = message
+    const statusKey = `${tone}:${message}`
+    if (lastStatusKey === statusKey && (flashTimer || /^正在/.test(message) || /已就绪/.test(message))) return
+    lastStatusKey = statusKey
+    setTextWhenChanged(els.statusText, message)
     if (!message || /^正在/.test(message) || /已就绪/.test(message)) {
       return
     }
@@ -198,6 +203,20 @@ export function createReaderUiState({
     })
   }
 
+  function resetItemListScroll() {
+    window.requestAnimationFrame(() => {
+      if (els.itemList) {
+        els.itemList.scrollTop = 0
+      }
+      if (els.itemColumn) {
+        els.itemColumn.scrollTop = 0
+      }
+      if (shouldInlineDetail()) {
+        window.scrollTo(window.scrollX || 0, 0)
+      }
+    })
+  }
+
   function renderLoadStatus() {
   }
 
@@ -223,6 +242,22 @@ export function createReaderUiState({
     const loggedIn = Boolean(state.me?.user)
     const account = getCurrentAccount()
     const filteredCount = Number.isFinite(options.filteredCount) ? options.filteredCount : getFilteredItems().length
+    const nextAvailabilityKey = [
+      loggedIn ? "1" : "0",
+      Number(state.selectedItem?.id || 0),
+      account?.features.translation ? "t1" : "t0",
+      account?.features.summary ? "s1" : "s0",
+      filteredCount,
+      state.items.length,
+      state.feedBulkMode ? "b1" : "b0",
+      state.selectedFeedIds.join(","),
+      state.feeds.length
+    ].join("|")
+
+    if (lastActionAvailabilityKey === nextAvailabilityKey) {
+      return
+    }
+    lastActionAvailabilityKey = nextAvailabilityKey
 
     setControlsDisabled(
       [
@@ -276,6 +311,7 @@ export function createReaderUiState({
     renderSearchState,
     renderViewMode,
     resetContentPaneScroll,
+    resetItemListScroll,
     scheduleDebouncedRender,
     scheduleReaderPreferenceSave,
     setStatus,

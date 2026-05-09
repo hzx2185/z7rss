@@ -156,6 +156,7 @@ export function registerMemberEvents({
         body: JSON.stringify({
           provider: els.translationProvider.value,
           targetLanguage: els.translationTarget.value,
+          translationMode: els.translationMode.value,
           autoTranslate: els.translationAuto.checked,
           displayTranslated: els.translationDisplay.checked
         })
@@ -208,6 +209,10 @@ export function registerMemberEvents({
     renderers.renderTranslationFormState()
   })
 
+  els.translationMode?.addEventListener("change", () => {
+    renderers.renderTranslationFormState()
+  })
+
   els.translationResetBtn.addEventListener("click", async () => {
     const selectedProvider = actions.getSelectedTranslationProvider()
     try {
@@ -256,6 +261,68 @@ export function registerMemberEvents({
       state.security = { sessions: result.sessions || [] }
       renderers.renderSecurityState()
       actions.setStatus(result.revokedCount > 0 ? `密码已更新，并退出了 ${result.revokedCount} 个其他会话` : "密码已更新", "success")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    }
+  })
+
+  els.backupForm?.addEventListener("submit", async (event) => {
+    event.preventDefault()
+    if (!state.me?.user) {
+      actions.setStatus("请先登录", "warning")
+      return
+    }
+    const email = els.backupEmail?.value?.trim()
+    if (!email) {
+      actions.setStatus("请填写接收邮箱", "warning")
+      return
+    }
+    try {
+      actions.setStatus("正在发送备份邮件...", "info")
+      const result = await api("/api/account/backup-opml", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      })
+      actions.setStatus(`备份已发送到 ${result.email}，共 ${result.feedCount} 个订阅源`, "success")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    }
+  })
+
+  els.backupScheduleForm?.addEventListener("submit", async (event) => {
+    event.preventDefault()
+    if (!state.me?.user) {
+      actions.setStatus("请先登录", "warning")
+      return
+    }
+    try {
+      await api("/api/account/backup-opml/config", {
+        method: "POST",
+        body: JSON.stringify({
+          email: els.backupScheduleEmail?.value?.trim() || "",
+          sendTime: els.backupScheduleTime?.value || "09:00",
+          enabled: els.backupScheduleEnabled?.checked || false
+        })
+      })
+      await actions.loadBackupConfig()
+      actions.setStatus("定时备份配置已保存", "success")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    }
+  })
+
+  els.backupScheduleTestBtn?.addEventListener("click", async () => {
+    if (!state.me?.user) {
+      actions.setStatus("请先登录", "warning")
+      return
+    }
+    try {
+      actions.setStatus("正在发送测试备份...", "info")
+      const result = await api("/api/account/backup-opml", {
+        method: "POST",
+        body: JSON.stringify({ email: els.backupScheduleEmail?.value?.trim() || els.backupEmail?.value?.trim() })
+      })
+      actions.setStatus(`测试备份已发送到 ${result.email}，共 ${result.feedCount} 个订阅源`, "success")
     } catch (error) {
       actions.setStatus(error.message, "error")
     }

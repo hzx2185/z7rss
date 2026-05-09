@@ -5,6 +5,7 @@ import { route } from "../lib/routes.js";
 import {
   expectObject,
   parseBoolean,
+  parseEnum,
   parseHostname,
   parseIpAddress,
   parseIsoDateTime,
@@ -128,6 +129,18 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
     ));
   }));
 
+  router.get("/users/:userId/export", route((req, res) => {
+    const data = adminService.exportUserData(parseUserId(req.params.userId));
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename="z7rss-user-${req.params.userId}-export.json"`);
+    res.json(data);
+  }));
+
+  router.post("/users/:userId/import", route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    res.json(adminService.importUserData(parseUserId(req.params.userId), body, getAuditContext(req)));
+  }));
+
   router.post("/users/:userId/subscription", route(async (req, res) => {
     const body = expectObject(req.body || {});
     res.json(adminService.updateUserSubscription({
@@ -190,21 +203,34 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
       res.json(adminService.setSettings(category, {
         enabled: parseTrimmedString(body.enabled, "自动备份开关", { maxLength: 8 }),
         retention_days: parseTrimmedString(body.retention_days, "备份保留天数", { maxLength: 8 }),
-        max_files: parseTrimmedString(body.max_files, "备份最大份数", { maxLength: 8 })
+        max_files: parseTrimmedString(body.max_files, "备份最大份数", { maxLength: 8 }),
+        schedule_frequency: parseTrimmedString(body.schedule_frequency, "备份频率", { maxLength: 16 }),
+        schedule_weekdays: parseTrimmedString(body.schedule_weekdays, "备份星期", { maxLength: 32 }),
+        schedule_time: parseTrimmedString(body.schedule_time, "备份时间", { maxLength: 8 })
+      }, getAuditContext(req)));
+      return;
+    }
+    if (category === "database_cleanup") {
+      res.json(adminService.setSettings(category, {
+        max_items_total: parseTrimmedString(body.max_items_total, "总文章保留数", { maxLength: 8 }),
+        max_age_days: parseTrimmedString(body.max_age_days, "文章最多保留天数", { maxLength: 8 }),
+        protect_favorites: parseTrimmedString(body.protect_favorites, "收藏文章保护", { maxLength: 8 }),
+        protect_unread: parseTrimmedString(body.protect_unread, "未读文章保护", { maxLength: 8 }),
+        min_keep_items: parseTrimmedString(body.min_keep_items, "至少保留文章数", { maxLength: 8 })
       }, getAuditContext(req)));
       return;
     }
     if (category === "translation_google") {
       res.json(adminService.setSettings(category, {
         base_url: parseTrimmedString(body.base_url, "谷歌翻译接口地址", { maxLength: 1000 }),
-        api_key: parseTrimmedString(body.api_key, "谷歌翻译 API Key", { maxLength: 4000 })
+        api_key: body.clear_api_key ? "__CLEAR__" : parseTrimmedString(body.api_key, "谷歌翻译 API Key", { maxLength: 4000 })
       }, getAuditContext(req)));
       return;
     }
     if (category === "translation_bing") {
       res.json(adminService.setSettings(category, {
         base_url: parseTrimmedString(body.base_url, "必应翻译 Base URL", { maxLength: 1000 }),
-        api_key: parseTrimmedString(body.api_key, "必应翻译 API Key", { maxLength: 4000 }),
+        api_key: body.clear_api_key ? "__CLEAR__" : parseTrimmedString(body.api_key, "必应翻译 API Key", { maxLength: 4000 }),
         region: parseTrimmedString(body.region, "必应翻译区域", { maxLength: 200 })
       }, getAuditContext(req)));
       return;
@@ -212,14 +238,28 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
     if (category === "translation_deeplx") {
       res.json(adminService.setSettings(category, {
         base_url: parseTrimmedString(body.base_url, "DeepLX 接口地址", { maxLength: 2000 }),
-        api_key: parseTrimmedString(body.api_key, "DeepLX API Key", { maxLength: 4000 })
+        api_key: body.clear_api_key ? "__CLEAR__" : parseTrimmedString(body.api_key, "DeepLX API Key", { maxLength: 4000 })
+      }, getAuditContext(req)));
+      return;
+    }
+    if (category === "ai_provider_pool") {
+      res.json(adminService.setSettings(category, {
+        configs_secret: parseTrimmedString(body.configs ?? body.configs_secret ?? "[]", "AI 接口列表", { maxLength: 40000 })
+      }, getAuditContext(req)));
+      return;
+    }
+    if (category === "translation_provider_pool") {
+      res.json(adminService.setSettings(category, {
+        configs_secret: parseTrimmedString(body.configs ?? body.configs_secret ?? "[]", "翻译 API 列表", { maxLength: 40000 })
       }, getAuditContext(req)));
       return;
     }
     if (category === "translation") {
       res.json(adminService.setSettings(category, {
         provider: parseTrimmedString(body.provider, "默认翻译工具", { maxLength: 32 }),
-        target_language: parseTrimmedString(body.target_language, "默认目标语言", { maxLength: 32 })
+        target_language: parseTrimmedString(body.target_language, "默认目标语言", { maxLength: 32 }),
+        translation_mode: parseEnum(body.translation_mode ?? body.translationMode ?? "title", "默认翻译范围", ["title", "full"]),
+        fallback_providers: parseTrimmedString(body.fallback_providers ?? body.fallbackProviders, "备用翻译顺序", { maxLength: 200 })
       }, getAuditContext(req)));
       return;
     }
@@ -298,7 +338,37 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
   }));
 
   router.post("/ai/test", aiLimiter, route(async (_req, res) => {
-    res.json(await aiConfigService.testSystemAi());
+    res.json(await aiConfigService.testAi(0));
+  }));
+
+  router.post("/ai/test-runtime", aiLimiter, route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    const runtimeConfig = {
+      baseUrl: parseTrimmedString(body.baseUrl, "Base URL", { maxLength: 2000 }),
+      apiKey: parseTrimmedString(body.apiKey, "API Key", { maxLength: 4000 }),
+      model: parseTrimmedString(body.model, "模型", { maxLength: 200 }),
+      translatePrompt: parseTrimmedString(body.translatePrompt, "翻译提示词", { maxLength: 8000 }),
+      summaryPrompt: parseTrimmedString(body.summaryPrompt, "总结提示词", { maxLength: 8000 })
+    };
+    const poolId = parseTrimmedString(body.id, "ID", { maxLength: 100 });
+    res.json(await aiConfigService.testAiRuntime(runtimeConfig, poolId));
+  }));
+
+  router.post("/translation/test", aiLimiter, route(async (_req, res) => {
+    res.json(await aiConfigService.testSystemTranslation());
+  }));
+
+  router.post("/translation/test-runtime", aiLimiter, route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    const runtimeConfig = {
+      provider: parseTrimmedString(body.provider, "API 类型", { required: true, maxLength: 32 }),
+      baseUrl: parseTrimmedString(body.baseUrl, "Base URL", { maxLength: 2000 }),
+      apiKey: parseTrimmedString(body.apiKey, "API Key", { maxLength: 4000 }),
+      region: parseTrimmedString(body.region, "Region", { maxLength: 200 }),
+      targetLanguage: "zh-CN"
+    };
+    const poolId = parseTrimmedString(body.id, "ID", { maxLength: 100 });
+    res.json(await aiConfigService.testTranslationRuntime(runtimeConfig, poolId));
   }));
 
   return router;

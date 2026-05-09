@@ -287,6 +287,38 @@ body.reader-page textarea {
   padding: 10px 12px;
 }
 
+.reader-rich-text {
+  white-space: normal;
+}
+
+.reader-rich-text > p {
+  margin-bottom: 0.45em;
+}
+
+.reader-rich-text > p:first-child,
+.reader-rich-text > .rich-fallback:first-child,
+.reader-rich-text > .reader-action-error + p,
+.reader-rich-text > .reader-action-error + .rich-fallback {
+  margin-top: 0;
+}
+
+.reader-rich-text > p:last-child,
+.reader-rich-text > .rich-fallback:last-child,
+.reader-rich-text > .rich-fallback > :last-child {
+  margin-bottom: 0;
+}
+
+.reader-rich-text > p + .rich-fallback,
+.reader-rich-text > p + .rich-fallback > :first-child {
+  margin-top: 0;
+}
+
+.reader-rich-text > p + p,
+.reader-rich-text > .rich-fallback + p,
+.reader-rich-text > p + .rich-fallback {
+  margin-top: 0.45em;
+}
+
 .reader-content h1,
 .reader-content h2,
 .reader-content h3 {

@@ -79,6 +79,7 @@ const els = {
   translationFormHint: document.querySelector("#member-translation-form-hint"),
   translationProvider: document.querySelector("#member-translation-provider"),
   translationTarget: document.querySelector("#member-translation-target"),
+  translationMode: document.querySelector("#member-translation-mode"),
   translationAuto: document.querySelector("#member-translation-auto"),
   translationDisplay: document.querySelector("#member-translation-display"),
   translationSaveBtn: document.querySelector('#member-translation-form button[type="submit"]'),
@@ -102,7 +103,17 @@ const els = {
   deviceList: document.querySelector("#member-device-list"),
   billingOverview: document.querySelector("#member-billing-overview"),
   billingHistory: document.querySelector("#member-billing-history"),
-  adminEntry: document.querySelector("#member-admin-entry")
+  adminEntry: document.querySelector("#member-admin-entry"),
+  backupForm: document.querySelector("#member-backup-form"),
+  backupEmail: document.querySelector("#member-backup-email"),
+  backupHint: document.querySelector("#member-backup-hint"),
+  backupDownloadLink: document.querySelector("#member-backup-download-link"),
+  backupScheduleForm: document.querySelector("#member-backup-schedule-form"),
+  backupScheduleEmail: document.querySelector("#member-backup-schedule-email"),
+  backupScheduleTime: document.querySelector("#member-backup-schedule-time"),
+  backupScheduleEnabled: document.querySelector("#member-backup-schedule-enabled"),
+  backupScheduleHint: document.querySelector("#member-backup-schedule-hint"),
+  backupScheduleTestBtn: document.querySelector("#member-backup-schedule-test-btn")
 }
 
 function getProviderSourceLabel(source) {
@@ -224,7 +235,7 @@ function renderCapabilityOverview() {
     ? [
         { label: "当前套餐", value: account.plan.name },
         { label: "订阅占用", value: `${account.usage.feedCount} / ${account.usage.feedLimit}` },
-        { label: "文章保留", value: `${account.usage.savedItemLimit} 篇 / 源` },
+        { label: "文章占用", value: `${account.usage.savedItemCount} / ${account.usage.savedItemLimit}` },
         { label: "收藏上限", value: `${account.usage.favoriteCount} / ${account.usage.favoriteLimit}` },
         { label: "到期时间", value: account.subscription?.current_period_end ? formatDate(account.subscription.current_period_end) : "未设置" }
       ]
@@ -287,6 +298,7 @@ function renderAuth() {
     renderTranslationFormState()
     renderTranslationCredentialState()
     renderSecurityState()
+    renderBackupState()
     return
   }
 
@@ -299,6 +311,7 @@ function renderAuth() {
   renderTranslationFormState()
   renderTranslationCredentialState()
   renderSecurityState()
+  renderBackupState()
 }
 
 function renderPlans() {
@@ -316,7 +329,7 @@ function renderPlans() {
           <p class="muted">${escapeHtml(plan.description || "")}</p>
           <div class="compact-list">
             <div class="list-row"><div class="list-main"><strong>订阅上限</strong><span class="muted">${plan.max_feeds} 个</span></div></div>
-            <div class="list-row"><div class="list-main"><strong>文章保留</strong><span class="muted">${plan.max_saved_items} 篇 / 源</span></div></div>
+            <div class="list-row"><div class="list-main"><strong>总文章保留</strong><span class="muted">${plan.max_saved_items} 篇</span></div></div>
             <div class="list-row"><div class="list-main"><strong>收藏上限</strong><span class="muted">${plan.max_favorite_items} 篇</span></div></div>
             <div class="list-row"><div class="list-main"><strong>翻译功能</strong><span class="muted">${plan.ai_translation_enabled ? "支持" : "不支持"}</span></div></div>
             <div class="list-row"><div class="list-main"><strong>AI 总结</strong><span class="muted">${plan.ai_summary_enabled ? "支持" : "不支持"}</span></div></div>
@@ -353,7 +366,7 @@ function renderBilling() {
     </div>
     <div class="metrics-grid">
       <article class="metric-box"><span>订阅源</span><strong>${account.usage.feedCount} / ${account.usage.feedLimit}</strong></article>
-      <article class="metric-box"><span>文章保留</span><strong>${account.usage.savedItemLimit} / 源</strong></article>
+      <article class="metric-box"><span>文章占用</span><strong>${account.usage.savedItemCount} / ${account.usage.savedItemLimit}</strong></article>
       <article class="metric-box"><span>收藏上限</span><strong>${account.usage.favoriteCount} / ${account.usage.favoriteLimit}</strong></article>
       <article class="metric-box"><span>账单能力</span><strong>${escapeHtml(state.billing.stripeEnabled ? "Stripe" : "演示模式")}</strong></article>
     </div>
@@ -510,6 +523,7 @@ function applyPreferences(preferences) {
   if (els.aiSummaryPrompt) els.aiSummaryPrompt.value = ai.summary_prompt || ""
   if (els.translationProvider) els.translationProvider.value = translation.provider || "google"
   if (els.translationTarget) els.translationTarget.value = translation.target_language || "zh-CN"
+  if (els.translationMode) els.translationMode.value = translation.translation_mode || "title"
   if (els.translationAuto) els.translationAuto.checked = translation.auto_translate === "1"
   if (els.translationDisplay) els.translationDisplay.checked = translation.display_translated !== "0"
   if (els.translationGoogleBaseUrl) els.translationGoogleBaseUrl.value = google.base_url || ""
@@ -738,6 +752,7 @@ function renderTranslationFormState() {
   ;[
     els.translationProvider,
     els.translationTarget,
+    els.translationMode,
     els.translationDisplay,
     els.translationSaveBtn
   ].forEach((element) => {
@@ -761,6 +776,7 @@ function renderTranslationFormState() {
   const providerStatus = state.me?.account?.translationProviders?.[selectedProvider] || null
   const providerText = getTranslationProviderLabel(selectedProvider)
   const targetText = getTranslationTargetLabel(selectedTarget)
+  const modeText = els.translationMode?.value === "full" ? "翻译全文" : "只翻译标题"
   const autoEnabled = Boolean(els.translationAuto?.checked)
   const autoText = translation.autoTranslateActive && autoEnabled
     ? "已自动翻译并存库。"
@@ -772,7 +788,7 @@ function renderTranslationFormState() {
           : "满足套餐权限后会自动落库。"
       : "当前为手工翻译。"
   const sourceText = providerStatus ? `凭据来自 ${getProviderSourceLabel(providerStatus.source)}。` : ""
-  safeSet(els.translationFormHint, "textContent", `默认 ${providerText} · 目标 ${targetText}。${sourceText}${autoText}`)
+  safeSet(els.translationFormHint, "textContent", `默认 ${providerText} · 目标 ${targetText} · ${modeText}。${sourceText}${autoText}`)
   renderTranslationCredentialState()
 }
 
@@ -857,6 +873,48 @@ function renderSecurityState() {
   })
 }
 
+function renderBackupState() {
+  const loggedIn = Boolean(state.me?.user)
+  const email = state.me?.user?.email || ""
+  if (els.backupEmail && !els.backupEmail.value && email) {
+    els.backupEmail.value = email
+  }
+  if (els.backupForm) {
+    els.backupForm.querySelectorAll("input, button").forEach((el) => { el.disabled = !loggedIn })
+  }
+  if (els.backupDownloadLink) {
+    els.backupDownloadLink.classList.toggle("hidden", !loggedIn)
+  }
+  if (!loggedIn) {
+    safeSet(els.backupHint, "textContent", "请先登录，再备份订阅源。")
+    safeSet(els.backupScheduleHint, "textContent", "请先登录，再配置定时备份。")
+    return
+  }
+  const feedCount = state.feeds?.length || 0
+  safeSet(els.backupHint, "textContent", `当前共 ${feedCount} 个订阅源。导出 OPML 发送到邮箱，可用于备份或迁移。`)
+  if (els.backupScheduleForm) {
+    els.backupScheduleForm.querySelectorAll("input, button").forEach((el) => { el.disabled = !loggedIn })
+  }
+}
+
+async function loadBackupConfig() {
+  if (!state.me?.user) return
+  try {
+    const config = await api("/api/account/backup-opml/config")
+    if (els.backupScheduleEmail && !els.backupScheduleEmail.value) {
+      els.backupScheduleEmail.value = config.email || state.me?.user?.email || ""
+    }
+    if (els.backupScheduleTime) els.backupScheduleTime.value = config.sendTime || "09:00"
+    if (els.backupScheduleEnabled) els.backupScheduleEnabled.checked = config.enabled
+    const statusText = config.enabled
+      ? `定时备份已启用，每天 ${config.sendTime} 发送到 ${config.email || "未设置邮箱"}。`
+      : "定时备份未启用。"
+    safeSet(els.backupScheduleHint, "textContent", statusText)
+  } catch (_error) {
+    safeSet(els.backupScheduleHint, "textContent", "定时备份配置加载失败。")
+  }
+}
+
 async function loadConfig() {
   state.config = await api("/api/config")
   renderCapabilityOverview()
@@ -901,6 +959,7 @@ async function loadFeeds() {
   }
   state.feeds = await api("/api/feeds")
   renderDigestFeeds()
+  renderBackupState()
 }
 
 async function loadDigest() {
@@ -955,6 +1014,7 @@ async function boot() {
     await loadFeeds()
     await loadDigest()
     await loadSecurity()
+    await loadBackupConfig()
     setStatus("会员中心已就绪", "success")
   } else {
     applyPreferences(null)
@@ -976,6 +1036,7 @@ registerMemberEvents({
     applyPreferences,
     boot,
     getSelectedTranslationProvider,
+    loadBackupConfig,
     loadBilling,
     loadDigest,
     loadMe,

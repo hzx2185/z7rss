@@ -6,12 +6,38 @@ function withJsonHeaders(options = {}) {
   }
 }
 
+const NETWORK_RETRY_DELAY_MS = 250;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isReadOnlyRequest(options = {}) {
+  const method = String(options.method || "GET").trim().toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
 function createRequest(fetchImpl = window.fetch.bind(window)) {
   return async function request(path, options = {}) {
+    const attempts = isReadOnlyRequest(options) ? 2 : 1;
+    let lastError = null;
     let response
-    try {
-      response = await fetchImpl(path, withJsonHeaders(options))
-    } catch (_error) {
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        response = await fetchImpl(path, withJsonHeaders(options))
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) {
+          await wait(NETWORK_RETRY_DELAY_MS);
+          continue;
+        }
+      }
+    }
+
+    if (lastError) {
       throw new Error("无法连接服务器，请检查容器、端口或网络状态")
     }
 
@@ -49,18 +75,27 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
       if (fresh) params.set("_", String(Date.now()))
       return request(`/api/items/counts?${params.toString()}`, fresh ? { cache: "no-store" } : {})
     },
-    async listFeeds(fresh = false) {
-      return request(fresh ? `/api/feeds?_=${Date.now()}` : "/api/feeds", fresh ? { cache: "no-store" } : {})
+    async listFeeds(fresh = false, options = {}) {
+      const params = new URLSearchParams()
+      if (options.skipImmediateTranslations) params.set("skipImmediateTranslations", "true")
+      if (fresh) params.set("_", String(Date.now()))
+      const query = params.toString()
+      return request(`/api/feeds${query ? `?${query}` : ""}`, fresh ? { cache: "no-store" } : {})
     },
-    async listItems({ feedId, limit, page, filter, publishedSince, fresh = false }) {
+    async listItems({ feedId, limit, page, filter, publishedSince, fresh = false, skipImmediateTranslations = false, includeTotal = true, signal = null }) {
       const params = new URLSearchParams()
       if (feedId) params.set("feedId", String(feedId))
       params.set("limit", String(limit))
       params.set("page", String(page))
       params.set("filter", filter)
       if (publishedSince) params.set("publishedSince", publishedSince)
+      if (skipImmediateTranslations) params.set("skipImmediateTranslations", "true")
+      if (!includeTotal) params.set("includeTotal", "false")
       if (fresh) params.set("_", String(Date.now()))
-      return request(`/api/items?${params.toString()}`, fresh ? { cache: "no-store" } : {})
+      return request(`/api/items?${params.toString()}`, {
+        ...(fresh ? { cache: "no-store" } : {}),
+        ...(signal ? { signal } : {})
+      })
     },
     async getItemPreview(itemId) {
       return request(`/api/items/${itemId}`)
@@ -83,8 +118,13 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
         body: JSON.stringify({ isFavorited })
       })
     },
-    async translateItem(itemId) {
-      return request(`/api/items/${itemId}/translate`, { method: "POST" })
+    async translateItem(itemId, options = {}) {
+      return request(`/api/items/${itemId}/translate`, {
+        method: "POST",
+        body: JSON.stringify({
+          translationMode: options.translationMode || "full"
+        })
+      })
     },
     async summarizeItem(itemId) {
       return request(`/api/items/${itemId}/summarize`, { method: "POST" })
@@ -101,10 +141,10 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
     async deleteFeed(feedId) {
       return request(`/api/feeds/${feedId}`, { method: "DELETE" })
     },
-    async addFeed(url) {
+    async addFeed(url, options = {}) {
       return request("/api/feeds", {
         method: "POST",
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url, isPublic: options.isPublic })
       })
     },
     async importFeeds(content) {
@@ -115,6 +155,9 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
     },
     async refreshAllFeeds() {
       return request("/api/feeds/refresh-all", { method: "POST" })
+    },
+    async getRefreshAllJob(jobId) {
+      return request(`/api/feeds/refresh-all/${encodeURIComponent(jobId)}`)
     },
     async setReadStateBulk(payload) {
       return request("/api/items/read-state/bulk", {

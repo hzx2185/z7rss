@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import * as cheerio from "cheerio";
 import { badGateway, badRequest } from "../lib/errors.js";
+import { normalizeText } from "../lib/http.js";
 import { isLikelyInvalidArticleContent, isV2exHost } from "./article-content.js";
 
 const DEFAULT_BOT_USER_AGENT = "Z7RSSBot/0.1";
@@ -53,6 +54,15 @@ function asArray(value) {
 
 function stripHtml(html = "") {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeParagraphText(value = "") {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function parseXmlFeedDocument(body = "") {
@@ -142,6 +152,13 @@ function sanitizeHtmlFragment(html = "", baseUrl = "") {
         const safeSrc = toSafeAbsoluteUrl(value, baseUrl, { allowRelative: true });
         if (safeSrc) {
           $(element).attr(name, safeSrc);
+          const tagName = (element.tagName || "").toLowerCase();
+          if (tagName === "img") {
+            $(element).attr("loading", "lazy");
+            $(element).attr("referrerpolicy", "no-referrer");
+          } else if (tagName === "video" || tagName === "audio") {
+            $(element).attr("referrerpolicy", "no-referrer");
+          }
         } else {
           $(element).removeAttr(name);
         }
@@ -172,6 +189,251 @@ function sanitizeHtmlFragment(html = "", baseUrl = "") {
   });
 
   return root.html() || "";
+}
+
+const ARTICLE_BOILERPLATE_SELECTOR = [
+  "aside",
+  "nav",
+  "footer",
+  "header",
+  "script",
+  "style",
+  "noscript",
+  "iframe",
+  "form",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "template",
+  "[hidden]",
+  "[aria-hidden='true']",
+  ".adsbygoogle",
+  ".ad",
+  ".ads",
+  ".advert",
+  ".advertisement",
+  ".banner",
+  ".cookie",
+  ".comments",
+  ".comment",
+  ".newsletter",
+  ".popup",
+  ".promo",
+  ".recommend",
+  ".related",
+  ".share",
+  ".sharing",
+  ".sidebar",
+  ".sponsor",
+  ".sponsored",
+  ".subscribe",
+  ".toolbar",
+  "#comments"
+].join(",");
+
+const ARTICLE_BOILERPLATE_ATTR_PATTERN =
+  /(^|[-_\s])(ad|ads|advert|advertisement|banner|breadcrumb|cookie|comment|footer|header|nav|newsletter|popup|promo|recommend|related|share|sharing|sidebar|sponsor|sponsored|subscribe|toolbar|widget)([-_\s]|$)/i;
+const ARTICLE_BOILERPLATE_TEXT_PATTERN =
+  /广告|赞助|推广|相关阅读|相关文章|推荐阅读|延伸阅读|热门推荐|点击关注|关注我们|订阅 newsletter|subscribe to|sign up for|advertisement|sponsored by|related articles|recommended reading/i;
+const ARTICLE_CONTENT_TEXT_PATTERN = /[。！？!?]\s*$|[,，;；:：]\s*|[\u4e00-\u9fff]{12,}|[a-z0-9][.!?]\s+[A-Z0-9]/i;
+const ARTICLE_BLOCK_SELECTOR = "p, li, blockquote, pre, h1, h2, h3, h4, h5, h6, figcaption";
+const ARTICLE_BLOCK_TAGS = new Set(["p", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "figcaption"]);
+
+function hasBoilerplateAttributes($element) {
+  const values = [
+    $element.attr("id"),
+    $element.attr("class"),
+    $element.attr("role"),
+    $element.attr("aria-label"),
+    $element.attr("data-testid"),
+    $element.attr("data-test-id")
+  ];
+  return values.some((value) => ARTICLE_BOILERPLATE_ATTR_PATTERN.test(String(value || "")));
+}
+
+function shouldDropTextBlock(text = "") {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  if (ARTICLE_BOILERPLATE_TEXT_PATTERN.test(normalized) && normalized.length <= 160) return true;
+  if (/^(广告|ADVERTISEMENT|Advertisement|赞助内容)$/i.test(normalized)) return true;
+  return false;
+}
+
+function cleanArticleRoot($, root) {
+  const container = root.clone();
+  container.find(ARTICLE_BOILERPLATE_SELECTOR).remove();
+  container.find("*").each((_, element) => {
+    const node = $(element);
+    if (hasBoilerplateAttributes(node)) {
+      node.remove();
+      return;
+    }
+    if (ARTICLE_BLOCK_TAGS.has((element.tagName || "").toLowerCase()) && shouldDropTextBlock(node.text())) {
+      node.remove();
+    }
+  });
+
+  container.find("p, li, blockquote, pre, figcaption").each((_, element) => {
+    const node = $(element);
+    if (!normalizeText(node.text()) && !node.find("img, video, audio").length) {
+      node.remove();
+    }
+  });
+
+  container.find("div, section").each((_, element) => {
+    const node = $(element);
+    if (!normalizeText(node.text()) && !node.find("img, video, audio, p, li, blockquote, pre, h1, h2, h3, h4, h5, h6").length) {
+      node.remove();
+    }
+  });
+
+  return container;
+}
+
+function extractStructuredText($, root) {
+  const parts = [];
+  const seen = new Set();
+  const addPart = (value = "") => {
+    const text = normalizeText(value);
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    parts.push(text);
+  };
+  const walk = (node) => {
+    node.contents().each((_, child) => {
+      if (child.type === "text") {
+        addPart(child.data || child.nodeValue || "");
+        return;
+      }
+      if (child.type !== "tag") return;
+      const childNode = $(child);
+      const tagName = (child.tagName || child.name || "").toLowerCase();
+      if (ARTICLE_BLOCK_TAGS.has(tagName)) {
+        addPart(childNode.text());
+        return;
+      }
+      walk(childNode);
+    });
+  };
+
+  root.each((_, element) => {
+    const node = $(element);
+    const tagName = (element.tagName || element.name || "").toLowerCase();
+    if (ARTICLE_BLOCK_TAGS.has(tagName)) {
+      addPart(node.text());
+      return;
+    }
+    walk(node);
+  });
+
+  if (!parts.length) {
+    return normalizeParagraphText(root.text());
+  }
+
+  return parts.join("\n\n");
+}
+
+function scoreArticleCandidate($, root) {
+  const cleaned = cleanArticleRoot($, root);
+  const text = normalizeText(cleaned.text());
+  if (!text) return { score: 0, text, html: "" };
+
+  const blockCount = cleaned.find(ARTICLE_BLOCK_SELECTOR).length;
+  const linkTextLength = normalizeText(cleaned.find("a").text()).length;
+  const linkDensity = text.length ? linkTextLength / text.length : 1;
+  const imageCount = cleaned.find("img").length;
+  const punctuationCount = (text.match(/[。！？!?.,，；;：:]/g) || []).length;
+  const contentLikeBlocks = cleaned
+    .find(ARTICLE_BLOCK_SELECTOR)
+    .toArray()
+    .filter((element) => ARTICLE_CONTENT_TEXT_PATTERN.test(normalizeText($(element).text()))).length;
+  const boilerplatePenalty = ARTICLE_BOILERPLATE_TEXT_PATTERN.test(text) ? Math.min(250, text.length * 0.25) : 0;
+  const score =
+    text.length +
+    Math.min(blockCount, 30) * 18 +
+    Math.min(contentLikeBlocks, 20) * 35 +
+    Math.min(punctuationCount, 80) * 3 +
+    Math.min(imageCount, 4) * 20 -
+    linkDensity * 450 -
+    boilerplatePenalty;
+
+  return { score, text, html: cleaned.html() || "" };
+}
+
+function selectBestArticleRoot($, selectors = [], articleUrl = "") {
+  let best = null;
+  for (const selector of selectors) {
+    let found = null;
+    try {
+      found = $(selector);
+    } catch (_error) {
+      continue;
+    }
+    found.each((_, element) => {
+      const candidate = $(element);
+      const result = scoreArticleCandidate($, candidate);
+      if (!result.text && !result.html.trim()) return;
+      if (isLikelyInvalidArticleContent({ articleUrl, text: result.text, html: result.html })) return;
+      if (!best || result.score > best.score) {
+        best = { root: candidate, ...result };
+      }
+    });
+  }
+  return best?.root || null;
+}
+
+function isLikelyContentImage($image) {
+  const src = String($image.attr("src") || $image.attr("data-src") || "").trim();
+  if (!src || /^data:/i.test(src)) return false;
+  const attrText = normalizeText([$image.attr("class"), $image.attr("id"), $image.attr("alt"), src].join(" "));
+  if (/avatar|icon|logo|sprite|tracking|pixel|spacer|badge|emoji|advert|banner|share/i.test(attrText)) return false;
+  const width = Number.parseInt($image.attr("width") || "", 10);
+  const height = Number.parseInt($image.attr("height") || "", 10);
+  if ((width && width < 160) || (height && height < 100)) return false;
+  return true;
+}
+
+function extractMainImageUrl($, articleRoot, articleUrl = "") {
+  const metaCandidates = [
+    $("meta[property='og:image:secure_url']").attr("content"),
+    $("meta[property='og:image']").attr("content"),
+    $("meta[name='twitter:image']").attr("content")
+  ];
+  for (const candidate of metaCandidates) {
+    const safe = toSafeAbsoluteUrl(candidate || "", articleUrl, { allowRelative: true });
+    if (safe) return safe;
+  }
+
+  const image = articleRoot.find("img").toArray().map((element) => $(element)).find(isLikelyContentImage);
+  if (!image) return "";
+  return toSafeAbsoluteUrl(image.attr("src") || image.attr("data-src") || "", articleUrl, { allowRelative: true });
+}
+
+function addMainImageToArticleHtml(html = "", imageUrl = "", baseUrl = "") {
+  const safeImage = toSafeAbsoluteUrl(imageUrl, baseUrl, { allowRelative: true });
+  if (!html || !safeImage) return html;
+
+  const $ = cheerio.load(`<div data-article-root="1">${html}</div>`, null, false);
+  const root = $("[data-article-root='1']").first();
+  const existingFirstImage = root.find("img").toArray().find((element) => isLikelyContentImage($(element)));
+  const existingSrc = existingFirstImage
+    ? toSafeAbsoluteUrl($(existingFirstImage).attr("src") || "", baseUrl, { allowRelative: true })
+    : "";
+  if (existingSrc === safeImage) {
+    return root.html() || html;
+  }
+
+  root.prepend(
+    `<figure class="article-main-image"><img src="${safeImage}" alt="" loading="lazy" referrerpolicy="no-referrer"></figure>`
+  );
+  return root.html() || html;
+}
+
+function htmlToStructuredText(html = "") {
+  if (!String(html || "").trim()) return "";
+  const $ = cheerio.load(`<div data-text-root="1">${html}</div>`, null, false);
+  return extractStructuredText($, $("[data-text-root='1']").first());
 }
 
 function extractCanonicalUrl($, fallbackUrl = "") {
@@ -291,7 +553,7 @@ function shouldRetryWithBrowserOnError(profile, profiles, error) {
 
 function buildRequestHeaders(
   resourceUrl,
-  { kind = "feed", profile = "bot", userAgent = "", browserUserAgent = "", cookie = "" } = {}
+  { kind = "feed", profile = "bot", userAgent = "", browserUserAgent = "", cookie = "", etag = "", lastModified = "" } = {}
 ) {
   const accept =
     kind === "feed"
@@ -307,6 +569,8 @@ function buildRequestHeaders(
       "cache-control": "no-cache",
       pragma: "no-cache",
       "upgrade-insecure-requests": "1",
+      ...(etag ? { "if-none-match": etag } : {}),
+      ...(lastModified ? { "if-modified-since": lastModified } : {}),
       ...(cookie ? { cookie } : {}),
       ...(referer ? { referer } : {})
     };
@@ -315,6 +579,8 @@ function buildRequestHeaders(
   return {
     "user-agent": userAgent || DEFAULT_BOT_USER_AGENT,
     accept,
+    ...(etag ? { "if-none-match": etag } : {}),
+    ...(lastModified ? { "if-modified-since": lastModified } : {}),
     ...(cookie ? { cookie } : {})
   };
 }
@@ -329,6 +595,14 @@ function looksLikeAccessChallenge(body = "", contentType = "") {
     return false;
   }
   return ACCESS_CHALLENGE_PATTERN.test(String(body || "").slice(0, 4000));
+}
+
+function looksLikeAccessChallengeResponse(response, body = "", contentType = "") {
+  const mitigated = String(response?.headers?.get("cf-mitigated") || "").trim();
+  if (/challenge/i.test(mitigated)) {
+    return true;
+  }
+  return looksLikeAccessChallenge(body, contentType);
 }
 
 async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = {}) {
@@ -388,13 +662,15 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
     let response;
     try {
       response = await fetch(resourceUrl, {
-        headers: buildRequestHeaders(resourceUrl, {
-          kind,
-          profile,
-          userAgent: options.userAgent,
-          browserUserAgent: options.browserUserAgent,
-          cookie: runtimeCookie
-        }),
+          headers: buildRequestHeaders(resourceUrl, {
+            kind,
+            profile,
+            userAgent: options.userAgent,
+            browserUserAgent: options.browserUserAgent,
+            etag: options.etag,
+            lastModified: options.lastModified,
+            cookie: runtimeCookie
+          }),
         signal: AbortSignal.timeout(options.timeoutMs || 15000)
       });
     } catch (error) {
@@ -406,10 +682,31 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
     }
 
     if (!response.ok) {
+      if (kind === "feed" && response.status === 304) {
+        return {
+          notModified: true,
+          profile,
+          etag: response.headers.get("etag") || String(options.etag || "").trim(),
+          lastModified: response.headers.get("last-modified") || String(options.lastModified || "").trim()
+        };
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      let body = "";
+      try {
+        body = await response.text();
+      } catch (_error) {
+        body = "";
+      }
+      const isAccessChallenge = looksLikeAccessChallengeResponse(response, body, contentType);
       const error = badGateway(
-        `${kind === "feed" ? "Feed" : "Article"} request failed: ${response.status} ${response.statusText}`,
+        isAccessChallenge
+          ? `${kind === "feed" ? "Feed" : "Article"} request returned an access challenge page instead of ${
+              kind === "feed" ? "RSS content" : "article content"
+            }`
+          : `${kind === "feed" ? "Feed" : "Article"} request failed: ${response.status} ${response.statusText}`,
         {
-          code: `${kind}_request_failed`
+          code: isAccessChallenge ? `${kind}_request_access_challenge` : `${kind}_request_failed`
         }
       );
 
@@ -423,8 +720,12 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
 
     const body = await response.text();
     const contentType = response.headers.get("content-type") || "";
+    const responseMeta = {
+      etag: response.headers.get("etag") || "",
+      lastModified: response.headers.get("last-modified") || ""
+    };
     if (typeof handlers.onBody !== "function") {
-      return { body, contentType, profile };
+      return { body, contentType, profile, ...responseMeta };
     }
 
     const outcome = handlers.onBody({ body, contentType, profile });
@@ -436,6 +737,12 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
       throw outcome.error || badGateway(`${kind} request could not be completed`, {
         code: `${kind}_request_failed`
       });
+    }
+    if (outcome.value && typeof outcome.value === "object") {
+      return {
+        ...outcome.value,
+        ...responseMeta
+      };
     }
     return outcome.value;
   }
@@ -520,7 +827,7 @@ function mapJsonItems(payload, feedUrl, options = {}) {
       author: coerceJsonText(authorValue),
       summary: rawSummary,
       contentHtml,
-      contentText: stripHtml(contentHtml || rawSummary),
+      contentText: htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml || rawSummary)),
       publishedAt: toIsoOrNull(
         coerceJsonText(
           options.jsonDatePath ? getPathValue(item, options.jsonDatePath) : item.publishedAt || item.published_at || item.pubDate || item.date
@@ -543,7 +850,7 @@ function mapRssItems(channel) {
       author: item.author || item["dc:creator"] || "",
       summary: item.description || "",
       contentHtml,
-      contentText: stripHtml(contentHtml),
+      contentText: htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml)),
       publishedAt: toIsoOrNull(item.pubDate)
     };
   });
@@ -562,7 +869,7 @@ function mapAtomEntries(feed) {
       author: entry.author?.name || "",
       summary: pickText(entry.summary),
       contentHtml: html,
-      contentText: stripHtml(html),
+      contentText: htmlToStructuredText(html) || normalizeParagraphText(stripHtml(html)),
       publishedAt: toIsoOrNull(entry.published || entry.updated)
     };
   });
@@ -707,35 +1014,13 @@ export async function fetchArticleContent(articleUrl, options = {}) {
                 ".content"
               ])
         ];
-        let root = null;
-        for (const selector of candidates) {
-          let found = null;
-          try {
-            found = $(selector).first();
-          } catch (_error) {
-            continue;
-          }
-          if (!found.length) {
-            continue;
-          }
-
-          const candidateHtml = found.html() || "";
-          const candidateText = found.text().replace(/\s+/g, " ").trim();
-          if (!candidateText && !candidateHtml.trim()) {
-            continue;
-          }
-
-          if (isLikelyInvalidArticleContent({ articleUrl, text: candidateText, html: candidateHtml })) {
-            continue;
-          }
-
-          root = found;
-          break;
-        }
-
-        const selected = mode === "page" ? root || $("body") : root || $("body");
-        const text = selected.text().replace(/\s+/g, " ").trim();
-        const selectedHtml = selected.html() || "";
+        const root = customSelector
+          ? selectBestArticleRoot($, [customSelector], articleUrl) || selectBestArticleRoot($, candidates, articleUrl)
+          : selectBestArticleRoot($, candidates, articleUrl);
+        const selected = root || $("body");
+        const cleaned = cleanArticleRoot($, selected);
+        const text = extractStructuredText($, cleaned);
+        const selectedHtml = cleaned.html() || "";
 
         if (isLikelyInvalidArticleContent({ articleUrl, text, html: selectedHtml })) {
           if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
@@ -754,7 +1039,8 @@ export async function fetchArticleContent(articleUrl, options = {}) {
           };
         }
 
-        const contentHtml = sanitizeHtmlFragment(selectedHtml, articleUrl);
+        const mainImageUrl = extractMainImageUrl($, cleaned, articleUrl);
+        const contentHtml = addMainImageToArticleHtml(sanitizeHtmlFragment(selectedHtml, articleUrl), mainImageUrl, articleUrl);
         const originalUrl = extractCanonicalUrl($, articleUrl);
         const title = extractDocumentTitle($, articleUrl);
 

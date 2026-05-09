@@ -148,8 +148,11 @@ export function createReaderArticleDetail({
     let body = ""
 
     if (activeView === "summary") {
+      const summaryLoading = Boolean(item.summary_loading)
       title = "摘要"
-      meta = item.summary_error
+      meta = summaryLoading
+        ? "正在生成 AI 摘要..."
+        : item.summary_error
         ? "AI 摘要失败"
         : item.ai_summary
           ? "AI 摘要已保存"
@@ -158,26 +161,30 @@ export function createReaderArticleDetail({
             : "当前套餐不支持 AI 总结"
       body = `
         ${renderActionErrorBox("摘要失败", item.summary_error)}
-        ${renderPlainText(item.ai_summary, account?.features.summary ? "点击顶部摘要按钮后自动生成。" : "当前套餐不支持 AI 总结。")}
+        ${renderPlainText(
+          item.ai_summary,
+          summaryLoading
+            ? "正在生成 AI 摘要..."
+            : account?.features.summary
+              ? "点击顶部摘要按钮后自动生成。"
+              : "当前套餐不支持 AI 总结。"
+        )}
       `
     } else if (activeView === "translation") {
       const translateErrorBox = renderActionErrorBox("翻译失败", item.translate_error)
-      title = translation.translationMode === "title" ? "翻译标题" : "翻译"
-      meta = `目标语言：${translation.targetLabel}`
+      const translationLoading = Boolean(item.translation_loading)
+      title = "翻译"
+      meta = translationLoading ? `正在翻译到 ${translation.targetLabel}...` : `目标语言：${translation.targetLabel}`
       lead = getTranslatedTitle(item)
-      if (translation.translationMode === "title") {
-        body = `
-          ${translateErrorBox}
-          ${renderPlainText(
-            getTranslatedTitle(item) ? "当前订阅只翻译标题，正文仍显示原文内容。" : "点击顶部翻译按钮后自动翻译标题。"
-          )}
-        `
-      } else {
-        body = `
-          ${translateErrorBox}
-          ${renderPlainText(getTranslatedBody(item), "点击顶部翻译按钮后自动翻译标题和正文。")}
-        `
-      }
+      body = `
+        ${translateErrorBox}
+        ${renderRichFallback(
+          getTranslatedBody(item),
+          translationLoading ? "正在翻译正文..." : "",
+          item.original_url || item.link || "",
+          { splitOnSingleNewline: true }
+        )}
+      `
     } else if (activeView === "page") {
       title = "网页内容"
       meta = item.page_fetch_error ? `抓取失败：${item.page_fetch_error}` : item.page_loaded ? "已从网页抓取并保存" : "正在抓取网页内容..."
@@ -206,9 +213,11 @@ export function createReaderArticleDetail({
         activeView,
         Number(item.id || 0),
         item.ai_summary || "",
+        item.summary_loading ? 1 : 0,
         item.summary_error || "",
         getTranslatedTitle(item) || "",
         getTextSignature(getTranslatedBody(item)),
+        item.translation_loading ? 1 : 0,
         item.translate_error || "",
         item.page_loaded ? 1 : 0,
         item.page_fetch_error || "",
@@ -262,14 +271,16 @@ export function createReaderArticleDetail({
 
   function renderArticleBody({ item, showTranslatedBody, translation }) {
     const expandedKey = Array.isArray(state.expandedBodyItemIds) ? state.expandedBodyItemIds.join(",") : ""
+    const effectiveShowTranslated = showTranslatedBody && !state.forceOriginalBody
     const bodyKey = [
       Number(item.id || 0),
-      showTranslatedBody ? 1 : 0,
+      effectiveShowTranslated ? 1 : 0,
       translation.translationMode || "",
       translation.targetLabel || "",
       item.content_loaded ? 1 : 0,
       item.fetch_error || "",
       state.loadingContentFor === item.id ? 1 : 0,
+      state.forceOriginalBody ? 1 : 0,
       getTextSignature(item.content_html),
       getTextSignature(item.content_text),
       getTextSignature(item.content_excerpt),
@@ -279,13 +290,11 @@ export function createReaderArticleDetail({
       expandedKey
     ].join(":")
 
-    if (showTranslatedBody) {
-      setTextWhenChanged(els.contentHint, getTranslatedBody(item)
-        ? `当前默认显示 ${translation.targetLabel} 正文。`
-        : "点击顶部翻译按钮后自动翻译标题和正文。")
+    if (effectiveShowTranslated) {
+      setTextWhenChanged(els.contentHint, `当前显示 ${translation.targetLabel} 译文。`)
       setHtmlWhenChanged(els.articleContent, "articleBodyKey", bodyKey, () => renderCollapsibleBody(
         item.id,
-        renderPlainText(getTranslatedBody(item), "点击顶部翻译按钮后自动翻译标题和正文。"),
+        renderRichFallback(getTranslatedBody(item), "", item.original_url || item.link || "", { splitOnSingleNewline: true }),
         getTranslatedBody(item),
         { contentClass: "reader-content rich-content" }
       ))
@@ -309,10 +318,6 @@ export function createReaderArticleDetail({
         getUsableSummary(item) || item.title || "",
         { contentClass: "reader-content rich-content" }
       ))
-    }
-
-    if (shouldDisplayStoredTranslation(item) && translation.translationMode === "title") {
-      setTextWhenChanged(els.contentHint, "当前订阅只翻译标题，正文仍显示原文。")
     }
   }
 
@@ -359,13 +364,26 @@ export function createReaderArticleDetail({
     const translation = getEffectiveTranslationForItem(item)
     const activeView = getActiveDetailView()
     const displayedTitle = getPreferredTitle(item)
-    const showTranslatedBody = shouldDisplayStoredTranslation(item) && translation.translationMode !== "title"
+    const showTranslatedBody =
+      shouldDisplayStoredTranslation(item) &&
+      translation.translationMode !== "title" &&
+      Boolean(String(getTranslatedBody(item) || "").trim())
+    const canShowTranslatedBody = showTranslatedBody && activeView !== "translation"
     const feedLabel = getDisplayItemFeedTitle(item)
+    const effectiveShowTranslated = canShowTranslatedBody && !state.forceOriginalBody
     els.emptyState.classList.add("hidden")
     els.articlePanel.classList.remove("hidden")
     setTextWhenChanged(els.articleTitle, `${item.is_favorited ? "★ " : ""}${displayedTitle || "未命名文章"}`)
     setTextWhenChanged(els.articleMeta, `${feedLabel || "-"} · ${formatDate(item.published_at || item.created_at)}`)
-    setTextWhenChanged(els.contentHeading, showTranslatedBody ? "译文" : "正文")
+    setTextWhenChanged(els.contentHeading, effectiveShowTranslated ? "译文" : "正文")
+    if (els.bodyToggleTranslationBtn) {
+      const hasTranslation = canShowTranslatedBody
+      els.bodyToggleTranslationBtn.classList.toggle("hidden", !hasTranslation)
+      if (hasTranslation) {
+        setTextWhenChanged(els.bodyToggleTranslationBtn, state.forceOriginalBody ? "译文" : "原文")
+        setTitleWhenChanged(els.bodyToggleTranslationBtn, state.forceOriginalBody ? "切换到译文" : "切换到原文")
+      }
+    }
     setGlyphButton(els.favoriteToggleBtn, glyphs.favorite, item.is_favorited ? "取消收藏" : "收藏")
     setGlyphButton(els.readToggleBtn, item.is_read ? glyphs.unread : glyphs.read, item.is_read ? "标记为未读" : "标记为已读")
     setGlyphButton(els.originalToggleBtn, glyphs.original, item.original_url ? "显示原文地址和采集信息" : "显示原文识别信息")
@@ -381,7 +399,7 @@ export function createReaderArticleDetail({
     setDisabledWhenChanged(els.browserOpenBtn, !articleUrl)
     setGlyphButton(els.browserOpenBtn, glyphs.browser, articleUrl ? "在新窗口打开原文" : "当前没有可打开的原文地址")
 
-    renderArticleBody({ item, showTranslatedBody, translation })
+    renderArticleBody({ item, showTranslatedBody: canShowTranslatedBody, translation })
     renderArticleWarnings({ account, canSummarize, canTranslate, item, translation })
     renderDetailView()
 

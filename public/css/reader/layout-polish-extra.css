@@ -231,12 +231,21 @@ body.reader-page .site-header {
 .reader-content .rich-content h4,
 .reader-content .rich-content h5,
 .reader-content .rich-content h6 {
-  margin: 20px 0 10px;
+  margin: 14px 0 8px;
   line-height: 1.35;
 }
 
 .reader-content .rich-content li + li {
   margin-top: 6px;
+}
+
+.reader-body-block .reader-panel-body > .rich-content > h1:first-child,
+.reader-body-block .reader-panel-body > .rich-content > h2:first-child,
+.reader-body-block .reader-panel-body > .rich-content > h3:first-child,
+.reader-body-block .reader-panel-body > .rich-content > h4:first-child,
+.reader-body-block .reader-panel-body > .rich-content > h5:first-child,
+.reader-body-block .reader-panel-body > .rich-content > h6:first-child {
+  margin-top: 2px;
 }
 
 @media (max-width: 900px) {

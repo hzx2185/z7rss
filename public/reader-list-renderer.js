@@ -239,8 +239,6 @@ export function createReaderListRenderer(deps) {
       return
     }
 
-    virtualItems.setItems(filteredItems)
-
     if (els.itemList.matches?.('[data-virtualized="true"]')) {
       virtualItems.setItems(filteredItems)
       virtualItems.refreshRows(filteredItems, itemIds, { patchRow: patchRenderedItemRow })
@@ -290,7 +288,7 @@ export function createReaderListRenderer(deps) {
           autoTranslateSupported: translation.autoTranslateSupported !== false,
           providerConfigured: Boolean(translation.providerConfigured),
           displayTranslated: translation.displayTranslated !== false,
-          translationMode: translation.translationMode || "full"
+          translationMode: translation.translationMode || "title"
         }
       : {
           provider: "google",
@@ -301,7 +299,7 @@ export function createReaderListRenderer(deps) {
           autoTranslateSupported: false,
           providerConfigured: false,
           displayTranslated: true,
-          translationMode: "full"
+          translationMode: "title"
         }
 
     renderTranslationMeta()

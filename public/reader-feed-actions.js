@@ -8,11 +8,10 @@ export function createReaderFeedActions({
   normalizeFeedIds,
   openFeedSettingsModal,
   prefetchItemsPage,
-  renderArticle,
   renderFeedBulkState,
   renderFeeds,
   renderFilterMode,
-  renderItems,
+  renderComposeState,
   resetLoadedItems,
   selectFeed,
   setStatus
@@ -31,7 +30,8 @@ export function createReaderFeedActions({
     }
 
     closeFeedDrawer()
-    await selectFeed(Number(target.feed_id), { smooth: true })
+    setStatus(`正在切换到 ${target.title}...`)
+    await selectFeed(Number(target.feed_id), { smooth: true, skipImmediateTranslations: true })
     prefetchNavigationTargets()
     setStatus(
       state.itemFilter === "unread"
@@ -46,7 +46,7 @@ export function createReaderFeedActions({
     const { previous, next } = getFeedNavigationTargets()
     const feedIds = [...new Set([previous?.feed_id, next?.feed_id].map((value) => Number(value || 0)).filter(Boolean))]
     feedIds.forEach((feedId) => {
-      const run = () => void prefetchItemsPage?.(feedId, 1)
+      const run = () => void prefetchItemsPage?.(feedId, 1, { skipImmediateTranslations: true })
       if ("requestIdleCallback" in window) {
         window.requestIdleCallback(run, { timeout: 1200 })
       } else {
@@ -89,7 +89,7 @@ export function createReaderFeedActions({
 
     renderFilterMode()
     renderFeeds()
-    await loadItems(null)
+    await loadItems(null, { skipImmediateTranslations: true })
   }
 
   function toggleFeedBulkMode() {
@@ -99,10 +99,14 @@ export function createReaderFeedActions({
     }
 
     state.feedBulkMode = !state.feedBulkMode
+    if (state.feedBulkMode) {
+      state.composeOpen = false
+    }
     if (!state.feedBulkMode) {
       state.selectedFeedIds = []
     }
     renderFeedBulkState()
+    renderComposeState()
     renderFeeds()
   }
 

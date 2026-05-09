@@ -175,6 +175,8 @@
 .reader-item-list {
   display: flex;
   flex-direction: column;
+  overflow-anchor: none;
+  transform: translateZ(0);
 }
 
 .reader-item-row {

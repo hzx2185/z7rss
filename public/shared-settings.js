@@ -1,11 +1,12 @@
 const SharedSettings = (function () {
   async function saveTranslation(settings, api, setStatus) {
-    const { provider, target, auto, display, googleBaseUrl, googleApiKey, bingBaseUrl, bingApiKey, bingRegion, deeplxBaseUrl, deeplxApiKey } = settings;
+    const { provider, target, mode, auto, display, googleBaseUrl, googleApiKey, bingBaseUrl, bingApiKey, bingRegion, deeplxBaseUrl, deeplxApiKey } = settings;
     await api("/api/account/preferences/translation", {
       method: "POST",
       body: JSON.stringify({
         provider: provider?.value || undefined,
         targetLanguage: target?.value || undefined,
+        translationMode: mode?.value || "title",
         autoTranslate: auto?.checked || false,
         displayTranslated: display?.checked || false
       })
@@ -78,10 +79,12 @@ const SharedSettings = (function () {
   }
 
   function applyTranslationState(state, els, prefs) {
+    const translation = prefs?.translation || {};
     const google = prefs?.translation_google || {};
     const bing = prefs?.translation_bing || {};
     const deeplx = prefs?.translation_deeplx || {};
 
+    if (els.mode) els.mode.value = translation.translation_mode || "title";
     if (els.googleBaseUrl) els.googleBaseUrl.value = google.base_url || "";
     if (els.googleApiKey) {
       els.googleApiKey.value = "";

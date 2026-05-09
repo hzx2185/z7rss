@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import compression from "compression";
 import express from "express";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import { forbidden } from "./lib/errors.js";
@@ -28,13 +29,16 @@ export function createApp({
   digestService,
   billingService,
   adminService,
-  aiConfigService
+  aiConfigService,
+  mailService,
+  opmlBackupService
 }) {
   const app = express();
   const authMiddleware = createAuthMiddleware({ authService, config });
 
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
+  app.use(compression({ threshold: 1024 }));
 
   app.post(
     "/api/billing/webhook",
@@ -55,7 +59,7 @@ export function createApp({
 
   app.use("/api", createSystemRouter({ config, billingService, store, feedService }));
   app.use("/api/auth", createAuthRouter({ authService, accountService, config }));
-  app.use("/api/account", authMiddleware.requireAuth, createAccountRouter({ accountService, aiConfigService, authService, config, digestService }));
+  app.use("/api/account", authMiddleware.requireAuth, createAccountRouter({ accountService, aiConfigService, authService, config, digestService, feedService, mailService, opmlBackupService }));
   app.use("/api/feeds", authMiddleware.requireAuth, createFeedRouter({ feedService, config }));
   app.use("/api/items", authMiddleware.requireAuth, createItemRouter({ itemService, config }));
   app.use("/api/billing", authMiddleware.requireAuth, createBillingRouter({ billingService, adminService }));

@@ -300,15 +300,30 @@ export function createDigestService({ store, accountService, ai, mailService, co
       })
     });
     try {
-      const runtime = accountService.getEffectiveAiConfig(rule.aiSource === "user" ? user.id : 0);
+      const aiRuntimes = accountService.getEffectiveAiRuntimes(rule.aiSource === "user" ? user.id : 0);
       const userPrompt = rule.prompt || "请用中文生成一份约 500 字的 RSS 每日简报，合并同类信息，突出重点、来源和可行动的结论。";
-      const content = await ai.summarize(
-        {
-          ...runtime,
-          summaryPrompt: `${userPrompt}\n要求：约 500 个中文字符，不要编造未提供的信息。`
-        },
-        digestSource.source
-      );
+      const digestErrors = [];
+      let content = "";
+      for (const runtime of aiRuntimes) {
+        try {
+          content = await ai.summarize(
+            {
+              ...runtime,
+              summaryPrompt: `${userPrompt}\n要求：约 500 个中文字符，不要编造未提供的信息。`
+            },
+            digestSource.source
+          );
+          break;
+        } catch (error) {
+          digestErrors.push(`${runtime.label || runtime.source}: ${error?.message || String(error)}`);
+        }
+      }
+      if (!content && digestErrors.length) {
+        throw new Error(`AI 简报生成失败。详情：${digestErrors.join(" | ")}`);
+      }
+      if (!content) {
+        throw new Error("AI 接口未配置");
+      }
       if (rule.recipientEmails.length) {
         await mailService.sendMail({
           to: rule.recipientEmails,

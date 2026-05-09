@@ -39,6 +39,8 @@ export function createReaderDetailSections({
         : "可手动抓取正文。"
     const translatedTitle = getTranslatedTitle(item)
     const translatedBody = getTranslatedBody(item)
+    const summaryLoading = Boolean(item.summary_loading)
+    const translationLoading = Boolean(item.translation_loading)
     const favoriteLabel = item.is_favorited ? "取消收藏" : "收藏"
     const readLabel = item.is_read ? "标记未读" : "标记已读"
     const readGlyph = item.is_read ? GLYPHS.unread : GLYPHS.read
@@ -50,21 +52,21 @@ export function createReaderDetailSections({
     const originalLabel = activeInlineDetailView === "original" ? "收起原文信息" : "显示原文信息"
     const summaryErrorBox = renderActionErrorBox("摘要失败", item.summary_error)
     const translateErrorBox = renderActionErrorBox("翻译失败", item.translate_error)
-    const showTranslatedBody = shouldDisplayStoredTranslation(item) && translation.translationMode !== "title"
-    const renderedContentHtml = showTranslatedBody
-      ? renderPlainText(translatedBody, "点击翻译按钮后自动翻译标题和正文。")
+    const showTranslatedBody =
+      shouldDisplayStoredTranslation(item) &&
+      translation.translationMode !== "title" &&
+      Boolean(String(translatedBody || "").trim())
+    const canShowTranslatedBody = showTranslatedBody && activeInlineDetailView !== "translation"
+    const renderedContentHtml = canShowTranslatedBody
+      ? renderRichFallback(translatedBody, "", baseUrl, { splitOnSingleNewline: true })
       : contentHtml
-    const renderedContentSource = showTranslatedBody
+    const renderedContentSource = canShowTranslatedBody
       ? translatedBody
       : item.content_html || item.content_text || previewSummary || item.title || ""
-    const renderedContentHint = showTranslatedBody
-      ? translatedBody
-        ? `当前默认显示 ${translation.targetLabel} 正文。`
-        : "点击翻译按钮后自动翻译标题和正文。"
-      : shouldDisplayStoredTranslation(item) && translation.translationMode === "title"
-        ? "当前订阅只翻译标题，正文仍显示原文。"
-        : contentHint
-    const renderedContentTitle = showTranslatedBody ? "译文" : "正文"
+    const renderedContentHint = canShowTranslatedBody
+      ? `当前默认显示 ${translation.targetLabel} 正文。`
+      : contentHint
+    const renderedContentTitle = canShowTranslatedBody ? "译文" : "正文"
     const inlineSummaryButton = inline
       ? `<button class="secondary icon-btn reader-symbol-btn ${activeInlineDetailView === "summary" ? "active" : ""}" type="button" data-item-ai-summary="${item.id}" ${canSummarize ? "" : "disabled"} title="${escapeAttribute(summaryLabel)}" aria-label="${escapeAttribute(summaryLabel)}">${GLYPHS.summary}</button>`
       : ""
@@ -77,6 +79,8 @@ export function createReaderDetailSections({
               <span class="muted">${
                 item.summary_error
                   ? "AI 摘要失败"
+                  : summaryLoading
+                    ? "正在生成 AI 摘要..."
                   : item.ai_summary
                     ? "AI 摘要已保存"
                     : account?.features.summary
@@ -84,9 +88,16 @@ export function createReaderDetailSections({
                       : "当前套餐不支持 AI 总结"
               }</span>
             </div>
-            <div class="reader-panel-body reader-plain-text">
+            <div class="reader-panel-body reader-plain-text reader-rich-text">
               ${renderActionErrorBox("摘要失败", item.summary_error)}
-              ${renderPlainText(item.ai_summary, account?.features.summary ? "点击“生成摘要”后自动保存。" : "当前套餐不支持 AI 总结。")}
+              ${renderPlainText(
+                item.ai_summary,
+                summaryLoading
+                  ? "正在生成 AI 摘要..."
+                  : account?.features.summary
+                    ? "点击“生成摘要”后自动保存。"
+                    : "当前套餐不支持 AI 总结。"
+              )}
             </div>
           </section>
         `
@@ -96,19 +107,17 @@ export function createReaderDetailSections({
         ? `
           <section class="reader-detail-block">
             <div class="reader-section-head">
-              <strong>${translation.translationMode === "title" ? "翻译标题" : "翻译"}</strong>
-              <span class="muted">目标语言：${escapeHtml(translation.targetLabel)}</span>
+              <strong>翻译</strong>
+              <span class="muted">${translationLoading ? `正在翻译到 ${escapeHtml(translation.targetLabel)}...` : `目标语言：${escapeHtml(translation.targetLabel)}`}</span>
             </div>
-            <div class="reader-panel-body reader-plain-text">
+            <div class="reader-panel-body reader-plain-text reader-rich-text">
               ${translateErrorBox}
               ${translatedTitle ? `<p><strong>${escapeHtml(translatedTitle)}</strong></p>` : ""}
-              ${renderPlainText(
-                translation.translationMode === "title"
-                  ? translatedTitle
-                    ? "当前订阅只翻译标题。"
-                    : "暂无翻译"
-                  : translatedBody,
-                "暂无翻译"
+              ${renderRichFallback(
+                translatedBody,
+                translationLoading ? "正在翻译正文..." : "",
+                baseUrl,
+                { splitOnSingleNewline: true }
               )}
             </div>
           </section>
@@ -127,24 +136,22 @@ export function createReaderDetailSections({
               <button class="secondary" type="button" data-item-ai-summary="${item.id}" ${canSummarize ? "" : "disabled"}>${canSummarize ? "生成摘要" : "AI 总结不可用"}</button>
             </div>
             ${summaryErrorBox}
-            <div class="reader-panel-body reader-plain-text">${renderPlainText(item.ai_summary, "点击“生成摘要”后自动保存。")}</div>
+            <div class="reader-panel-body reader-plain-text reader-rich-text">${renderPlainText(item.ai_summary, summaryLoading ? "正在生成 AI 摘要..." : "点击“生成摘要”后自动保存。")}</div>
           </section>
 
           <section class="reader-detail-block">
             <div class="reader-section-head">
-              <strong>${translation.translationMode === "title" ? "翻译标题" : "翻译"}</strong>
-              <span class="muted">目标语言：${escapeHtml(translation.targetLabel)}</span>
+              <strong>翻译</strong>
+              <span class="muted">${translationLoading ? `正在翻译到 ${escapeHtml(translation.targetLabel)}...` : `目标语言：${escapeHtml(translation.targetLabel)}`}</span>
             </div>
             ${translateErrorBox}
-            <div class="reader-panel-body reader-plain-text">
+            <div class="reader-panel-body reader-plain-text reader-rich-text">
               ${translatedTitle ? `<p><strong>${escapeHtml(translatedTitle)}</strong></p>` : ""}
-              ${renderPlainText(
-                translation.translationMode === "title"
-                  ? translatedTitle
-                    ? "当前订阅只翻译标题。"
-                    : "暂无翻译"
-                  : translatedBody,
-                "暂无翻译"
+              ${renderRichFallback(
+                translatedBody,
+                translationLoading ? "正在翻译正文..." : "",
+                baseUrl,
+                { splitOnSingleNewline: true }
               )}
             </div>
           </section>

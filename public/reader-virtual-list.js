@@ -1,6 +1,19 @@
 const VIRTUAL_ITEM_OVERSCAN = 480
 const VIRTUAL_MIN_VIEWPORT_ROWS = 10
 
+function patchRow(existingNode, newNode) {
+  if (!existingNode || !newNode) return
+  for (const attr of newNode.getAttributeNames()) {
+    existingNode.setAttribute(attr, newNode.getAttribute(attr))
+  }
+  for (const attr of existingNode.getAttributeNames()) {
+    if (!newNode.hasAttribute(attr)) {
+      existingNode.removeAttribute(attr)
+    }
+  }
+  existingNode.innerHTML = newNode.innerHTML
+}
+
 export function createReaderVirtualList({
   getContainer,
   getLayoutKey,
@@ -127,6 +140,39 @@ export function createReaderVirtualList({
     return answer
   }
 
+  function getScrollState() {
+    const container = getContainer()
+    if (!container) return { top: 0, height: 0 }
+
+    let scrollNode = container
+    while (scrollNode && scrollNode !== document.body && scrollNode !== document.documentElement) {
+      const style = window.getComputedStyle(scrollNode)
+      if (style.overflowY === "auto" || style.overflowY === "scroll" || style.overflowY === "overlay") {
+        break
+      }
+      scrollNode = scrollNode.parentElement
+    }
+
+    let top = 0
+    let height = 0
+
+    if (!scrollNode || scrollNode === document.body || scrollNode === document.documentElement) {
+      height = window.innerHeight || document.documentElement.clientHeight || 0
+      const rect = container.getBoundingClientRect()
+      top = Math.max(0, -rect.top)
+    } else if (scrollNode === container) {
+      height = container.clientHeight
+      top = Math.max(0, container.scrollTop || 0)
+    } else {
+      height = scrollNode.clientHeight
+      const containerRect = container.getBoundingClientRect()
+      const scrollRect = scrollNode.getBoundingClientRect()
+      top = Math.max(0, scrollRect.top - containerRect.top)
+    }
+
+    return { top, height }
+  }
+
   function getVisibleRange(items = [], metrics) {
     const container = getContainer()
     const rowCount = items.length
@@ -136,8 +182,9 @@ export function createReaderVirtualList({
 
     const defaultHeight = getRowEstimate()
     const fallbackViewportHeight = defaultHeight * VIRTUAL_MIN_VIEWPORT_ROWS
-    const scrollTop = Math.max(0, container.scrollTop || 0)
-    const viewportHeight = Math.max(container.clientHeight || 0, fallbackViewportHeight)
+    const scrollState = getScrollState()
+    const scrollTop = scrollState.top
+    const viewportHeight = Math.max(scrollState.height, fallbackViewportHeight)
     const startIndex = findIndexForOffset(metrics, Math.max(0, scrollTop - VIRTUAL_ITEM_OVERSCAN))
     const endIndex = Math.min(
       rowCount - 1,
@@ -244,11 +291,40 @@ export function createReaderVirtualList({
     }
 
     let rendered = false
-    if (options.force || state.renderedRangeKey !== rangeKey) {
-      viewport.innerHTML =
-        range.end >= range.start
-          ? items.slice(range.start, range.end + 1).map((item) => renderRow(item)).join("")
-          : ""
+    const hasMissingRows = range.end >= range.start && !viewport.querySelector("[data-item-row]")
+    if (options.force || hasMissingRows || state.renderedRangeKey !== rangeKey) {
+      const visibleItems = range.end >= range.start ? items.slice(range.start, range.end + 1) : []
+      const expectedIds = new Set(visibleItems.map(item => String(item.id)))
+
+      Array.from(viewport.children).forEach(node => {
+        const id = node.getAttribute("data-item-row")
+        if (id && !expectedIds.has(id)) {
+          node.remove()
+        }
+      })
+
+      let currentChild = viewport.firstElementChild
+      for (const item of visibleItems) {
+        const id = String(item.id)
+        if (currentChild && currentChild.getAttribute("data-item-row") === id) {
+          if (options.force) {
+            const wrapper = document.createElement("div")
+            wrapper.innerHTML = renderRow(item)
+            if (wrapper.firstElementChild) {
+              patchRow(currentChild, wrapper.firstElementChild)
+            }
+          }
+          currentChild = currentChild.nextElementSibling
+        } else {
+          const wrapper = document.createElement("div")
+          wrapper.innerHTML = renderRow(item)
+          const newNode = wrapper.firstElementChild
+          if (newNode) {
+            viewport.insertBefore(newNode, currentChild)
+          }
+        }
+      }
+
       state.renderedRangeKey = rangeKey
       rendered = true
     }

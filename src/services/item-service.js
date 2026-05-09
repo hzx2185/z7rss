@@ -1,17 +1,41 @@
 import { forbidden, notFound } from "../lib/errors.js";
-import { getTranslationProviderLabel } from "./translator.js";
+import { getTranslationProviderLabel, supportsServerTranslation } from "./translator.js";
 import { hasUsableStoredArticleContent, hasUsableStoredPageContent } from "./article-content.js";
+import { canConvertTraditionalToSimplified, convertTraditionalToSimplified } from "./chinese-conversion.js";
 
 export function createItemService({ feedService, translator, accountService, store, ai }) {
-  const AUTO_TRANSLATE_LIST_BATCH_SIZE = 6;
-  const AUTO_TRANSLATE_LIST_SYNC_BATCH_SIZE = 20;
+  const AUTO_TRANSLATE_LIST_SYNC_BATCH_SIZE = 12;
   const AUTO_TRANSLATE_BACKGROUND_CONCURRENCY = 2;
-  const pendingAutoTranslations = new Set();
+  const ITEM_COUNTS_CACHE_TTL_MS = 2500;
+  const DEFAULT_TRANSLATION_PROVIDER_FALLBACK_ORDER = ["deeplx", "bing", "ai", "google"];
+  const itemCountsCache = new Map();
 
-  function normalizeTranslationSourceText(value) {
-    return String(value || "")
+  function clearUserItemCountCache(userId) {
+    const prefix = `${Number(userId || 0)}:`;
+    for (const key of itemCountsCache.keys()) {
+      if (key.startsWith(prefix)) {
+        itemCountsCache.delete(key);
+      }
+    }
+  }
+
+  function normalizeTranslationSourceText(value, options = {}) {
+    const raw = String(value || "");
+    if (!options.preserveParagraphs) {
+      return raw
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    return raw
+      .replace(/<\s*br\s*\/?>/gi, "\n")
+      .replace(/<\/(?:p|div|section|article|li|h[1-6]|blockquote|pre|figcaption)>/gi, "\n\n")
       .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
+      .replace(/\r\n?/g, "\n")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/[ \t]*\n[ \t]*/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
 
@@ -20,7 +44,49 @@ export function createItemService({ feedService, translator, accountService, sto
   }
 
   function getBodyTranslationSource(item) {
-    return normalizeTranslationSourceText(item?.content_text || item?.summary || item?.title || "");
+    const articleSource = normalizeTranslationSourceText(item?.content_text || item?.content_html || "", {
+      preserveParagraphs: true
+    });
+    const pageSource = normalizeTranslationSourceText(item?.page_text || item?.page_html || "", {
+      preserveParagraphs: true
+    });
+    if (pageSource && (!articleSource || (articleSource.length < 300 && pageSource.length > articleSource.length))) {
+      return pageSource;
+    }
+
+    return articleSource || normalizeTranslationSourceText(item?.content_excerpt || item?.summary || item?.title || "", {
+      preserveParagraphs: true
+    });
+  }
+
+  function getSummarySourceText(item) {
+    const articleSource = normalizeTranslationSourceText(
+      item?.content_text || item?.content_html || item?.content_excerpt || item?.summary || item?.title || "",
+      { preserveParagraphs: true }
+    );
+    const pageSource = normalizeTranslationSourceText(item?.page_text || item?.page_html || "", {
+      preserveParagraphs: true
+    });
+    if (articleSource && pageSource && articleSource !== pageSource) {
+      return `正文原文：\n${articleSource}\n\n网页原文：\n${pageSource}`;
+    }
+    return articleSource || pageSource;
+  }
+
+  function hasUsefulSummarySource(item) {
+    if (!item) return false;
+    if (hasUsableStoredArticleContent(item)) return true;
+    if (hasUsableStoredPageContent(item)) return true;
+    return getSummarySourceText(item).length >= 300;
+  }
+
+  function canHydratePageForSummary(item) {
+    return Boolean(
+      item &&
+        typeof feedService.hydrateItemPageContent === "function" &&
+        !hasUsableStoredPageContent(item) &&
+        String(item.original_url || item.link || "").trim()
+    );
   }
 
   function isChineseTargetLanguage(targetLanguage) {
@@ -41,12 +107,27 @@ export function createItemService({ feedService, translator, accountService, sto
     return hanCount >= 6 || (hanCount >= 4 && hanCount >= latinCount);
   }
 
-  function shouldSkipTranslationForChineseSource(translationSettings, item, bodySource = "") {
+  function shouldSkipTranslationForChineseSource(translationSettings, item, bodySource = "", options = {}) {
     if (!isChineseTargetLanguage(translationSettings?.targetLanguage)) {
       return false;
     }
 
-    return looksLikeChineseText(getTitleTranslationSource(item)) || looksLikeChineseText(bodySource || getBodyTranslationSource(item));
+    const titleSource = Object.prototype.hasOwnProperty.call(options, "titleSource")
+      ? String(options.titleSource || "")
+      : getTitleTranslationSource(item);
+    const titleLooksChinese = !String(titleSource || "").trim() || looksLikeChineseText(titleSource);
+    const bodyText = bodySource || getBodyTranslationSource(item);
+    const needsBody = translationSettings?.translationMode === "full" && Boolean(String(bodyText || "").trim());
+    const bodyLooksChinese = !needsBody || looksLikeChineseText(bodyText);
+    return titleLooksChinese && bodyLooksChinese;
+  }
+
+  function shouldUseOriginalChineseField(translationSettings, value = "") {
+    return (
+      isChineseTargetLanguage(translationSettings?.targetLanguage) &&
+      looksLikeChineseText(value) &&
+      !canConvertTraditionalToSimplified(value, translationSettings?.targetLanguage)
+    );
   }
 
   function withContentState(item) {
@@ -66,6 +147,12 @@ export function createItemService({ feedService, translator, accountService, sto
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 180);
+  }
+
+  function trimListText(value, limit) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text || text.length <= limit) return text;
+    return text.slice(0, limit);
   }
 
   function getFeedTranslationOverrides(source = {}) {
@@ -214,6 +301,26 @@ export function createItemService({ feedService, translator, accountService, sto
     });
   }
 
+  function compactItemForListPayload(item) {
+    if (!item) return item;
+    const {
+      translated_text: _translatedText,
+      content_text: _contentText,
+      content_html: _contentHtml,
+      page_text: _pageText,
+      page_html: _pageHtml,
+      ai_summary: _aiSummary,
+      ...rest
+    } = item;
+
+    return {
+      ...rest,
+      summary: trimListText(rest.summary, 320),
+      content_excerpt: trimListText(rest.content_excerpt, 240),
+      translated_excerpt: trimListText(rest.translated_excerpt, 180)
+    };
+  }
+
   function hasSatisfiedTranslation(item, translationSettings) {
     const hasTitle = Boolean(String(item?.translated_title || "").trim());
     if (translationSettings.translationMode === "title") {
@@ -222,23 +329,111 @@ export function createItemService({ feedService, translator, accountService, sto
     return hasTitle && Boolean(String(item?.translated_text || "").trim());
   }
 
-  function buildAutoTranslationKey(userId, itemId, translationSettings) {
-    return [
-      Number(userId || 0),
-      Number(itemId || 0),
-      String(translationSettings?.targetLanguage || "").trim(),
-      String(translationSettings?.translationMode || "").trim()
-    ].join(":");
-  }
-
-  async function translateText(userId, translationSettings, text) {
+  async function translateTextWithProviderRuntime(userId, translationSettings, provider, text) {
     const sourceText = String(text || "").trim();
     if (!sourceText) return "";
-    const runtimeConfig = accountService.getEffectiveTranslationRuntime(userId, {
-      provider: translationSettings?.provider,
-      targetLanguage: translationSettings?.targetLanguage
-    });
-    return translator.translate(runtimeConfig, sourceText);
+    const runtimes = typeof accountService.getEffectiveTranslationRuntimes === "function"
+      ? accountService.getEffectiveTranslationRuntimes(userId, {
+          provider,
+          targetLanguage: translationSettings?.targetLanguage
+        })
+      : [
+          accountService.getEffectiveTranslationRuntime(userId, {
+            provider,
+            targetLanguage: translationSettings?.targetLanguage
+          })
+        ];
+    let lastError = null;
+    for (const runtimeConfig of runtimes) {
+      try {
+        return await translator.translate(runtimeConfig, sourceText);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  function isTranslationProviderUsable(userId, provider) {
+    const normalizedProvider = String(provider || "").trim().toLowerCase();
+    if (!supportsServerTranslation(normalizedProvider)) return false;
+    const status = typeof accountService.getTranslationProviderStatus === "function"
+      ? accountService.getTranslationProviderStatus(userId, normalizedProvider)
+      : null;
+    return status ? Boolean(status.configured && status.autoTranslateSupported) : true;
+  }
+
+  function getTranslationProviderCandidates(userId, translationSettings) {
+    const primary = String(translationSettings?.provider || "").trim().toLowerCase();
+    if (typeof accountService.getTranslationProviderStatus !== "function") {
+      return primary ? [primary] : [];
+    }
+    const fallbackOrder = typeof accountService.getTranslationFallbackProviders === "function"
+      ? accountService.getTranslationFallbackProviders()
+      : DEFAULT_TRANSLATION_PROVIDER_FALLBACK_ORDER;
+    const providers = [primary, ...fallbackOrder]
+      .filter(Boolean)
+      .filter((provider, index, all) => all.indexOf(provider) === index);
+    const usable = providers.filter((provider) => isTranslationProviderUsable(userId, provider));
+    return usable.length ? usable : providers.slice(0, 1);
+  }
+
+  async function translateNeededTextWithFallback(userId, translationSettings, needs = {}) {
+    let lastError = null;
+    for (const provider of getTranslationProviderCandidates(userId, translationSettings)) {
+      try {
+        const [translatedTitle, translatedText] = await Promise.all([
+          needs.title
+            ? translateTextWithProviderRuntime(userId, translationSettings, provider, needs.title)
+            : Promise.resolve(needs.existingTitle || ""),
+          needs.body
+            ? translateTextWithProviderRuntime(userId, translationSettings, provider, needs.body)
+            : Promise.resolve(needs.existingText || "")
+        ]);
+        return { translatedTitle, translatedText, provider };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  function translateNeededTextLocally(translationSettings, needs = {}) {
+    if (!/^zh-CN$/i.test(String(translationSettings?.targetLanguage || "").trim())) {
+      return null;
+    }
+
+    function convertField(value = "") {
+      const text = String(value || "");
+      if (!text) return { text: "", converted: false, supported: true };
+      if (canConvertTraditionalToSimplified(text, translationSettings.targetLanguage)) {
+        return {
+          text: convertTraditionalToSimplified(text),
+          converted: true,
+          supported: true
+        };
+      }
+      if (looksLikeChineseText(text)) {
+        return { text, converted: false, supported: true };
+      }
+      return { text: "", converted: false, supported: false };
+    }
+
+    const convertedTitle = convertField(needs.title);
+    const convertedText = convertField(needs.body);
+    if ((needs.title && !convertedTitle.supported) || (needs.body && !convertedText.supported)) {
+      return null;
+    }
+
+    if (!convertedTitle.converted && !convertedText.converted) {
+      return null;
+    }
+
+    return {
+      translatedTitle: convertedTitle.text || needs.existingTitle || "",
+      translatedText: convertedText.text || needs.existingText || "",
+      provider: "local"
+    };
   }
 
   function canAutoTranslateItem(accountInfo, translationSettings) {
@@ -250,35 +445,72 @@ export function createItemService({ feedService, translator, accountService, sto
     );
   }
 
-  async function translateItemForUser(user, item, translationSettings, options = {}) {
+  function getAutomaticTranslationSettings(translationSettings) {
+    return {
+      ...translationSettings,
+      translationMode: "title",
+      translationModeLabel: "仅标题"
+    };
+  }
+
+  async function translateItemForUser(user, item, translationSettings) {
     const account = accountService.getAccount(user);
     if (!account.features.translation) {
       throw forbidden("当前套餐不支持翻译功能", { code: "translation_unavailable" });
     }
 
     let sourceItem = item;
-    if (options.hydrateContent && translationSettings.translationMode === "full") {
-      sourceItem = await feedService.hydrateItemContent(user.id, item.id);
+    let existingTranslation = resolveStoredTranslation(sourceItem, translationSettings);
+    const hasExistingTitle = Boolean(existingTranslation.title);
+    const hasExistingBody = Boolean(existingTranslation.text);
+    if (translationSettings.translationMode === "title" ? hasExistingTitle : hasExistingTitle && hasExistingBody) {
+      return {
+        item: presentItemForUser(user.id, sourceItem, translationSettings),
+        translatedTitle: existingTranslation.title,
+        translatedText: existingTranslation.text,
+        skipped: false,
+        reused: true
+      };
     }
 
     const titleSource = getTitleTranslationSource(sourceItem);
     const bodySource = translationSettings.translationMode === "full" ? getBodyTranslationSource(sourceItem) : "";
+    const needsTitle = !existingTranslation.title;
+    const needsBody = translationSettings.translationMode === "full" && !existingTranslation.text;
+    const titleIsReusableChinese = needsTitle && shouldUseOriginalChineseField(translationSettings, titleSource);
+    const bodyIsReusableChinese = needsBody && shouldUseOriginalChineseField(translationSettings, bodySource);
 
-    if (shouldSkipTranslationForChineseSource(translationSettings, sourceItem, bodySource)) {
+    if (!needsTitle && !needsBody) {
       return {
         item: presentItemForUser(user.id, sourceItem, translationSettings),
-        translatedTitle: "",
-        translatedText: "",
+        translatedTitle: existingTranslation.title,
+        translatedText: existingTranslation.text,
+        skipped: false,
+        reused: true
+      };
+    }
+
+    const neededText = {
+      title: needsTitle && !titleIsReusableChinese ? titleSource : "",
+      body: needsBody && !bodyIsReusableChinese ? bodySource : "",
+      existingTitle: existingTranslation.title || (titleIsReusableChinese ? titleSource : ""),
+      existingText: existingTranslation.text || (bodyIsReusableChinese ? bodySource : "")
+    };
+    const localTranslation = translateNeededTextLocally(translationSettings, neededText);
+    if (!localTranslation && shouldSkipTranslationForChineseSource(translationSettings, sourceItem, bodySource, { titleSource })) {
+      return {
+        item: presentItemForUser(user.id, sourceItem, translationSettings),
+        translatedTitle: existingTranslation.title,
+        translatedText: existingTranslation.text,
         skipped: true
       };
     }
 
-    const translatedTitle = await translateText(user.id, translationSettings, titleSource);
-
-    let translatedText = "";
-    if (translationSettings.translationMode === "full") {
-      translatedText = await translateText(user.id, translationSettings, bodySource);
-    }
+    const translated =
+      localTranslation ||
+      await translateNeededTextWithFallback(user.id, translationSettings, neededText);
+    const translatedTitle = translated.translatedTitle;
+    const translatedText = translated.translatedText;
 
     const stored = store.setUserItemTranslation(
       user.id,
@@ -291,8 +523,27 @@ export function createItemService({ feedService, translator, accountService, sto
       item: presentItemForUser(user.id, stored || sourceItem, translationSettings),
       translatedTitle,
       translatedText,
+      provider: translated.provider || translationSettings.provider,
       skipped: false
     };
+  }
+
+  async function translateItemForUserWithRetry(user, item, translationSettings, options = {}) {
+    const retryAttempts = Math.max(1, Math.min(3, Number(options.retryAttempts || 1)));
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+      try {
+        return await translateItemForUser(user, item, translationSettings);
+      } catch (error) {
+        lastError = error;
+        if (attempt < retryAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+        }
+      }
+    }
+
+    throw lastError;
   }
 
   async function mapWithConcurrency(items, limit, mapper) {
@@ -313,11 +564,12 @@ export function createItemService({ feedService, translator, accountService, sto
     return results;
   }
 
-  async function ensureImmediateListTranslations(user, rawItems, accountInfo) {
+  async function ensureImmediateListTranslations(user, rawItems, accountInfo, options = {}) {
     if (!user || !accountInfo || !Array.isArray(rawItems) || !rawItems.length) {
       return rawItems;
     }
 
+    const useAutomaticTitleOnly = options.useAutomaticTitleOnly !== false;
     const translatedByIndex = new Map();
     const candidates = [];
 
@@ -326,7 +578,10 @@ export function createItemService({ feedService, translator, accountService, sto
         break;
       }
 
-      const effectiveTranslation = getEffectiveItemTranslationSettings(user.id, item);
+      const baseTranslation = getEffectiveItemTranslationSettings(user.id, item);
+      const effectiveTranslation = useAutomaticTitleOnly
+        ? getAutomaticTranslationSettings(baseTranslation)
+        : baseTranslation;
       const presented = presentItemForUser(user.id, item, effectiveTranslation);
       if (!effectiveTranslation.displayTranslated || !canAutoTranslateItem(accountInfo, effectiveTranslation)) {
         continue;
@@ -351,9 +606,14 @@ export function createItemService({ feedService, translator, accountService, sto
 
     await mapWithConcurrency(candidates, AUTO_TRANSLATE_BACKGROUND_CONCURRENCY, async (task) => {
       try {
-        const result = await translateItemForUser(user, task.item, task.translationSettings, {
-          hydrateContent: false
-        });
+        const result = await translateItemForUserWithRetry(
+          user,
+          task.item,
+          task.translationSettings,
+          {
+            retryAttempts: options.retryAttempts || 1
+          }
+        );
         if (result?.item) {
           translatedByIndex.set(task.index, result.item);
         }
@@ -365,59 +625,6 @@ export function createItemService({ feedService, translator, accountService, sto
     return rawItems.map((item, index) => translatedByIndex.get(index) || item);
   }
 
-  function scheduleAutoTranslations(user, items, translationSettings = null, account = null, options = {}) {
-    if (!user) return;
-
-    const accountInfo = account || accountService.getAccount(user);
-    const candidates = (Array.isArray(items) ? items : [items]).filter(Boolean);
-    const tasks = [];
-
-    for (const item of candidates) {
-      const effectiveTranslation = translationSettings || getEffectiveItemTranslationSettings(user.id, item);
-      const presented = presentItemForUser(user.id, item, effectiveTranslation);
-
-      if (!canAutoTranslateItem(accountInfo, effectiveTranslation)) {
-        continue;
-      }
-      if (hasSatisfiedTranslation(presented, effectiveTranslation)) {
-        continue;
-      }
-      if (shouldSkipTranslationForChineseSource(effectiveTranslation, item)) {
-        continue;
-      }
-
-      const key = buildAutoTranslationKey(user.id, item.id, effectiveTranslation);
-      if (pendingAutoTranslations.has(key)) {
-        continue;
-      }
-
-      pendingAutoTranslations.add(key);
-      tasks.push({
-        key,
-        item,
-        translationSettings: effectiveTranslation
-      });
-    }
-
-    if (!tasks.length) {
-      return;
-    }
-
-    void mapWithConcurrency(tasks, AUTO_TRANSLATE_BACKGROUND_CONCURRENCY, async (task) => {
-      try {
-        await translateItemForUser(user, task.item, task.translationSettings, {
-          hydrateContent: Boolean(options.hydrateContent)
-        });
-      } catch (_error) {
-        // Auto translation is best-effort and should not block list rendering.
-      } finally {
-        pendingAutoTranslations.delete(task.key);
-      }
-    }).catch(() => {
-      tasks.forEach((task) => pendingAutoTranslations.delete(task.key));
-    });
-  }
-
   return {
     async listItems(userId, feedId, limit, options = {}) {
       const pageSize = Math.max(20, Math.min(200, Number(limit || 20)));
@@ -427,34 +634,30 @@ export function createItemService({ feedService, translator, accountService, sto
         readState: filter === "read" ? 1 : filter === "unread" ? 0 : null,
         publishedSince: options.publishedSince ? String(options.publishedSince) : null
       };
-      const total = feedService.countItems(userId, feedId, queryOptions);
-      const pageCount = Math.max(1, Math.ceil(total / pageSize));
-      const page = Math.min(pageCount, Math.max(1, Number(options.page || 1)));
-      const rawItems = feedService.listItems(userId, feedId, pageSize, {
+      const includeTotal = options.includeTotal !== false;
+      const total = includeTotal ? feedService.countItems(userId, feedId, queryOptions) : null;
+      const pageCount = includeTotal ? Math.max(1, Math.ceil(total / pageSize)) : null;
+      const requestedPage = Math.max(1, Number(options.page || 1));
+      const page = includeTotal ? Math.min(pageCount, requestedPage) : requestedPage;
+      const rawPageItems = feedService.listItems(userId, feedId, includeTotal ? pageSize : pageSize + 1, {
         ...queryOptions,
         offset: (page - 1) * pageSize
       });
+      const hasMore = includeTotal ? page < pageCount : rawPageItems.length > pageSize;
+      const rawItems = includeTotal ? rawPageItems : rawPageItems.slice(0, pageSize);
 
       const user = rawItems.length ? store.getUserById(userId) : null;
       const account = user ? accountService.getAccount(user) : null;
-      const displayItems = user ? await ensureImmediateListTranslations(user, rawItems, account) : rawItems;
-      const items = displayItems.map((item) => presentItemForUser(userId, item));
-      if (displayItems.length && user) {
-          scheduleAutoTranslations(
-            user,
-            displayItems.slice(0, AUTO_TRANSLATE_LIST_BATCH_SIZE),
-            null,
-            account,
-            { hydrateContent: false }
-          );
-      }
+      const displayItems = rawItems;
+      const items = displayItems.map((item) => compactItemForListPayload(presentItemForUser(userId, item)));
 
       return {
         items,
         total,
         page,
         pageSize,
-        pageCount,
+        pageCount: includeTotal ? pageCount : hasMore ? page + 1 : page,
+        hasMore,
         filter
       };
     },
@@ -467,25 +670,50 @@ export function createItemService({ feedService, translator, accountService, sto
             return start.toISOString();
           })();
 
-      return store.countUserItemBuckets(userId, { todaySince });
+      const cacheKey = `${Number(userId || 0)}:${todaySince}`;
+      const cached = itemCountsCache.get(cacheKey);
+      if (cached && Date.now() - Number(cached.createdAt || 0) <= ITEM_COUNTS_CACHE_TTL_MS) {
+        return cached.value;
+      }
+      const value = store.countUserItemBuckets(userId, { todaySince });
+      itemCountsCache.set(cacheKey, { value, createdAt: Date.now() });
+      if (itemCountsCache.size > 200) {
+        itemCountsCache.delete(itemCountsCache.keys().next().value);
+      }
+      return value;
+    },
+    async translateRecentItemsForRefresh(userId, feedId, options = {}) {
+      const user = store.getUserById(userId);
+      if (!user) return { translatedCount: 0 };
+      const account = accountService.getAccount(user);
+      if (!account.features.translation) return { translatedCount: 0 };
+
+      const limit = Math.max(1, Math.min(80, Number(options.limit || 24)));
+      const rawItems = feedService.listItems(userId, feedId, limit, { offset: 0 });
+      const translatedItems = await ensureImmediateListTranslations(user, rawItems, account, {
+        useAutomaticTitleOnly: false,
+        retryAttempts: 2
+      });
+      const translatedCount = translatedItems.filter((item) => String(item?.translated_title || "").trim()).length;
+      return { translatedCount };
     },
     async getItemPreview(user, itemId) {
+      clearUserItemCountCache(user.id);
       const preview = await feedService.getItemPreview(user.id, itemId);
-      const account = accountService.getAccount(user);
-      scheduleAutoTranslations(user, preview, null, account, { hydrateContent: false });
       return presentItemForUser(user.id, preview);
     },
     async getItemContent(user, itemId) {
+      clearUserItemCountCache(user.id);
       const item = await feedService.getItemContent(user.id, itemId);
-      const account = accountService.getAccount(user);
-      scheduleAutoTranslations(user, item, null, account, { hydrateContent: true });
       return presentItemForUser(user.id, item);
     },
     async getItemPageContent(user, itemId) {
+      clearUserItemCountCache(user.id);
       const item = await feedService.getItemPageContent(user.id, itemId);
       return presentItemForUser(user.id, item);
     },
     async setReadState(userId, itemId, isRead) {
+      clearUserItemCountCache(userId);
       const item = feedService.setReadState(userId, itemId, isRead);
       return presentItemForUser(userId, item);
     },
@@ -497,6 +725,7 @@ export function createItemService({ feedService, translator, accountService, sto
       if (directIds.length) {
         const ownedIds = directIds.filter((itemId) => Boolean(store.getUserItem(userId, itemId)));
         const updatedCount = store.setUserItemReadStateBulk(userId, ownedIds, isRead, lastOpenedAt);
+        clearUserItemCountCache(userId);
         return { updatedCount };
       }
 
@@ -517,9 +746,11 @@ export function createItemService({ feedService, translator, accountService, sto
         queryOptions
       );
       const updatedCount = store.setUserItemReadStateBulk(userId, targetIds, isRead, lastOpenedAt);
+      clearUserItemCountCache(userId);
       return { updatedCount };
     },
     async setFavoriteState(userId, itemId, isFavorited) {
+      clearUserItemCountCache(userId);
       const user = store.getUserById(userId);
       const item = await feedService.getItemPreview(userId, itemId);
       if (!item) {
@@ -543,16 +774,20 @@ export function createItemService({ feedService, translator, accountService, sto
       );
       return presentItemForUser(userId, updated);
     },
-    async translateItem(user, itemId) {
+    async translateItem(user, itemId, options = {}) {
       const item = store.getUserItem(user.id, itemId);
       if (!item) {
         throw notFound("Item not found");
       }
 
-      const translationSettings = getEffectiveItemTranslationSettings(user.id, item);
-      const translated = await translateItemForUser(user, item, translationSettings, {
-        hydrateContent: translationSettings.translationMode === "full"
-      });
+      const effectiveSettings = getEffectiveItemTranslationSettings(user.id, item);
+      const translationMode = options.translationMode === "full" ? "full" : effectiveSettings.translationMode;
+      const translationSettings = {
+        ...effectiveSettings,
+        translationMode,
+        translationModeLabel: translationMode === "full" ? "标题和正文" : "仅标题"
+      };
+      const translated = await translateItemForUser(user, item, translationSettings);
 
       return {
         translatedTitle: translated.translatedTitle,
@@ -560,8 +795,8 @@ export function createItemService({ feedService, translator, accountService, sto
         translatedLanguage: translationSettings.targetLanguage,
         targetLabel: translationSettings.targetLabel,
         translationMode: translationSettings.translationMode,
-        provider: translationSettings.provider,
-        providerLabel: getTranslationProviderLabel(translationSettings.provider),
+        provider: translated.provider || translationSettings.provider,
+        providerLabel: getTranslationProviderLabel(translated.provider || translationSettings.provider),
         skipped: translated.skipped,
         message: translated.skipped ? "当前文章已是中文，无需翻译" : ""
       };
@@ -572,12 +807,47 @@ export function createItemService({ feedService, translator, accountService, sto
         throw forbidden("当前套餐不支持 AI 总结", { code: "summary_unavailable" });
       }
 
-      const item = await feedService.hydrateItemContent(user.id, itemId);
-      const content = item.content_text || item.summary || item.title;
-      const aiConfig = accountService.getEffectiveAiConfig(user.id);
-      const output = await ai.summarize(aiConfig, content);
-      store.updateSummary(item.id, output);
-      return { aiSummary: output };
+      let item = typeof store.getUserItem === "function" ? store.getUserItem(user.id, itemId) : null;
+      const existingSummary = String(item?.ai_summary || "").trim();
+      if (existingSummary) {
+        return { aiSummary: existingSummary, reused: true };
+      }
+
+      let hydrateError = null;
+      if (!hasUsefulSummarySource(item)) {
+        try {
+          item = await feedService.hydrateItemContent(user.id, itemId);
+        } catch (error) {
+          hydrateError = error;
+          item = typeof store.getUserItem === "function" ? store.getUserItem(user.id, itemId) : item;
+        }
+      }
+
+      if (canHydratePageForSummary(item)) {
+        try {
+          item = await feedService.hydrateItemPageContent(user.id, itemId);
+        } catch (_error) {
+          item = typeof store.getUserItem === "function" ? store.getUserItem(user.id, itemId) : item;
+        }
+      }
+
+      const content = getSummarySourceText(item);
+      if (!content && hydrateError) {
+        throw hydrateError;
+      }
+      const aiRuntimes = accountService.getEffectiveAiRuntimes(user.id);
+      const errors = [];
+      let output = "";
+      for (const runtime of aiRuntimes) {
+        try {
+          output = await ai.summarize(runtime, content);
+          store.updateSummary(item.id, output);
+          return { aiSummary: output };
+        } catch (error) {
+          errors.push(`${runtime.label || runtime.source}: ${error?.message || String(error)}`);
+        }
+      }
+      throw errors.length ? new Error(`AI 总结失败。详情：${errors.join(" | ")}`) : new Error("AI 接口未配置");
     }
   };
 }

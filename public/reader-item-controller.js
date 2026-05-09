@@ -14,7 +14,6 @@ export function createReaderItemController(deps) {
     hasStoredTranslation,
     isFeedNormal,
     loadFeeds,
-    loadMe,
     loadScopeCounts,
     openExternalTranslate,
     renderArticle,
@@ -27,6 +26,7 @@ export function createReaderItemController(deps) {
     renderPager,
     renderScopeButtons,
     resetContentPaneScroll,
+    resetItemListScroll,
     clearDeferredReadItems,
     rememberDeferredReadItem,
     removeDeferredReadItem,
@@ -42,10 +42,40 @@ export function createReaderItemController(deps) {
 
   let itemsRequestToken = 0
   let previewRequestToken = 0
+  let activeItemsAbortController = null
+  let deferredFeedReloadTimer = null
+  let deferredScopeCountsTimer = null
   const pendingItemPageRequests = new Map()
 
   function invalidatePreviewRequest() {
     previewRequestToken += 1
+  }
+
+  function abortActiveItemsRequest() {
+    activeItemsAbortController?.abort?.()
+    activeItemsAbortController = null
+  }
+
+  function scheduleDeferredFeedReload(options = {}) {
+    if (deferredFeedReloadTimer) {
+      window.clearTimeout(deferredFeedReloadTimer)
+      deferredFeedReloadTimer = null
+    }
+    deferredFeedReloadTimer = window.setTimeout(() => {
+      deferredFeedReloadTimer = null
+      void loadFeeds({ skipImmediateTranslations: true, ...options })
+    }, 600)
+  }
+
+  function scheduleDeferredScopeCounts(options = {}) {
+    if (deferredScopeCountsTimer) {
+      window.clearTimeout(deferredScopeCountsTimer)
+      deferredScopeCountsTimer = null
+    }
+    deferredScopeCountsTimer = window.setTimeout(() => {
+      deferredScopeCountsTimer = null
+      void loadScopeCounts(options)
+    }, 500)
   }
 
   function adjustUnreadCounts(feedId, delta) {
@@ -127,6 +157,34 @@ export function createReaderItemController(deps) {
     container.scrollTop += nextRowTop - previousRowTop
   }
 
+  function captureReadingPaneScroll(itemId = state.selectedItem?.id) {
+    if (shouldInlineDetail() || !itemId) return null
+    return {
+      itemId: Number(itemId),
+      contentColumn: els.contentColumn?.scrollTop ?? null,
+      contentShell: els.contentShell?.scrollTop ?? null,
+      windowY: window.scrollY || window.pageYOffset || 0
+    }
+  }
+
+  function restoreReadingPaneScroll(snapshot) {
+    if (!snapshot || Number(state.selectedItem?.id || 0) !== snapshot.itemId) return
+
+    const restore = () => {
+      if (Number(state.selectedItem?.id || 0) !== snapshot.itemId) return
+      if (els.contentColumn && snapshot.contentColumn !== null) {
+        els.contentColumn.scrollTop = snapshot.contentColumn
+      }
+      if (els.contentShell && snapshot.contentShell !== null) {
+        els.contentShell.scrollTop = snapshot.contentShell
+      }
+      window.scrollTo(window.scrollX || 0, snapshot.windowY)
+    }
+
+    restore()
+    window.requestAnimationFrame(restore)
+  }
+
   function syncRenderedItemSelection(selectedItemId = state.selectedItem?.id || 0) {
     const normalized = Number(selectedItemId || 0)
     if (!els.itemList) return
@@ -157,23 +215,28 @@ export function createReaderItemController(deps) {
       page,
       filter: state.itemFilter,
       publishedSince: state.publishedSince,
-      fresh: Boolean(options.fresh)
+      fresh: Boolean(options.fresh),
+      skipImmediateTranslations: Boolean(options.skipImmediateTranslations),
+      includeTotal: options.includeTotal !== false,
+      signal: options.signal || null
     })
   }
 
-  function getItemsPageCacheKey(feedId = state.selectedFeedId, page = state.itemPage || 1) {
+  function getItemsPageCacheKey(feedId = state.selectedFeedId, page = state.itemPage || 1, options = {}) {
     return [
       Number(feedId || 0),
       Number(page || 1),
       state.itemLimit,
       state.itemFilter,
-      state.publishedSince || ""
+      state.publishedSince || "",
+      options.skipImmediateTranslations ? "fast" : "full",
+      options.includeTotal === false ? "no-total" : "with-total"
     ].join(":")
   }
 
-  function rememberItemsPage(feedId, page, result) {
+  function rememberItemsPage(feedId, page, result, options = {}) {
     if (!state.itemPageCache || !result) return
-    const key = getItemsPageCacheKey(feedId, page)
+    const key = getItemsPageCacheKey(feedId, page, options)
     state.itemPageCache.set(key, {
       result,
       createdAt: Date.now()
@@ -184,19 +247,19 @@ export function createReaderItemController(deps) {
     }
   }
 
-  function forgetItemsPage(feedId = state.selectedFeedId, page = state.itemPage || 1) {
-    state.itemPageCache?.delete(getItemsPageCacheKey(feedId, page))
+  function forgetItemsPage(feedId = state.selectedFeedId, page = state.itemPage || 1, options = {}) {
+    state.itemPageCache?.delete(getItemsPageCacheKey(feedId, page, options))
   }
 
-  function getCachedItemsPage(feedId, page) {
-    const entry = state.itemPageCache?.get(getItemsPageCacheKey(feedId, page))
+  function getCachedItemsPage(feedId, page, options = {}) {
+    const entry = state.itemPageCache?.get(getItemsPageCacheKey(feedId, page, options))
     if (!entry) return null
     if (Date.now() - Number(entry.createdAt || 0) > 30_000) return null
     return entry.result
   }
 
-  function getPendingItemsPage(feedId, page) {
-    return pendingItemPageRequests.get(getItemsPageCacheKey(feedId, page)) || null
+  function getPendingItemsPage(feedId, page, options = {}) {
+    return pendingItemPageRequests.get(getItemsPageCacheKey(feedId, page, options)) || null
   }
 
   function fetchItemsPageOnce(feedId = state.selectedFeedId, page = 1, options = {}) {
@@ -204,13 +267,13 @@ export function createReaderItemController(deps) {
       return fetchItemsPage(feedId, page, options)
     }
 
-    const key = getItemsPageCacheKey(feedId, page)
+    const key = getItemsPageCacheKey(feedId, page, options)
     const pending = pendingItemPageRequests.get(key)
     if (pending) return pending
 
     const request = fetchItemsPage(feedId, page, options)
       .then((result) => {
-        rememberItemsPage(feedId, page, result)
+        rememberItemsPage(feedId, page, result, options)
         return result
       })
       .finally(() => {
@@ -220,11 +283,25 @@ export function createReaderItemController(deps) {
     return request
   }
 
-  async function prefetchItemsPage(feedId = state.selectedFeedId, page = 1) {
+  function getItemsForFeedResult(result, feedId = state.selectedFeedId) {
+    const items = Array.isArray(result?.items) ? result.items : []
+    const normalizedFeedId = Number(feedId || 0)
+    if (!normalizedFeedId) return items
+    return items.filter((item) => Number(item?.feed_id || 0) === normalizedFeedId)
+  }
+
+  function isItemRequestStillCurrent(feedId, options = {}) {
+    if (options.ignoreFeedSelectionGuard) return true
+    const requestedFeedId = Number(feedId || 0)
+    const currentFeedId = Number(state.selectedFeedId || 0)
+    return requestedFeedId === currentFeedId
+  }
+
+  async function prefetchItemsPage(feedId = state.selectedFeedId, page = 1, options = {}) {
     if (!state.me?.user || !feedId) return
-    if (getCachedItemsPage(feedId, page)) return
+    if (getCachedItemsPage(feedId, page, options)) return
     try {
-      await fetchItemsPageOnce(feedId, page)
+      await fetchItemsPageOnce(feedId, page, options)
     } catch (_error) {
       // Prefetch is best-effort; visible loads still surface errors.
     }
@@ -234,7 +311,7 @@ export function createReaderItemController(deps) {
     if (!state.me?.user) return
     const nextFeed = findNextUnreadFeed(feedId)
     if (nextFeed?.feed_id) {
-      void prefetchItemsPage(Number(nextFeed.feed_id), 1)
+      void prefetchItemsPage(Number(nextFeed.feed_id), 1, { skipImmediateTranslations: true })
     }
   }
 
@@ -244,7 +321,7 @@ export function createReaderItemController(deps) {
 
     const nextFeed = findNextUnreadFeed(normalizedFeedId)
     if (!nextFeed?.feed_id) return
-    const run = () => void prefetchItemsPage(Number(nextFeed.feed_id), 1)
+    const run = () => void prefetchItemsPage(Number(nextFeed.feed_id), 1, { skipImmediateTranslations: true })
     if ("requestIdleCallback" in window) {
       window.requestIdleCallback(run, { timeout: 900 })
     } else {
@@ -267,8 +344,16 @@ export function createReaderItemController(deps) {
     const requestToken = ++itemsRequestToken
     if (!append) {
       invalidatePreviewRequest()
+      abortActiveItemsRequest()
+      if (!options.preserveSelection) {
+        resetItemListScroll?.()
+      }
     }
 
+    const requestController = !append && typeof AbortController !== "undefined" ? new AbortController() : null
+    if (requestController) {
+      activeItemsAbortController = requestController
+    }
     state.loadingItems = true
     state.loadingNextPage = append
     renderPager()
@@ -277,22 +362,34 @@ export function createReaderItemController(deps) {
 
     try {
       if (options.force) {
-        forgetItemsPage(feedId, targetPage)
+        forgetItemsPage(feedId, targetPage, options)
       }
-      const pendingResult = append || options.force ? null : getPendingItemsPage(feedId, targetPage)
-      const cachedResult = append || options.force || pendingResult ? null : getCachedItemsPage(feedId, targetPage)
-      const result = cachedResult || pendingResult || await fetchItemsPageOnce(feedId, targetPage, { fresh: Boolean(options.force) })
-      rememberItemsPage(feedId, targetPage, result)
+      const pageOptions = {
+        fresh: Boolean(options.force),
+        skipImmediateTranslations: Boolean(options.skipImmediateTranslations),
+        includeTotal: options.includeTotal !== false,
+        signal: requestController?.signal || null
+      }
+      const pendingResult = append || options.force ? null : getPendingItemsPage(feedId, targetPage, pageOptions)
+      const cachedResult = append || options.force || pendingResult ? null : getCachedItemsPage(feedId, targetPage, pageOptions)
+      const result = cachedResult || pendingResult || await fetchItemsPageOnce(feedId, targetPage, pageOptions)
+      rememberItemsPage(feedId, targetPage, result, pageOptions)
       if (requestToken !== itemsRequestToken) return
+      if (!isItemRequestStillCurrent(feedId, options)) return
 
-      const nextItems = Array.isArray(result.items) ? result.items : []
-      const total = Number(result.total || 0)
+      const nextItems = getItemsForFeedResult(result, feedId)
+      const total = result.total === null || result.total === undefined
+        ? Number(state.itemTotal || 0)
+        : Number(result.total || 0)
       const nextPage = Math.max(1, Number(result.page || targetPage))
       const pageCount = Math.max(1, Number(result.pageCount || 1))
 
       if (requestToken !== itemsRequestToken) return
+      if (!isItemRequestStillCurrent(feedId, options)) return
 
       const selectedId = state.selectedItem?.id || 0
+      const preserveSelection = Boolean(options.preserveSelection && selectedId)
+      const readingScrollSnapshot = preserveSelection ? captureReadingPaneScroll(selectedId) : null
       preserveInlineItemPosition(selectedId, () => {
         if (append) {
           const seen = new Set(state.items.map((item) => Number(item.id)))
@@ -305,7 +402,10 @@ export function createReaderItemController(deps) {
         state.itemPage = nextPage
         state.itemPageCount = pageCount
 
-        if (state.selectedItem && !state.items.some((item) => item.id === state.selectedItem.id)) {
+        const refreshedSelectedItem = state.items.find((item) => Number(item.id) === Number(selectedId))
+        if (refreshedSelectedItem && state.selectedItem) {
+          applySelectedItem({ ...state.selectedItem, ...refreshedSelectedItem })
+        } else if (state.selectedItem && !preserveSelection && !state.items.some((item) => item.id === state.selectedItem.id)) {
           state.selectedItem = null
           state.expandedItemId = null
           state.detailView = null
@@ -314,13 +414,18 @@ export function createReaderItemController(deps) {
         renderPager()
         renderItems()
         renderArticle()
+        restoreReadingPaneScroll(readingScrollSnapshot)
       })
     } catch (error) {
+      if (error?.name === "AbortError") return
       if (requestToken === itemsRequestToken) {
         setStatus(error.message, "error")
       }
     } finally {
       if (requestToken !== itemsRequestToken) return
+      if (activeItemsAbortController === requestController) {
+        activeItemsAbortController = null
+      }
       state.loadingItems = false
       state.loadingNextPage = false
       renderPager()
@@ -336,7 +441,9 @@ export function createReaderItemController(deps) {
     }
     await loadItems(state.selectedFeedId, {
       targetPage: state.itemPage + 1,
-      append: true
+      append: true,
+      skipImmediateTranslations: true,
+      includeTotal: false
     })
   }
 
@@ -360,35 +467,54 @@ export function createReaderItemController(deps) {
   }
 
   async function maybeLoadNextPage() {
-    if (!shouldLoadNextPage()) return
+    const shouldLoad = shouldLoadNextPage()
+    if (!shouldLoad) return
     await loadNextPage()
   }
 
-  async function selectFeedSmooth(feedId = null) {
+  async function selectFeedSmooth(feedId = null, options = {}) {
     const previousFeedId = Number(state.selectedFeedId || 0)
     const requestToken = ++itemsRequestToken
     invalidatePreviewRequest()
+    abortActiveItemsRequest()
+    state.selectedFeedId = feedId
+    state.publishedSince = null
+    state.selectedItem = null
+    state.expandedItemId = null
+    state.detailView = null
+    resetLoadedItems()
+    clearDeferredReadItems()
+    resetItemListScroll?.()
+    resetContentPaneScroll()
     state.loadingItems = true
     state.loadingNextPage = false
+    renderScopeButtons?.()
+    renderFeedDrawer?.()
+    renderFeedNavigation?.()
+    refreshRenderedFeedRows?.([previousFeedId, feedId])
     renderPager()
+    renderItems()
+    renderArticle()
     renderLoadStatus()
     updateActionAvailability()
 
     try {
-      const cachedResult = getCachedItemsPage(feedId, 1)
-      const result = cachedResult || await fetchItemsPageOnce(feedId, 1)
+      const requestController = typeof AbortController !== "undefined" ? new AbortController() : null
+      if (requestController) {
+        activeItemsAbortController = requestController
+      }
+      const pageOptions = {
+        skipImmediateTranslations: options.skipImmediateTranslations !== false,
+        signal: requestController?.signal || null
+      }
+      const cachedResult = getCachedItemsPage(feedId, 1, pageOptions)
+      const result = cachedResult || await fetchItemsPageOnce(feedId, 1, pageOptions)
       if (requestToken !== itemsRequestToken) return
 
-      state.selectedFeedId = feedId
-      state.publishedSince = null
-      state.selectedItem = null
-      state.expandedItemId = null
-      state.detailView = null
-      state.items = Array.isArray(result.items) ? result.items : []
+      state.items = getItemsForFeedResult(result, feedId)
       state.itemTotal = Number(result.total || 0)
       state.itemPage = Math.max(1, Number(result.page || 1))
       state.itemPageCount = Math.max(1, Number(result.pageCount || 1))
-      clearDeferredReadItems()
 
       renderScopeButtons?.()
       renderFeedDrawer?.()
@@ -400,14 +526,19 @@ export function createReaderItemController(deps) {
       resetContentPaneScroll()
       schedulePrefetchNextUnreadFeed(feedId)
     } catch (error) {
+      if (error?.name === "AbortError") return
       if (requestToken === itemsRequestToken) {
         setStatus(error.message, "error")
       }
     } finally {
       if (requestToken !== itemsRequestToken) return
+      activeItemsAbortController = null
       state.loadingItems = false
       state.loadingNextPage = false
       renderPager()
+      if (!state.items.length) {
+        renderItems()
+      }
       renderLoadStatus()
       updateActionAvailability()
       scheduleMaybeLoadNextPage()
@@ -416,7 +547,7 @@ export function createReaderItemController(deps) {
 
   async function selectFeed(feedId = null, options = {}) {
     if (options.smooth) {
-      await selectFeedSmooth(feedId)
+      await selectFeedSmooth(feedId, options)
       return
     }
 
@@ -427,17 +558,35 @@ export function createReaderItemController(deps) {
     state.expandedItemId = null
     state.detailView = null
     resetLoadedItems()
+    clearDeferredReadItems()
+    resetItemListScroll?.()
+    resetContentPaneScroll()
     renderScopeButtons?.()
     renderFeedDrawer?.()
     renderFeedNavigation?.()
     refreshRenderedFeedRows?.([previousFeedId, feedId])
     renderArticle()
-    await loadItems(feedId)
+    await loadItems(feedId, { skipImmediateTranslations: options.skipImmediateTranslations !== false })
     schedulePrefetchNextUnreadFeed(feedId)
   }
 
   async function toggleItem(itemId) {
-    if (Number(state.selectedItem?.id || 0) === Number(itemId || 0)) {
+    const normalizedItemId = Number(itemId || 0)
+    const isCurrentItem = Number(state.selectedItem?.id || 0) === normalizedItemId
+    const isExpandedCurrent = Number(state.expandedItemId || 0) === normalizedItemId
+    if (isCurrentItem && isExpandedCurrent && shouldInlineDetail()) {
+      invalidatePreviewRequest()
+      state.expandedItemId = null
+      state.selectedItem = null
+      state.detailView = null
+      preserveInlineItemPosition(itemId, () => {
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+      })
+      return
+    }
+
+    if (isCurrentItem) {
       return
     }
 
@@ -470,20 +619,38 @@ export function createReaderItemController(deps) {
       }
     }
 
-    await openItem(itemId)
+    await openItem(itemId, {
+      previousSelectedId,
+      skipInlineRowRefresh: Boolean(seedItem && shouldInlineDetail())
+    })
   }
 
-  async function openItem(itemId) {
+  async function openItem(itemId, options = {}) {
     const requestToken = ++previewRequestToken
-    const previousSelectedId = Number(state.selectedItem?.id || 0)
+    const expectedFeedId = Number(state.selectedFeedId || 0)
+    const previousSelectedId = Number(
+      Object.prototype.hasOwnProperty.call(options, "previousSelectedId")
+        ? options.previousSelectedId
+        : state.selectedItem?.id || 0
+    )
     try {
       const preview = await readerApi.getItemPreview(itemId)
       if (requestToken !== previewRequestToken) return
-      state.detailView = null
+      if (expectedFeedId > 0) {
+        state.selectedFeedId = expectedFeedId
+      }
+      if (!options.preserveDetailView) {
+        state.detailView = null
+      }
+      state.forceOriginalBody = false
       if (preview?.is_read) {
         rememberDeferredReadItem(itemId)
       }
-      applySelectedItem(preview)
+      const previewWithTranslationFlag = {
+        ...preview,
+        translation_display_translated: hasStoredTranslation(preview) ? 1 : 0
+      }
+      applySelectedItem(previewWithTranslationFlag)
       syncItemToList(itemId, {
         is_read: preview.is_read,
         is_favorited: preview.is_favorited,
@@ -494,6 +661,9 @@ export function createReaderItemController(deps) {
         has_translation: hasStoredTranslation(preview) ? 1 : 0,
         has_ai_summary: preview.ai_summary ? 1 : 0,
         translated_title: preview.translated_title || "",
+        translated_text: preview.translated_text || "",
+        translation_display_translated: hasStoredTranslation(preview) ? 1 : 0,
+        translation_mode: preview.translation_mode || "",
         translated_excerpt: preview.translated_text
           ? buildTranslatedExcerpt(preview.translated_text)
           : preview.translated_title
@@ -516,7 +686,7 @@ export function createReaderItemController(deps) {
       if (shouldAutoLoadMissingContent(state.selectedItem)) {
         void ensureContentLoaded(itemId, { showLoadingState: false, silent: true })
       }
-      void loadScopeCounts()
+      scheduleDeferredScopeCounts()
     } catch (error) {
       if (requestToken !== previewRequestToken) return
       setStatus(error.message, "error")
@@ -530,7 +700,8 @@ export function createReaderItemController(deps) {
 
   async function ensureContentLoaded(itemId = state.selectedItem?.id, options = {}) {
     const item = state.selectedItem?.id === itemId ? state.selectedItem : null
-    if (!item || item.content_loaded || state.loadingContentFor === itemId) {
+    const forceRefresh = Boolean(options.forceRefresh)
+    if (!item || state.loadingContentFor === itemId || (item.content_loaded && !forceRefresh)) {
       return
     }
 
@@ -545,6 +716,7 @@ export function createReaderItemController(deps) {
     try {
       const content = await readerApi.getItemContent(itemId)
       if (state.selectedItem?.id === itemId) {
+        const existingTranslationFlag = state.selectedItem.translation_display_translated
         applySelectedItem(content)
         syncItemToList(itemId, {
           is_read: 1,
@@ -553,20 +725,20 @@ export function createReaderItemController(deps) {
           content_text: content.content_text || "",
           content_excerpt: content.content_excerpt || "",
           summary: content.summary || "",
+          crawled_at: content.crawled_at || "",
           fetch_error: content.fetch_error || null,
           has_translation: hasStoredTranslation(content) ? 1 : 0,
           translated_title: content.translated_title || "",
+          translated_text: content.translated_text || "",
+          translation_display_translated: existingTranslationFlag,
+          translation_mode: content.translation_mode || "",
           translated_excerpt: content.translated_text
             ? buildTranslatedExcerpt(content.translated_text)
             : content.translated_title
               ? buildTranslatedExcerpt(content.translated_title)
               : ""
         })
-        preserveInlineItemPosition(itemId, () => {
-          refreshRenderedItemRows([itemId])
-          renderArticle()
-        })
-        void loadScopeCounts()
+        scheduleDeferredScopeCounts()
       }
     } catch (error) {
       if (!options.silent) {
@@ -602,7 +774,7 @@ export function createReaderItemController(deps) {
           refreshRenderedItemRows([itemId])
           renderArticle()
         })
-        void loadScopeCounts()
+        scheduleDeferredScopeCounts()
       }
     } catch (error) {
       setStatus(error.message, "error")
@@ -634,7 +806,7 @@ export function createReaderItemController(deps) {
 
     const shouldRefreshFeeds = options.refreshFeeds !== false
     if (shouldRefreshFeeds) {
-      await loadFeeds()
+      await loadFeeds({ skipImmediateTranslations: true })
     }
 
     const currentFeed = getFeedById(currentFeedId)
@@ -647,7 +819,7 @@ export function createReaderItemController(deps) {
       return { switched: false, completed: true, refreshedFeeds: shouldRefreshFeeds }
     }
 
-    await selectFeed(Number(nextFeed.feed_id), { smooth: true })
+    await selectFeed(Number(nextFeed.feed_id), { smooth: true, skipImmediateTranslations: true })
     return {
       switched: true,
       completed: false,
@@ -657,14 +829,36 @@ export function createReaderItemController(deps) {
   }
 
   async function setReadState(itemId, isRead) {
+    let optimisticPatch = null
     try {
       const currentItem = findRenderedItem(itemId) || (state.selectedItem?.id === itemId ? state.selectedItem : null)
       const currentFeedId = Number(state.selectedFeedId || currentItem?.feed_id || 0)
+      const affectedFeedId = currentItem?.feed_id || currentFeedId
       const wasRead = Boolean(currentItem?.is_read)
       const shouldAutoAdvanceUnread = state.itemFilter === "unread"
       if (shouldAutoAdvanceUnread && isRead && currentFeedId && Number(getFeedById(currentFeedId)?.unread_count || 0) <= 1) {
         prefetchNextUnreadFeedNow(currentFeedId)
       }
+
+      if (Boolean(isRead) !== wasRead) {
+        optimisticPatch = {
+          itemId,
+          feedId: affectedFeedId,
+          wasRead
+        }
+        if (state.selectedItem?.id === itemId) {
+          applySelectedItem({ ...state.selectedItem, is_read: isRead ? 1 : 0 })
+        }
+        syncItemToList(itemId, { is_read: isRead ? 1 : 0 })
+        adjustUnreadCounts(affectedFeedId, isRead ? -1 : 1)
+        refreshRenderedFeedRows?.([affectedFeedId])
+        renderScopeButtons?.()
+        preserveInlineItemPosition(itemId, () => {
+          refreshRenderedItemRows([itemId])
+          renderArticle()
+        })
+      }
+
       const result = await readerApi.setItemReadState(itemId, isRead)
       if (isRead) {
         rememberDeferredReadItem(itemId)
@@ -675,9 +869,14 @@ export function createReaderItemController(deps) {
         applySelectedItem({ ...state.selectedItem, ...result })
       }
       syncItemToList(itemId, { is_read: result.is_read })
-      if (Boolean(result.is_read) !== wasRead) {
-        adjustUnreadCounts(currentItem?.feed_id || currentFeedId, result.is_read ? -1 : 1)
-        refreshRenderedFeedRows?.([currentItem?.feed_id || currentFeedId])
+
+      if (optimisticPatch && Boolean(result.is_read) !== Boolean(isRead)) {
+        adjustUnreadCounts(affectedFeedId, result.is_read ? -1 : 1)
+        refreshRenderedFeedRows?.([affectedFeedId])
+        renderScopeButtons?.()
+      } else if (!optimisticPatch && Boolean(result.is_read) !== wasRead) {
+        adjustUnreadCounts(affectedFeedId, result.is_read ? -1 : 1)
+        refreshRenderedFeedRows?.([affectedFeedId])
         renderScopeButtons?.()
       }
 
@@ -699,22 +898,22 @@ export function createReaderItemController(deps) {
 
       if (shouldReload) {
         if (state.itemFilter === "unread" && isRead) {
-          if (needsFeedRefresh) void loadFeeds()
+          if (needsFeedRefresh) scheduleDeferredFeedReload()
           if (!state.selectedFeedId && currentFeedId) {
             state.selectedFeedId = currentFeedId
           }
           applyVisibleReadPatch([itemId], { isRead: true })
           scheduleMaybeLoadNextPage()
         } else {
-          if (needsFeedRefresh) void loadFeeds()
+          if (needsFeedRefresh) scheduleDeferredFeedReload()
           if (!state.selectedFeedId && currentFeedId) {
             state.selectedFeedId = currentFeedId
           }
-          await loadItems(state.selectedFeedId || currentFeedId || null)
+          await loadItems(state.selectedFeedId || currentFeedId || null, { skipImmediateTranslations: true })
         }
       } else {
         if (needsFeedRefresh) {
-          void loadFeeds()
+          scheduleDeferredFeedReload()
         }
         preserveInlineItemPosition(itemId, () => {
           refreshRenderedItemRows([itemId])
@@ -732,18 +931,46 @@ export function createReaderItemController(deps) {
         schedulePrefetchNextUnreadFeed(currentFeedId)
       }
     } catch (error) {
+      if (optimisticPatch) {
+        const restoredRead = optimisticPatch.wasRead ? 1 : 0
+        if (state.selectedItem?.id === optimisticPatch.itemId) {
+          applySelectedItem({ ...state.selectedItem, is_read: restoredRead })
+        }
+        syncItemToList(optimisticPatch.itemId, { is_read: restoredRead })
+        adjustUnreadCounts(optimisticPatch.feedId, optimisticPatch.wasRead ? -1 : 1)
+        refreshRenderedFeedRows?.([optimisticPatch.feedId])
+        renderScopeButtons?.()
+        preserveInlineItemPosition(optimisticPatch.itemId, () => {
+          refreshRenderedItemRows([optimisticPatch.itemId])
+          renderArticle()
+        })
+      }
       setStatus(error.message, "error")
     }
   }
 
   async function setFavoriteState(itemId, isFavorited) {
+    let optimisticPatch = null
     try {
+      const currentItem = findRenderedItem(itemId) || (state.selectedItem?.id === itemId ? state.selectedItem : null)
+      const wasFavorited = Boolean(currentItem?.is_favorited)
+      if (Boolean(isFavorited) !== wasFavorited) {
+        optimisticPatch = { itemId, wasFavorited }
+        if (state.selectedItem?.id === itemId) {
+          applySelectedItem({ ...state.selectedItem, is_favorited: isFavorited ? 1 : 0 })
+        }
+        syncItemToList(itemId, { is_favorited: isFavorited ? 1 : 0 })
+        preserveInlineItemPosition(itemId, () => {
+          refreshRenderedItemRows([itemId])
+          renderArticle()
+        })
+      }
+
       const result = await readerApi.setItemFavoriteState(itemId, isFavorited)
       if (state.selectedItem?.id === itemId) {
         applySelectedItem({ ...state.selectedItem, ...result })
       }
       syncItemToList(itemId, { is_favorited: result.is_favorited })
-      void loadMe()
 
       const shouldReload = state.itemFilter === "favorite" && !isFavorited
       if (shouldReload) {
@@ -754,25 +981,52 @@ export function createReaderItemController(deps) {
         renderItems()
         renderArticle()
         scheduleMaybeLoadNextPage()
-        void loadScopeCounts()
+        scheduleDeferredScopeCounts()
         setStatus("已取消收藏", "success")
       } else {
         preserveInlineItemPosition(itemId, () => {
           refreshRenderedItemRows([itemId])
           renderArticle()
         })
-        void loadScopeCounts()
+        scheduleDeferredScopeCounts()
         setStatus(isFavorited ? "已收藏，收藏文章不会被自动删除" : "已取消收藏", "success")
       }
     } catch (error) {
+      if (optimisticPatch) {
+        const restoredFavorite = optimisticPatch.wasFavorited ? 1 : 0
+        if (state.selectedItem?.id === optimisticPatch.itemId) {
+          applySelectedItem({ ...state.selectedItem, is_favorited: restoredFavorite })
+        }
+        syncItemToList(optimisticPatch.itemId, { is_favorited: restoredFavorite })
+        preserveInlineItemPosition(optimisticPatch.itemId, () => {
+          refreshRenderedItemRows([optimisticPatch.itemId])
+          renderArticle()
+        })
+      }
       setStatus(error.message, "error")
     }
   }
 
   async function translateItem(itemId = state.selectedItem?.id) {
     if (!itemId) return null
-    const item = findRenderedItem(itemId)
+    let item = findRenderedItem(itemId)
+    if (item?.translation_loading) return null
     const translation = getEffectiveTranslationForItem(item)
+    const requestedTranslationMode = "full"
+    const hasTranslatedTitle = Boolean(String(item?.translated_title || "").trim())
+    const hasTranslatedBody = Boolean(String(item?.translated_text || "").trim())
+    if (hasTranslatedTitle && hasTranslatedBody) {
+      setItemOperationState(itemId, {
+        translate_error: null,
+        translation_display_translated: 1
+      })
+      preserveInlineItemPosition(itemId, () => {
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+      })
+      setStatus("译文已存在", "success")
+      return { reused: true, translationMode: requestedTranslationMode }
+    }
     if (translation.provider === "sogou") {
       openExternalTranslate("sogou", item)
       return {
@@ -782,9 +1036,15 @@ export function createReaderItemController(deps) {
       }
     }
     try {
-      const result = await readerApi.translateItem(itemId)
+      setItemOperationState(itemId, { translation_loading: true, translate_error: null })
+      preserveInlineItemPosition(itemId, () => {
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+      })
+      setStatus("正在翻译...")
+      const result = await readerApi.translateItem(itemId, { translationMode: requestedTranslationMode })
       if (result?.skipped) {
-        setItemOperationState(itemId, { translate_error: null })
+        setItemOperationState(itemId, { translation_loading: false, translate_error: null })
         preserveInlineItemPosition(itemId, () => {
           refreshRenderedItemRows([itemId])
           renderArticle()
@@ -798,13 +1058,20 @@ export function createReaderItemController(deps) {
           ...state.selectedItem,
           translated_title: result.translatedTitle || "",
           translated_text: result.translatedText || "",
+          translation_display_translated: true,
+          translation_mode: result.translationMode || "full",
+          translation_loading: false,
           translate_error: null
         })
       }
       syncItemToList(itemId, {
         has_translation: 1,
         translated_title: result.translatedTitle || "",
+        translated_text: result.translatedText || "",
+        translation_display_translated: true,
+        translation_mode: result.translationMode || "full",
         translated_excerpt: translatedExcerpt,
+        translation_loading: false,
         translate_error: null
       })
       preserveInlineItemPosition(itemId, () => {
@@ -815,6 +1082,7 @@ export function createReaderItemController(deps) {
       setStatus(result.targetLabel ? `${providerLabel}完成 · ${result.targetLabel}` : `${providerLabel}完成`, "success")
       return result
     } catch (error) {
+      setItemOperationState(itemId, { translation_loading: false, translate_error: error.message })
       preserveInlineItemPosition(itemId, () => {
         refreshRenderedItemRows([itemId])
         renderArticle()
@@ -826,12 +1094,25 @@ export function createReaderItemController(deps) {
 
   async function summarizeItem(itemId = state.selectedItem?.id) {
     if (!itemId) return null
+    const item = findRenderedItem(itemId)
+    if (item?.summary_loading) return null
     try {
+      setItemOperationState(itemId, { summary_loading: true, summary_error: null })
+      preserveInlineItemPosition(itemId, () => {
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+      })
+      setStatus("正在生成 AI 总结...")
       const result = await readerApi.summarizeItem(itemId)
       if (state.selectedItem?.id === itemId) {
-        applySelectedItem({ ...state.selectedItem, ai_summary: result.aiSummary, summary_error: null })
+        applySelectedItem({
+          ...state.selectedItem,
+          ai_summary: result.aiSummary,
+          summary_loading: false,
+          summary_error: null
+        })
       }
-      syncItemToList(itemId, { has_ai_summary: 1, summary_error: null })
+      syncItemToList(itemId, { has_ai_summary: 1, summary_loading: false, summary_error: null })
       preserveInlineItemPosition(itemId, () => {
         refreshRenderedItemRows([itemId])
         renderArticle()
@@ -839,6 +1120,7 @@ export function createReaderItemController(deps) {
       setStatus("AI 总结已生成并保存", "success")
       return result
     } catch (error) {
+      setItemOperationState(itemId, { summary_loading: false, summary_error: error.message })
       preserveInlineItemPosition(itemId, () => {
         refreshRenderedItemRows([itemId])
         renderArticle()
@@ -892,6 +1174,7 @@ export function createReaderItemController(deps) {
       if (currentFeedId && state.itemFilter !== "read") {
         prefetchNextUnreadFeedNow(currentFeedId)
       }
+      setStatus("正在标记已读...")
       const result = await readerApi.setReadStateBulk(requestBody)
       const updatedCount = Number(result?.updatedCount || 0)
 
@@ -935,7 +1218,7 @@ export function createReaderItemController(deps) {
       }
 
       if (!switchResult.refreshedFeeds) {
-        void loadFeeds()
+        scheduleDeferredFeedReload()
       }
       if (switchResult.completed) {
         setStatus(

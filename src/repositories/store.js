@@ -94,6 +94,7 @@ export function createStore(db) {
     getFeedByUrlStmt,
     createFeedStmt,
     updateFeedMetaStmt,
+    touchFeedFetchedStmt,
     updateFeedAutoCategoryStmt,
     updateFeedErrorStmt,
     linkUserFeedStmt,
@@ -108,8 +109,13 @@ export function createStore(db) {
     listAdminFeedsStmt,
     listPublicFeedsStmt,
     listUserItemsStmt,
+    listUserItemsFastStmt,
     countUserItemsStmt,
     countUserItemBucketsStmt,
+    getUserItemStatsStmt,
+    upsertUserItemStatsStmt,
+    markUserItemStatsDirtyStmt,
+    markFeedSubscribersItemStatsDirtyStmt,
     listUserItemIdsStmt,
     listAdminItemsStmt,
     getUserItemStmt,
@@ -124,6 +130,7 @@ export function createStore(db) {
     upsertUserItemReadStateBulkTx,
     upsertUserItemFavoriteStateStmt,
     upsertUserItemTranslationStmt,
+    clearItemTranslationsStmt,
     getFeedRetentionLimitStmt,
     deleteFeedItemsStmt,
     deleteOrphanFeedsStmt,
@@ -153,6 +160,48 @@ export function createStore(db) {
     getDigestRunByIdStmt,
     listDigestRunsByUserStmt
   } = createStoreStatements(db);
+
+  function normalizeCountBuckets(row = {}) {
+    return {
+      all: Number(row.all_count || 0),
+      today: Number(row.today_count || 0),
+      favorite: Number(row.favorite_count || 0),
+      unread: Number(row.unread_count || 0)
+    };
+  }
+
+  function rebuildUserItemStats(userId, todaySince = null) {
+    const row = countUserItemBucketsStmt.get({
+      userId,
+      todaySince: todaySince || null
+    }) || {};
+    upsertUserItemStatsStmt.run({
+      userId,
+      allCount: Number(row.all_count || 0),
+      todaySince: todaySince || null,
+      todayCount: Number(row.today_count || 0),
+      favoriteCount: Number(row.favorite_count || 0),
+      unreadCount: Number(row.unread_count || 0)
+    });
+    return normalizeCountBuckets(row);
+  }
+
+  function markUserItemStatsDirty(userId) {
+    markUserItemStatsDirtyStmt.run(userId);
+  }
+
+  function markFeedSubscribersItemStatsDirty(feedId) {
+    markFeedSubscribersItemStatsDirtyStmt.run(feedId);
+  }
+
+  function getReusableUserItemStats(userId) {
+    const stats = getUserItemStatsStmt.get(userId);
+    return stats && Number(stats.dirty || 0) === 0 ? stats : null;
+  }
+
+  function getUserItemStatsForSimpleCounts(userId) {
+    return normalizeCountBuckets(getReusableUserItemStats(userId) || rebuildUserItemStats(userId, null));
+  }
 
   function optimizeDb() {
     db.pragma("optimize");
@@ -590,7 +639,18 @@ export function createStore(db) {
       return getFeedByIdStmt.get(id);
     },
     updateFeedMeta(feed) {
-      updateFeedMetaStmt.run(feed);
+      updateFeedMetaStmt.run({
+        ...feed,
+        etag: feed.etag ?? null,
+        lastModified: feed.lastModified ?? null
+      });
+    },
+    touchFeedFetched(feed) {
+      touchFeedFetchedStmt.run({
+        id: feed.id,
+        etag: feed.etag ?? null,
+        lastModified: feed.lastModified ?? null
+      });
     },
     updateFeedAutoCategory(id, autoCategory = null) {
       updateFeedAutoCategoryStmt.run({
@@ -604,26 +664,30 @@ export function createStore(db) {
     },
     linkUserFeed(userId, feedId, customTitle) {
       linkUserFeedStmt.run({ userId, feedId, customTitle });
-      return getUserFeedStmt.get(userId, feedId);
+      markUserItemStatsDirty(userId);
+      return getUserFeedStmt.get({ userId, feedId });
     },
     listUserFeeds(userId) {
-      return listUserFeedsStmt.all(userId);
+      return listUserFeedsStmt.all({ userId });
     },
     countUserFeeds(userId) {
       return countUserFeedsStmt.get(userId).count;
     },
     countUserFavorites(userId) {
-      return countUserFavoritesStmt.get(userId).count;
+      return getUserItemStatsForSimpleCounts(userId).favorite;
     },
     getUserFeed(userId, feedId) {
-      return getUserFeedStmt.get(userId, feedId);
+      return getUserFeedStmt.get({ userId, feedId });
     },
     unlinkUserFeed(userId, feedId) {
-      unlinkUserFeedStmt.run(userId, feedId);
+      const result = unlinkUserFeedStmt.run(userId, feedId);
+      if (result.changes > 0) {
+        markUserItemStatsDirty(userId);
+      }
     },
     updateUserFeedCustomTitle(userId, feedId, customTitle) {
       updateUserFeedCustomTitleStmt.run(customTitle, userId, feedId);
-      return getUserFeedStmt.get(userId, feedId);
+      return getUserFeedStmt.get({ userId, feedId });
     },
     updateUserFeedPreferences(userId, feedId, preferences = {}) {
       updateUserFeedPreferencesStmt.run({
@@ -639,7 +703,7 @@ export function createStore(db) {
         translationMode: preferences.translationMode ?? null,
         isPublic: preferences.isPublic ? 1 : 0
       });
-      return getUserFeedStmt.get(userId, feedId);
+      return getUserFeedStmt.get({ userId, feedId });
     },
     setUserFeedTranslation(userId, feedId, translatedTitle, translatedLanguage, translatedSourceTitle) {
       upsertUserFeedTranslationStmt.run({
@@ -649,7 +713,7 @@ export function createStore(db) {
         translatedLanguage: translatedLanguage ?? null,
         translatedSourceTitle: translatedSourceTitle ?? null
       });
-      return getUserFeedStmt.get(userId, feedId);
+      return getUserFeedStmt.get({ userId, feedId });
     },
     listGlobalFeeds() {
       return listGlobalFeedsStmt.all();
@@ -707,7 +771,7 @@ export function createStore(db) {
       `).all(userId, ...normalizedFeedIds).map((row) => Number(row.feed_id));
     },
     listUserItems(userId, feedId, limit = 20, options = {}) {
-      return listUserItemsStmt.all({
+      const params = {
         userId,
         feedId: feedId || null,
         limit,
@@ -715,7 +779,9 @@ export function createStore(db) {
         favoritesOnly: options.favoritesOnly ? 1 : 0,
         readState: options.readState === 0 || options.readState === 1 ? options.readState : -1,
         publishedSince: options.publishedSince || null
-      });
+      };
+      const canUseFastList = !params.favoritesOnly && params.readState === -1;
+      return (canUseFastList ? listUserItemsFastStmt : listUserItemsStmt).all(params);
     },
     listDigestItems(userId, options = {}) {
       const feedIds = [...new Set((options.feedIds || []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))];
@@ -762,6 +828,33 @@ export function createStore(db) {
       `).all(...params);
     },
     countUserItems(userId, feedId, options = {}) {
+      const normalizedFeedId = Number(feedId || 0);
+      const hasReadStateFilter = options.readState === 0 || options.readState === 1;
+      const hasSimpleAllScope =
+        !normalizedFeedId &&
+        !options.publishedSince &&
+        (!options.favoritesOnly || !hasReadStateFilter) &&
+        (options.readState === undefined || options.readState === null || hasReadStateFilter);
+      if (hasSimpleAllScope) {
+        const stats = getUserItemStatsForSimpleCounts(userId);
+        if (options.favoritesOnly) return stats.favorite;
+        if (options.readState === 0) return stats.unread;
+        if (options.readState === 1) return Math.max(0, stats.all - stats.unread);
+        return stats.all;
+      }
+      const hasSimpleFeedScope =
+        normalizedFeedId > 0 &&
+        !options.favoritesOnly &&
+        !options.publishedSince &&
+        (options.readState === undefined || options.readState === null || hasReadStateFilter);
+      if (hasSimpleFeedScope) {
+        const feed = getUserFeedStmt.get({ userId, feedId: normalizedFeedId });
+        const itemCount = Number(feed?.item_count || 0);
+        const unreadCount = Number(feed?.unread_count || 0);
+        if (options.readState === 0) return unreadCount;
+        if (options.readState === 1) return Math.max(0, itemCount - unreadCount);
+        return itemCount;
+      }
       return Number(
         countUserItemsStmt.get({
           userId,
@@ -773,16 +866,16 @@ export function createStore(db) {
       );
     },
     countUserItemBuckets(userId, { todaySince = null } = {}) {
-      const row = countUserItemBucketsStmt.get({
-        userId,
-        todaySince: todaySince || null
-      }) || {};
-      return {
-        all: Number(row.all_count || 0),
-        today: Number(row.today_count || 0),
-        favorite: Number(row.favorite_count || 0),
-        unread: Number(row.unread_count || 0)
-      };
+      const normalizedTodaySince = todaySince || null;
+      const stats = getUserItemStatsStmt.get(userId);
+      if (
+        stats &&
+        Number(stats.dirty || 0) === 0 &&
+        (stats.today_since || null) === normalizedTodaySince
+      ) {
+        return normalizeCountBuckets(stats);
+      }
+      return rebuildUserItemStats(userId, normalizedTodaySince);
     },
     listUserItemIds(userId, feedId, options = {}) {
       return listUserItemIdsStmt
@@ -825,13 +918,20 @@ export function createStore(db) {
         }
         return inserted;
       });
-      return tx(items);
+      const inserted = tx(items);
+      if (inserted > 0) {
+        markFeedSubscribersItemStatsDirty(feedId);
+      }
+      return inserted;
     },
     updateItemContent(id, contentHtml, contentText, originalUrl = null, originalTitle = null) {
       updateItemContentStmt.run({ id, contentHtml, contentText, originalUrl, originalTitle });
     },
     updateItemPageContent(id, pageHtml, pageText, originalUrl = null, originalTitle = null) {
       updateItemPageContentStmt.run({ id, pageHtml, pageText, originalUrl, originalTitle });
+    },
+    listFeedItemsShortContent(feedId, minLength = 400, limit = 10) {
+      return listFeedItemsShortContentStmt.all({ feedId, minLength, limit });
     },
     updateTranslation(id, translatedTitle, translatedText, translatedLanguage = null) {
       updateTranslationStmt.run({
@@ -854,6 +954,9 @@ export function createStore(db) {
       });
       return this.getUserItem(userId, itemId);
     },
+    clearItemTranslations(itemId) {
+      clearItemTranslationsStmt.run({ itemId });
+    },
     setUserItemReadState(userId, itemId, isRead, lastOpenedAt = null) {
       upsertUserItemReadStateStmt.run({
         userId,
@@ -861,6 +964,7 @@ export function createStore(db) {
         isRead: isRead ? 1 : 0,
         lastOpenedAt
       });
+      markUserItemStatsDirty(userId);
       return this.getUserItem(userId, itemId);
     },
     setUserItemReadStateBulk(userId, itemIds, isRead, lastOpenedAt = null) {
@@ -876,6 +980,7 @@ export function createStore(db) {
           lastOpenedAt
         }))
       );
+      markUserItemStatsDirty(userId);
       return uniqueIds.length;
     },
     setUserItemFavoriteState(userId, itemId, isFavorited, favoritedAt = null) {
@@ -885,6 +990,7 @@ export function createStore(db) {
         isFavorited: isFavorited ? 1 : 0,
         favoritedAt
       });
+      markUserItemStatsDirty(userId);
       return this.getUserItem(userId, itemId);
     },
     getFeedRetentionLimit(feedId) {
@@ -905,14 +1011,156 @@ export function createStore(db) {
         afterTotal: totalOrphanCount(after)
       };
     },
-    pruneFeedItems(feedId, keepCount) {
-      if (!Number.isFinite(keepCount) || keepCount < 1) {
-        return deleteFeedItemsStmt.run(feedId).changes;
+    pruneFeedItems(feedId, keepCount, options = {}) {
+      let changes = 0;
+      if (options.scope === "user_total") {
+        const hasConfiguredMaxItemsTotal =
+          options.maxItemsTotal !== undefined && options.maxItemsTotal !== null && String(options.maxItemsTotal).trim() !== "";
+        const maxItemsTotal =
+          hasConfiguredMaxItemsTotal && Number.isFinite(Number(options.maxItemsTotal))
+            ? Math.max(0, Math.floor(Number(options.maxItemsTotal)))
+            : null;
+        const maxAgeDays = Number(options.maxAgeDays || 0);
+        const minKeepCount = Math.max(0, Math.floor(Number(options.minKeepCount || 0) || 0));
+        const protectFavorites = options.protectFavorites !== false;
+        const protectUnread = options.protectUnread === true;
+        const hasExplicitCountRule = maxItemsTotal !== null;
+        const hasAgeRule = Number.isFinite(maxAgeDays) && maxAgeDays > 0;
+
+        const predicates = [];
+        if (hasExplicitCountRule) {
+          predicates.push("subscriber_items.row_num > MAX(@maxItemsTotal, @minKeepCount)");
+        } else {
+          predicates.push("subscriber_items.row_num > MAX(subscriber_items.keep_count, @minKeepCount)");
+        }
+        if (hasAgeRule) {
+          predicates.push("(subscriber_items.row_num > @minKeepCount AND subscriber_items.sort_at < @cutoff)");
+        }
+
+        changes = db.prepare(`
+          WITH subscriber_items AS (
+            SELECT
+              uf.user_id,
+              i.id AS item_id,
+              COALESCE(i.published_at, i.created_at) AS sort_at,
+              COALESCE(p.max_saved_items, free_plan.max_saved_items) AS keep_count,
+              COALESCE(uis.is_read, 0) AS is_read,
+              COALESCE(uis.is_favorited, 0) AS is_favorited,
+              ROW_NUMBER() OVER (
+                PARTITION BY uf.user_id
+                ORDER BY COALESCE(i.published_at, i.created_at) DESC, i.id DESC
+              ) AS row_num
+            FROM items i
+            JOIN user_feeds uf ON uf.feed_id = i.feed_id
+            LEFT JOIN subscriptions s ON s.user_id = uf.user_id AND s.status = 'active'
+            LEFT JOIN plans p ON p.id = s.plan_id
+            JOIN plans free_plan ON free_plan.code = 'free'
+            LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
+          )
+          DELETE FROM items
+          WHERE id IN (
+            SELECT candidate.id
+            FROM items candidate
+            WHERE candidate.feed_id = @feedId
+              AND NOT EXISTS (
+                SELECT 1
+                FROM subscriber_items
+                WHERE subscriber_items.item_id = candidate.id
+                  AND (
+                    NOT (${predicates.join(" OR ")})
+                    ${protectFavorites ? "OR subscriber_items.is_favorited = 1" : ""}
+                    ${protectUnread ? "OR subscriber_items.is_read = 0" : ""}
+                  )
+                )
+          )
+        `).run({
+          feedId,
+          maxItemsTotal: maxItemsTotal || 0,
+          minKeepCount,
+          cutoff: hasAgeRule ? new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString() : null
+        }).changes;
+        if (changes > 0) {
+          markFeedSubscribersItemStatsDirty(feedId);
+        }
+        return changes;
       }
-      return pruneFeedItemsStmt.run({
-        feedId,
-        keepCount: Math.max(0, Math.floor(keepCount))
-      }).changes;
+
+      const normalizedKeepCount = Number.isFinite(Number(keepCount)) ? Math.max(0, Math.floor(Number(keepCount))) : null;
+      const maxAgeDays = Number(options.maxAgeDays || 0);
+      const minKeepCount = Math.max(0, Math.floor(Number(options.minKeepCount || 0) || 0));
+      const protectFavorites = options.protectFavorites !== false;
+      const protectUnread = options.protectUnread === true;
+      const hasCountRule = normalizedKeepCount !== null && normalizedKeepCount > 0;
+      const hasAgeRule = Number.isFinite(maxAgeDays) && maxAgeDays > 0;
+
+      if (!hasCountRule && !hasAgeRule && minKeepCount < 1 && options.retentionRules !== true) {
+        changes = deleteFeedItemsStmt.run(feedId).changes;
+      } else if (!hasCountRule && !hasAgeRule) {
+        changes = 0;
+      } else {
+        const predicates = [];
+        const params = {
+          feedId,
+          keepCount: Math.max(normalizedKeepCount || 0, minKeepCount),
+          minKeepCount,
+          cutoff: hasAgeRule ? new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString() : null
+        };
+
+        if (hasCountRule) {
+          predicates.push("ranked.row_num > @keepCount");
+        }
+        if (hasAgeRule) {
+          predicates.push("(ranked.row_num > @minKeepCount AND COALESCE(ranked.published_at, ranked.created_at) < @cutoff)");
+        }
+
+        const protectionPredicates = [];
+        if (protectFavorites) {
+          protectionPredicates.push(`
+            NOT EXISTS (
+              SELECT 1
+              FROM user_item_states favorite_state
+              WHERE favorite_state.item_id = ranked.id
+                AND favorite_state.is_favorited = 1
+            )
+          `);
+        }
+        if (protectUnread) {
+          protectionPredicates.push(`
+            NOT EXISTS (
+              SELECT 1
+              FROM user_feeds unread_uf
+              LEFT JOIN user_item_states unread_state
+                ON unread_state.item_id = ranked.id
+                AND unread_state.user_id = unread_uf.user_id
+              WHERE unread_uf.feed_id = @feedId
+                AND COALESCE(unread_state.is_read, 0) = 0
+            )
+          `);
+        }
+
+        changes = db.prepare(`
+          WITH ranked AS (
+            SELECT
+              id,
+              published_at,
+              created_at,
+              ROW_NUMBER() OVER (ORDER BY COALESCE(published_at, created_at) DESC, id DESC) AS row_num
+            FROM items
+            WHERE feed_id = @feedId
+          )
+          DELETE FROM items
+          WHERE id IN (
+            SELECT ranked.id
+            FROM ranked
+            WHERE (${predicates.join(" OR ") || "0"})
+              ${protectionPredicates.length ? `AND ${protectionPredicates.join("\n              AND ")}` : ""}
+          )
+        `).run(params).changes;
+      }
+      if (changes > 0) {
+        markFeedSubscribersItemStatsDirty(feedId);
+      }
+      return changes;
     },
     listDigestRulesByUser(userId) {
       return listDigestRulesByUserStmt.all(userId);
