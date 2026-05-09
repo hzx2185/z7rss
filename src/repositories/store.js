@@ -147,6 +147,10 @@ export function createStore(db) {
     nullMissingAuditActorsStmt,
     nullMissingRefreshActorsStmt,
     pruneFeedItemsStmt,
+    getItemsToPruneStmt,
+    addPrunedGuidStmt,
+    checkPrunedGuidStmt,
+    pruneExpiredGuidsStmt,
     listDigestRulesByUserStmt,
     getDigestRuleByIdStmt,
     countDigestRulesByUserStmt,
@@ -902,6 +906,10 @@ export function createStore(db) {
         const existingItemStmt = db.prepare("SELECT id FROM items WHERE feed_id = ? AND guid = ?");
         for (const item of records) {
           const existed = existingItemStmt.get(feedId, item.guid);
+          if (!existed) {
+            const pruned = checkPrunedGuidStmt.get(feedId, item.guid);
+            if (pruned) continue;
+          }
           upsertItemStmt.run({
             feedId,
             guid: item.guid,
@@ -1037,11 +1045,12 @@ export function createStore(db) {
           predicates.push("(subscriber_items.row_num > @minKeepCount AND subscriber_items.sort_at < @cutoff)");
         }
 
-        changes = db.prepare(`
+        const itemsToPrune = db.prepare(`
           WITH subscriber_items AS (
             SELECT
               uf.user_id,
               i.id AS item_id,
+              i.guid AS guid,
               COALESCE(i.published_at, i.created_at) AS sort_at,
               COALESCE(p.max_saved_items, free_plan.max_saved_items) AS keep_count,
               COALESCE(uis.is_read, 0) AS is_read,
@@ -1057,29 +1066,41 @@ export function createStore(db) {
             JOIN plans free_plan ON free_plan.code = 'free'
             LEFT JOIN user_item_states uis ON uis.item_id = i.id AND uis.user_id = uf.user_id
           )
-          DELETE FROM items
-          WHERE id IN (
-            SELECT candidate.id
-            FROM items candidate
-            WHERE candidate.feed_id = @feedId
-              AND NOT EXISTS (
-                SELECT 1
-                FROM subscriber_items
-                WHERE subscriber_items.item_id = candidate.id
-                  AND (
-                    NOT (${predicates.join(" OR ")})
-                    ${protectFavorites ? "OR subscriber_items.is_favorited = 1" : ""}
-                    ${protectUnread ? "OR subscriber_items.is_read = 0" : ""}
-                  )
+          SELECT DISTINCT candidate.id, candidate.guid
+          FROM items candidate
+          WHERE candidate.feed_id = @feedId
+            AND NOT EXISTS (
+              SELECT 1
+              FROM subscriber_items
+              WHERE subscriber_items.item_id = candidate.id
+                AND (
+                  NOT (${predicates.join(" OR ")})
+                  ${protectFavorites ? "OR subscriber_items.is_favorited = 1" : ""}
+                  ${protectUnread ? "OR subscriber_items.is_read = 0" : ""}
                 )
-          )
-        `).run({
+            )
+        `).all({
           feedId,
           maxItemsTotal: maxItemsTotal || 0,
           minKeepCount,
           cutoff: hasAgeRule ? new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString() : null
-        }).changes;
-        if (changes > 0) {
+        });
+        
+        if (itemsToPrune.length > 0) {
+          const guidsToPrune = itemsToPrune.map(item => item.guid);
+          const idsToPrune = itemsToPrune.map(item => item.id);
+          changes = idsToPrune.length;
+          
+          const addPrunedTx = db.transaction((guids) => {
+            for (const guid of guids) {
+              addPrunedGuidStmt.run({ feedId, guid });
+            }
+          });
+          addPrunedTx(guidsToPrune);
+          
+          const placeholders = idsToPrune.map(() => '?').join(',');
+          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
+          
           markFeedSubscribersItemStatsDirty(feedId);
         }
         return changes;
@@ -1094,7 +1115,24 @@ export function createStore(db) {
       const hasAgeRule = Number.isFinite(maxAgeDays) && maxAgeDays > 0;
 
       if (!hasCountRule && !hasAgeRule && minKeepCount < 1 && options.retentionRules !== true) {
-        changes = deleteFeedItemsStmt.run(feedId).changes;
+        const itemsToPrune = db.prepare(`SELECT id, guid FROM items WHERE feed_id = ?`).all(feedId);
+        if (itemsToPrune.length > 0) {
+          const guidsToPrune = itemsToPrune.map(item => item.guid);
+          const idsToPrune = itemsToPrune.map(item => item.id);
+          changes = idsToPrune.length;
+          
+          const addPrunedTx = db.transaction((guids) => {
+            for (const guid of guids) {
+              addPrunedGuidStmt.run({ feedId, guid });
+            }
+          });
+          addPrunedTx(guidsToPrune);
+          
+          const placeholders = idsToPrune.map(() => '?').join(',');
+          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
+          
+          markFeedSubscribersItemStatsDirty(feedId);
+        }
       } else if (!hasCountRule && !hasAgeRule) {
         changes = 0;
       } else {
@@ -1138,29 +1176,47 @@ export function createStore(db) {
           `);
         }
 
-        changes = db.prepare(`
+        const itemsToPrune = db.prepare(`
           WITH ranked AS (
             SELECT
               id,
+              guid,
               published_at,
               created_at,
               ROW_NUMBER() OVER (ORDER BY COALESCE(published_at, created_at) DESC, id DESC) AS row_num
             FROM items
             WHERE feed_id = @feedId
           )
-          DELETE FROM items
-          WHERE id IN (
-            SELECT ranked.id
-            FROM ranked
-            WHERE (${predicates.join(" OR ") || "0"})
-              ${protectionPredicates.length ? `AND ${protectionPredicates.join("\n              AND ")}` : ""}
-          )
-        `).run(params).changes;
-      }
-      if (changes > 0) {
-        markFeedSubscribersItemStatsDirty(feedId);
+          SELECT ranked.id, ranked.guid
+          FROM ranked
+          WHERE (${predicates.join(" OR ") || "0"})
+            ${protectionPredicates.length ? `AND ${protectionPredicates.join("\n              AND ")}` : ""}
+        `).all(params);
+        
+        if (itemsToPrune.length > 0) {
+          const guidsToPrune = itemsToPrune.map(item => item.guid);
+          const idsToPrune = itemsToPrune.map(item => item.id);
+          changes = idsToPrune.length;
+          
+          const addPrunedTx = db.transaction((guids) => {
+            for (const guid of guids) {
+              addPrunedGuidStmt.run({ feedId, guid });
+            }
+          });
+          addPrunedTx(guidsToPrune);
+          
+          const placeholders = idsToPrune.map(() => '?').join(',');
+          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
+          
+          markFeedSubscribersItemStatsDirty(feedId);
+        }
       }
       return changes;
+    },
+    pruneExpiredGuids({ retentionDays = 90 } = {}) {
+      const normalizedRetentionDays = Math.max(0, Math.floor(Number(retentionDays) || 0));
+      if (normalizedRetentionDays <= 0) return 0;
+      return pruneExpiredGuidsStmt.run({ retentionDays: normalizedRetentionDays }).changes;
     },
     listDigestRulesByUser(userId) {
       return listDigestRulesByUserStmt.all(userId);

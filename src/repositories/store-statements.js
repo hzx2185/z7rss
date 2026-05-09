@@ -1109,6 +1109,32 @@ export function createStoreStatements(db) {
       )
   `);
 
+  const getItemsToPruneStmt = db.prepare(`
+    SELECT id, guid
+    FROM items candidate
+    LEFT JOIN user_item_states favorite_state
+      ON favorite_state.item_id = candidate.id AND favorite_state.is_favorited = 1
+    WHERE candidate.feed_id = @feedId
+      AND favorite_state.id IS NULL
+    ORDER BY COALESCE(candidate.published_at, candidate.created_at) DESC, candidate.id DESC
+    LIMIT -1 OFFSET @keepCount
+  `);
+
+  const addPrunedGuidStmt = db.prepare(`
+    INSERT INTO pruned_guids (feed_id, guid)
+    VALUES (@feedId, @guid)
+    ON CONFLICT(feed_id, guid) DO UPDATE SET pruned_at = CURRENT_TIMESTAMP
+  `);
+
+  const checkPrunedGuidStmt = db.prepare(`
+    SELECT id FROM pruned_guids WHERE feed_id = ? AND guid = ?
+  `);
+
+  const pruneExpiredGuidsStmt = db.prepare(`
+    DELETE FROM pruned_guids
+    WHERE pruned_at < datetime('now', '-' || @retentionDays || ' days')
+  `);
+
   const listDigestRulesByUserStmt = db.prepare(`
     SELECT *
     FROM digest_rules
@@ -1314,6 +1340,10 @@ export function createStoreStatements(db) {
     nullMissingAuditActorsStmt,
     nullMissingRefreshActorsStmt,
     pruneFeedItemsStmt,
+    getItemsToPruneStmt,
+    addPrunedGuidStmt,
+    checkPrunedGuidStmt,
+    pruneExpiredGuidsStmt,
     listDigestRulesByUserStmt,
     getDigestRuleByIdStmt,
     countDigestRulesByUserStmt,

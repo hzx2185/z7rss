@@ -415,6 +415,18 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_refresh_runs_status ON refresh_runs(status);
     CREATE INDEX IF NOT EXISTS idx_digest_rules_user ON digest_rules(user_id, is_enabled);
     CREATE INDEX IF NOT EXISTS idx_digest_runs_rule ON digest_runs(rule_id, started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS pruned_guids (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feed_id INTEGER NOT NULL,
+      guid TEXT NOT NULL,
+      pruned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(feed_id, guid),
+      FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pruned_guids_feed_guid ON pruned_guids(feed_id, guid);
+    CREATE INDEX IF NOT EXISTS idx_pruned_guids_pruned_at ON pruned_guids(pruned_at);
   `);
 
   if (!hasColumn(db, "items", "translated_text")) {

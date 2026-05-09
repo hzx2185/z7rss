@@ -129,6 +129,7 @@ export function createMaintenanceService({ store, feedService, config, logger = 
       databaseBackupsDeleted: 0,
       auditLogsDeleted: 0,
       refreshRunsDeleted: 0,
+      prunedGuidsDeleted: 0,
       optimized: false,
       errors: []
     };
@@ -167,6 +168,13 @@ export function createMaintenanceService({ store, feedService, config, logger = 
           store.pruneRefreshRuns?.({
             retentionDays: config.refreshRunRetentionDays,
             maxEntries: config.refreshRunMaxEntries
+          }) || 0
+        );
+      },
+      () => {
+        details.prunedGuidsDeleted = Number(
+          store.pruneExpiredGuids?.({
+            retentionDays: 90
           }) || 0
         );
       },
