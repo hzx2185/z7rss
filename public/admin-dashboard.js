@@ -60,10 +60,11 @@ export function createAdminDashboard({
     const status = getRedeemCodeStatus(entry)
     const buyer = getRedeemBuyer(entry)
     const isUsed = status.key === "used"
+    const batchId = getRedeemBatchId(entry)
     return `
-      <tr class="admin-redeem-row" data-redeem-id="${entry.id}" data-redeem-batch-id="${escapeHtml(getRedeemBatchId(entry))}">
+      <tr class="admin-redeem-code-row" data-redeem-id="${entry.id}" data-redeem-batch-id="${escapeHtml(batchId)}">
         <td>
-          <div class="redeem-code">
+          <div class="redeem-code-main">
             <strong>${escapeHtml(entry.code)}</strong>
             <button class="copy-btn secondary" type="button" data-copy-code="${escapeHtml(entry.code)}" title="复制兑换码">复制</button>
           </div>
@@ -73,7 +74,7 @@ export function createAdminDashboard({
         <td class="redeem-used">${buyer ? escapeHtml(buyer) : "未使用"}</td>
         <td>${entry.redeemed_at ? formatDate(entry.redeemed_at) : "-"}</td>
         <td><input type="text" value="${escapeHtml(entry.note || "")}" data-redeem-note="${entry.id}" ${isUsed ? "disabled" : ""} /></td>
-        <td>
+        <td class="redeem-actions-cell">
           <div class="redeem-actions">
             <button class="secondary" type="button" data-redeem-save="${entry.id}" ${isUsed ? "disabled" : ""}>保存</button>
             <button class="secondary" type="button" data-redeem-toggle="${entry.id}" data-redeem-active="${entry.is_active ? "0" : "1"}" ${isUsed ? "disabled" : ""}>
@@ -121,7 +122,7 @@ export function createAdminDashboard({
                 <tr>
                   <th>兑换码</th>
                   <th>状态</th>
-                  <th>到期</th>
+                  <th>到期日</th>
                   <th>使用人</th>
                   <th>兑换时间</th>
                   <th>备注</th>

@@ -504,7 +504,7 @@ body.admin-page #tab-plans .redeem-code-table-wrap {
 
 body.admin-page #tab-plans .redeem-code-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 820px;
   border-collapse: collapse;
   font-size: 11px;
 }
@@ -515,6 +515,7 @@ body.admin-page #tab-plans .redeem-code-table td {
   text-align: left;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 body.admin-page #tab-plans .redeem-code-table th {
@@ -522,62 +523,79 @@ body.admin-page #tab-plans .redeem-code-table th {
   background: var(--bg-sunken);
   font-size: 10px;
   font-weight: 600;
-  white-space: nowrap;
 }
 
 body.admin-page #tab-plans .redeem-code-table tr:last-child td {
   border-bottom: 0;
 }
 
-body.admin-page #tab-plans .admin-redeem-row .redeem-code {
+body.admin-page #tab-plans .redeem-code-main {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 220px;
+  min-width: 0;
 }
 
-body.admin-page #tab-plans .admin-redeem-row .redeem-code strong {
+body.admin-page #tab-plans .redeem-code-main strong {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
-  white-space: nowrap;
-}
-
-body.admin-page #tab-plans .admin-redeem-row .copy-btn {
-  font-size: 10px;
-  padding: 2px 6px;
-  flex-shrink: 0;
-}
-
-body.admin-page #tab-plans .admin-redeem-row .redeem-used {
-  color: var(--text-muted);
-  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-body.admin-page #tab-plans .admin-redeem-row input[type="date"] {
-  min-width: 116px;
+body.admin-page #tab-plans .admin-redeem-code-row .copy-btn {
+  font-size: 10px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+body.admin-page #tab-plans .admin-redeem-code-row .redeem-used {
+  color: var(--text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-redeem-code-row input[type="date"] {
+  width: 118px;
   padding: 3px 6px;
   font-size: 10px;
 }
 
-body.admin-page #tab-plans .admin-redeem-row input[type="text"] {
+body.admin-page #tab-plans .admin-redeem-code-row input[type="text"] {
   min-width: 120px;
-  width: 100%;
+  width: 220px;
   padding: 3px 6px;
   font-size: 10px;
 }
 
-body.admin-page #tab-plans .admin-redeem-row .redeem-actions {
+body.admin-page #tab-plans .redeem-actions-cell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--bg-card);
+  box-shadow: -8px 0 10px color-mix(in srgb, var(--bg-card) 80%, transparent);
+}
+
+body.admin-page #tab-plans .redeem-code-table th:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--bg-sunken);
+}
+
+body.admin-page #tab-plans .admin-redeem-code-row .redeem-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
+  justify-content: flex-end;
 }
 
-body.admin-page #tab-plans .admin-redeem-row .redeem-actions button {
+body.admin-page #tab-plans .admin-redeem-code-row .redeem-actions button {
   font-size: 10px;
   padding: 3px 7px;
   white-space: nowrap;
