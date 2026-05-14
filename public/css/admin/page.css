@@ -276,16 +276,375 @@ body.admin-page .admin-db-log-section .compact-list {
   font-size: 10px;
 }
 
-body.admin-page .admin-database-metrics-grid,
-body.admin-page .metrics-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+body.admin-page #tab-plans .admin-plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+body.admin-page #tab-plans .admin-plan-table-wrap {
+  overflow-x: auto;
+}
+
+body.admin-page #tab-plans .admin-plan-table::-webkit-scrollbar {
+  height: 6px;
+}
+
+body.admin-page #tab-plans .admin-plan-table::-webkit-scrollbar-track {
+  background: var(--bg-sunken);
+  border-radius: 3px;
+}
+
+body.admin-page #tab-plans .admin-plan-table::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+body.admin-page #tab-plans .admin-plan-table th,
+body.admin-page #tab-plans .admin-plan-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+body.admin-page #tab-plans .admin-plan-table th {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-plan-table td {
+  background: var(--bg-elevated);
+}
+
+body.admin-page #tab-plans .admin-plan-table tr:hover td {
+  background: var(--bg-surface);
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-name {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 80px;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-info {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-info input {
+  width: 60px;
+  padding: 3px 5px;
+  font-size: 11px;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-toggles {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
-body.admin-page .admin-section-separator {
-  height: 1px;
-  background: var(--border-color);
-  margin: 12px 0;
+body.admin-page #tab-plans .admin-plan-table .plan-toggles .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: auto;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-toggles .checkbox-row input {
+  margin: 0;
+  width: 12px;
+  height: 12px;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-actions {
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-plan-table .plan-actions button {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+
+body.admin-page #tab-plans .admin-redeem-form {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+body.admin-page #tab-plans .admin-redeem-form .field-label {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+body.admin-page #tab-plans .admin-redeem-form .field-label > span {
+  font-size: 10px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+body.admin-page #tab-plans .admin-redeem-form .field-label input,
+body.admin-page #tab-plans .admin-redeem-form .field-label select {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+body.admin-page #tab-plans .admin-redeem-form > button[type="submit"] {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+body.admin-page #tab-plans .admin-redeem-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+body.admin-page #tab-plans .redeem-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+body.admin-page #tab-plans .redeem-toolbar select {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+body.admin-page #tab-plans .redeem-toolbar button {
+  font-size: 11px;
+  padding: 4px 12px;
+}
+
+body.admin-page #tab-plans .admin-redeem-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  min-width: 0;
+}
+
+body.admin-page #tab-plans .redeem-batch-head {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+}
+
+body.admin-page #tab-plans .redeem-batch-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+body.admin-page #tab-plans .redeem-batch-title strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+body.admin-page #tab-plans .redeem-batch-title .muted {
+  font-size: 11px;
+}
+
+body.admin-page #tab-plans .redeem-batch-status,
+body.admin-page #tab-plans .redeem-batch-actions,
+body.admin-page #tab-plans .redeem-batch-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+body.admin-page #tab-plans .redeem-batch-actions {
+  justify-content: flex-end;
+}
+
+body.admin-page #tab-plans .redeem-batch-actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+body.admin-page #tab-plans .redeem-batch-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+body.admin-page #tab-plans .redeem-code-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+body.admin-page #tab-plans .redeem-code-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+body.admin-page #tab-plans .redeem-code-table th,
+body.admin-page #tab-plans .redeem-code-table td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+body.admin-page #tab-plans .redeem-code-table th {
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .redeem-code-table tr:last-child td {
+  border-bottom: 0;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .redeem-code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 220px;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .redeem-code strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .copy-btn {
+  font-size: 10px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .redeem-used {
+  color: var(--text-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans .admin-redeem-row input[type="date"] {
+  min-width: 116px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+body.admin-page #tab-plans .admin-redeem-row input[type="text"] {
+  min-width: 120px;
+  width: 100%;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .redeem-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+body.admin-page #tab-plans .admin-redeem-row .redeem-actions button {
+  font-size: 10px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+body.admin-page #tab-plans button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: var(--bg-sunken);
+}
+
+body.admin-page #tab-plans button.danger:disabled {
+  color: var(--text-muted);
+  border-color: var(--border);
+  opacity: 0.55;
+}
+
+body.admin-page .admin-plan-snapshot-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 10px;
+  margin-bottom: 6px;
+}
+
+body.admin-page .admin-plan-snapshot-row .list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+body.admin-page .admin-plan-snapshot-row .list-main strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+body.admin-page .admin-plan-snapshot-row .list-main .muted {
+  font-size: 10px;
+}
+
+body.admin-page .admin-plan-snapshot-row .pill {
+  align-self: center;
+  font-size: 11px;
+}
+
+body.admin-page #tab-plans .card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+body.admin-page #tab-plans .admin-plan-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+body.admin-page .admin-overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 12px;
+  width: 100%;
+}
+
+@media (max-width: 1180px) {
+  body.admin-page .admin-overview-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 body.admin-page #tab-database .card {
@@ -325,11 +684,57 @@ body.admin-page .admin-substatus {
     grid-template-columns: repeat(5, minmax(92px, 1fr));
     overflow-x: auto;
   }
+
+  body.admin-page #tab-plans .admin-plan-table .plan-info {
+    flex-wrap: wrap;
+  }
+
+  body.admin-page #tab-plans .admin-plan-table .plan-info input {
+    width: 50px;
+  }
 }
 
 @media (max-width: 900px) {
   body.admin-page .admin-db-actions-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  body.admin-page #tab-plans .admin-redeem-form {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  body.admin-page #tab-plans .admin-plan-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  body.admin-page #tab-plans .admin-plan-table th,
+  body.admin-page #tab-plans .admin-plan-table td {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 900px) {
+  body.admin-page .admin-db-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  body.admin-page #tab-plans .admin-redeem-form {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  body.admin-page #tab-plans .admin-plan-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  body.admin-page #tab-plans .admin-plan-table th,
+  body.admin-page #tab-plans .admin-plan-table td {
+    white-space: nowrap;
+  }
+
+  body.admin-page .admin-overview-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -346,6 +751,47 @@ body.admin-page .admin-substatus {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+  }
+
+  body.admin-page #tab-plans .redeem-batch-head {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  body.admin-page #tab-plans .redeem-batch-actions {
+    justify-content: flex-start;
+  }
+
+  body.admin-page #tab-plans .redeem-code-table {
+    min-width: 760px;
+  }
+
+  body.admin-page #tab-plans .admin-redeem-form {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  body.admin-page .admin-plan-snapshot-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  body.admin-page .admin-plan-snapshot-row .pill {
+    justify-self: start;
+  }
+
+  body.admin-page .admin-overview-layout {
+    grid-template-columns: 1fr;
+  }
+
+  body.admin-page #tab-plans {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.admin-page #tab-plans .admin-plan-table {
+    display: block;
+    overflow-x: auto;
+    min-width: 600px;
   }
 }
 

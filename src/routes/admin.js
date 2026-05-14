@@ -278,9 +278,10 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
   router.post("/redeem-codes", route(async (req, res) => {
     const body = expectObject(req.body || {});
     res.status(201).json(adminService.createRedeemCode({
-      code: parseTrimmedString(body.code, "兑换码", { required: true, maxLength: 64 }),
+      code: parseTrimmedString(body.code, "兑换码", { maxLength: 64 }),
       planCode: parsePlanCode(body.planCode),
-      maxUses: parsePositiveInt(body.maxUses ?? 1, "最大使用次数", { min: 1, max: 100000 }),
+      quantity: body.quantity === undefined ? 1 : parsePositiveInt(body.quantity, "生成数量", { min: 1, max: 200 }),
+      prefix: parseTrimmedString(body.prefix, "兑换码前缀", { maxLength: 16 }),
       expiresAt: body.expiresAt ? parseIsoDateTime(body.expiresAt, "到期时间", { allowNull: true }) : null,
       note: parseTrimmedString(body.note, "备注", { maxLength: 500 })
     }, getAuditContext(req)));
@@ -290,11 +291,19 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
     const body = expectObject(req.body || {});
     res.json(adminService.updateRedeemCode({
       id: parsePositiveInt(req.params.id, "兑换码 ID"),
-      maxUses: parsePositiveInt(body.maxUses ?? 1, "最大使用次数", { min: 1, max: 100000 }),
       expiresAt: body.expiresAt ? parseIsoDateTime(body.expiresAt, "到期时间", { allowNull: true }) : null,
       note: parseTrimmedString(body.note, "备注", { maxLength: 500 }),
       isActive: parseBoolean(body.isActive, "启用状态")
     }, getAuditContext(req)));
+  }));
+
+  router.delete("/redeem-codes/:id", route(async (req, res) => {
+    res.json(adminService.deleteRedeemCode(parsePositiveInt(req.params.id, "兑换码 ID"), getAuditContext(req)));
+  }));
+
+  router.delete("/redeem-code-batches/:batchId", route(async (req, res) => {
+    const batchId = parseTrimmedString(req.params.batchId, "兑换码批次", { required: true, maxLength: 700 });
+    res.json(adminService.deleteRedeemCodeBatch(batchId, getAuditContext(req)));
   }));
 
   router.post("/plugins", route(async (req, res) => {

@@ -3,11 +3,12 @@ services:
     build: .
     container_name: z7rss
     ports:
-      - "${HOST_PORT:-39118}:${PORT:-39018}"
+      - "${HOST_PORT:-39118}:${PORT:-80}"
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
       APP_NAME: ${APP_NAME:-Z7 RSS}
       APP_URL: ${APP_URL:-http://localhost:39118}
-      PORT: ${PORT:-39018}
+      PORT: ${PORT:-80}
       DB_PATH: ${DB_PATH:-/app/data/rss.db}
       REFRESH_INTERVAL_MINUTES: ${REFRESH_INTERVAL_MINUTES:-30}
       MAINTENANCE_INTERVAL_MINUTES: ${MAINTENANCE_INTERVAL_MINUTES:-360}
@@ -30,6 +31,7 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       TRUST_PROXY: ${TRUST_PROXY:-false}
       APP_SECRET: ${APP_SECRET:-change-me-before-production}
+      APP_SECRET_FILE: ${APP_SECRET_FILE:-/app/data/app-secret}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       AI_ENABLED: ${AI_ENABLED:-true}
       AI_BASE_URL: ${AI_BASE_URL:-}

@@ -15,6 +15,12 @@ import { getAdminUserSecurityState } from "./admin-user-security.js?v=2"
 import { getAdminElements } from "./admin-elements.js?v=2"
 import { createAdminRefreshPanel } from "./admin-refresh-panel.js?v=2"
 import { createAdminDashboard } from "./admin-dashboard.js?v=2"
+import {
+  getRedeemBatchId,
+  getRedeemBatches,
+  getRedeemBuyer,
+  getRedeemCodeStatus
+} from "./admin-redeem-utils.js?v=2"
 
 const state = {
   me: null,
@@ -23,6 +29,7 @@ const state = {
   translationProviderPoolDraft: [],
   aiProviderPoolDraft: [],
   expandedUserSecurityId: null,
+  expandedRedeemBatchIds: [],
   userSecurity: {}
 }
 
@@ -41,6 +48,35 @@ function isAdmin() {
 
 function getUserSecurityState(userId) {
   return getAdminUserSecurityState(state.userSecurity, userId)
+}
+
+function escapeCsv(value = "") {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`
+}
+
+function exportRedeemCodes(codes, filename) {
+  const data = [
+    ["批次", "兑换码", "套餐", "到期日期", "状态", "使用人", "兑换时间", "备注"].map(escapeCsv).join(",")
+  ]
+  codes.forEach((entry) => {
+    data.push([
+      entry.note || getRedeemBatchId(entry),
+      entry.code,
+      entry.plan_name || entry.plan_code || "",
+      entry.expires_at ? formatDate(entry.expires_at) : "无期限",
+      getRedeemCodeStatus(entry).label,
+      getRedeemBuyer(entry) || "",
+      entry.redeemed_at ? formatDate(entry.redeemed_at) : "",
+      entry.note || ""
+    ].map(escapeCsv).join(","))
+  })
+  const blob = new Blob(["\uFEFF" + data.join("\n")], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 const refreshPanel = createAdminRefreshPanel({
@@ -77,9 +113,13 @@ const dashboard = createAdminDashboard({
     revokeUserSession: (...args) => revokeUserSession(...args),
     savePlanSettings: (...args) => savePlanSettings(...args),
     deleteBackupFile: (...args) => deleteBackupFile(...args),
+    deleteRedeemBatch: (...args) => deleteRedeemBatch(...args),
+    deleteRedeemCode: (...args) => deleteRedeemCode(...args),
     downloadBackupFile: (...args) => downloadBackupFile(...args),
+    exportRedeemBatch: (...args) => exportRedeemBatch(...args),
     reclassifyFeed: (...args) => reclassifyFeed(...args),
     saveRedeemCode: (...args) => saveRedeemCode(...args),
+    toggleRedeemBatch: (...args) => toggleRedeemBatch(...args),
     toggleBlockedIp: (...args) => toggleBlockedIp(...args),
     toggleBlockedSite: (...args) => toggleBlockedSite(...args),
     togglePlugin: (...args) => togglePlugin(...args),
@@ -121,11 +161,14 @@ async function loadAdmin() {
   if (!isAdmin()) {
     state.admin = null
     state.expandedUserSecurityId = null
+    state.expandedRedeemBatchIds = []
     state.userSecurity = {}
     renderAdminDashboard()
     return
   }
   state.admin = await api("/api/admin/dashboard")
+  const redeemBatchIds = new Set((state.admin.redeemCodes || []).map((entry) => getRedeemBatchId(entry)))
+  state.expandedRedeemBatchIds = (state.expandedRedeemBatchIds || []).filter((id) => redeemBatchIds.has(id))
   state.translationProviderPoolDraft = getTranslationProviderPoolFromSettings()
   state.aiProviderPoolDraft = getAiProviderPoolFromSettings()
   renderAdminDashboard()
@@ -855,13 +898,11 @@ async function saveRedeemCode(id, isActiveOverride = null) {
   }
 
   try {
-    const maxUses = Number(document.querySelector(`[data-redeem-max="${id}"]`)?.value || current.max_uses || 1)
     const expiresAt = document.querySelector(`[data-redeem-expire="${id}"]`)?.value || ""
     const note = document.querySelector(`[data-redeem-note="${id}"]`)?.value || ""
     await api(`/api/admin/redeem-codes/${id}`, {
       method: "POST",
       body: JSON.stringify({
-        maxUses,
         expiresAt: expiresAt || null,
         note,
         isActive: typeof isActiveOverride === "boolean" ? isActiveOverride : Boolean(current.is_active)
@@ -869,6 +910,58 @@ async function saveRedeemCode(id, isActiveOverride = null) {
     })
     await loadAdmin()
     setStatus("兑换码已更新")
+  } catch (error) {
+    setStatus(error.message)
+  }
+}
+
+function toggleRedeemBatch(batchId) {
+  const normalizedBatchId = String(batchId || "").trim()
+  if (!normalizedBatchId) return
+  const expanded = new Set(state.expandedRedeemBatchIds || [])
+  if (expanded.has(normalizedBatchId)) {
+    expanded.delete(normalizedBatchId)
+  } else {
+    expanded.add(normalizedBatchId)
+  }
+  state.expandedRedeemBatchIds = [...expanded]
+  renderAdminDashboard()
+}
+
+function exportRedeemBatch(batchId) {
+  const batch = getRedeemBatches(state.admin?.redeemCodes || []).find((entry) => entry.id === batchId)
+  if (!batch) {
+    setStatus("兑换码批次不存在")
+    return
+  }
+  exportRedeemCodes(batch.codes, `redeem-codes-${batch.label || batch.id}-${new Date().toISOString().slice(0, 10)}.csv`)
+  setStatus(`已导出 ${batch.codes.length} 个兑换码`, "success")
+}
+
+async function deleteRedeemCode(id, code = "") {
+  const label = String(code || `#${id}`)
+  if (!window.confirm(`确认删除兑换码“${label}”吗？已兑换的码不会被删除。`)) return
+  try {
+    const result = await api(`/api/admin/redeem-codes/${id}`, {
+      method: "DELETE"
+    })
+    await loadAdmin()
+    setStatus(result.deletedCount > 0 ? "兑换码已删除" : "兑换码未删除", "success")
+  } catch (error) {
+    setStatus(error.message)
+  }
+}
+
+async function deleteRedeemBatch(batchId, label = "") {
+  const batch = getRedeemBatches(state.admin?.redeemCodes || []).find((entry) => entry.id === batchId)
+  const title = String(label || batch?.label || batchId)
+  if (!window.confirm(`确认删除批次“${title}”中的未使用兑换码吗？已兑换记录会保留。`)) return
+  try {
+    const result = await api(`/api/admin/redeem-code-batches/${encodeURIComponent(batchId)}`, {
+      method: "DELETE"
+    })
+    await loadAdmin()
+    setStatus(`已删除 ${result.deletedCount || 0} 个未使用兑换码，保留 ${result.retainedUsedCount || 0} 个已兑换记录`, "success")
   } catch (error) {
     setStatus(error.message)
   }
@@ -1011,6 +1104,7 @@ els.logoutBtn.addEventListener("click", async () => {
     state.me = null
     state.admin = null
     state.expandedUserSecurityId = null
+    state.expandedRedeemBatchIds = []
     state.userSecurity = {}
     clearMaintenancePolling()
     clearRefreshPolling()
@@ -1238,26 +1332,61 @@ els.settingAiPoolTestBtn?.addEventListener("click", async () => {
 els.redeemCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault()
   try {
-    await api("/api/admin/redeem-codes", {
+    const result = await api("/api/admin/redeem-codes", {
       method: "POST",
       body: JSON.stringify({
         code: els.adminRedeemCode.value.trim(),
+        prefix: els.adminRedeemPrefix.value.trim(),
         planCode: els.adminRedeemPlan.value,
-        maxUses: Number(els.adminRedeemMax.value || 1),
+        quantity: Number(els.adminRedeemQuantity.value || 1),
         expiresAt: els.adminRedeemExpire.value || null,
         note: els.adminRedeemNote.value.trim()
       })
     })
     els.adminRedeemCode.value = ""
-    els.adminRedeemMax.value = "1"
+    els.adminRedeemPrefix.value = ""
+    els.adminRedeemQuantity.value = "1"
     els.adminRedeemExpire.value = ""
     els.adminRedeemNote.value = ""
     await loadAdmin()
-    setStatus("兑换码已创建")
+    const createdCount = Array.isArray(result.redeemCodes) ? result.redeemCodes.length : 1
+    setStatus(createdCount > 1 ? `已生成 ${createdCount} 个一次性售卖码` : "一次性售卖码已生成", "success")
   } catch (error) {
     setStatus(error.message)
   }
 })
+
+if (els.redeemBatchFilter) {
+  els.redeemBatchFilter.addEventListener("change", () => {
+    renderAdminDashboard()
+  })
+}
+
+if (els.redeemExpandAllBtn) {
+  els.redeemExpandAllBtn.addEventListener("click", () => {
+    const selectedBatch = els.redeemBatchFilter?.value || ""
+    const batches = getRedeemBatches(state.admin?.redeemCodes || []).filter((batch) => !selectedBatch || batch.id === selectedBatch)
+    const ids = batches.map((batch) => batch.id)
+    const expanded = new Set(state.expandedRedeemBatchIds || [])
+    const allExpanded = ids.length > 0 && ids.every((id) => expanded.has(id))
+    ids.forEach((id) => {
+      if (allExpanded) expanded.delete(id)
+      else expanded.add(id)
+    })
+    state.expandedRedeemBatchIds = [...expanded]
+    renderAdminDashboard()
+  })
+}
+
+if (els.redeemExportBtn) {
+  els.redeemExportBtn.addEventListener("click", () => {
+    const selectedBatch = els.redeemBatchFilter?.value || ""
+    const batches = getRedeemBatches(state.admin?.redeemCodes || []).filter((batch) => !selectedBatch || batch.id === selectedBatch)
+    const codes = batches.flatMap((batch) => batch.codes)
+    exportRedeemCodes(codes, `redeem-codes-${new Date().toISOString().slice(0, 10)}.csv`)
+    setStatus(`已导出 ${codes.length} 个兑换码`, "success")
+  })
+}
 
 els.pluginForm.addEventListener("submit", async (event) => {
   event.preventDefault()

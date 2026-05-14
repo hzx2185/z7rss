@@ -11,6 +11,12 @@ import {
 } from "./shared-ui.js"
 import { formatAuditAction, toDateInputValue } from "./admin-formatters.js"
 import { getAdminUserSecurityState, renderAdminUserSecurityPanel } from "./admin-user-security.js"
+import {
+  getRedeemBatchId,
+  getRedeemBatches,
+  getRedeemBuyer,
+  getRedeemCodeStatus
+} from "./admin-redeem-utils.js?v=2"
 
 function formatBytes(value) {
   const bytes = Number(value || 0)
@@ -48,6 +54,88 @@ export function createAdminDashboard({
           `<option value="${escapeHtml(plan.code)}" ${plan.code === selectedCode ? "selected" : ""}>${escapeHtml(plan.name)} (${escapeHtml(plan.code)})</option>`
       )
       .join("")
+  }
+
+  function renderRedeemCodeRow(entry) {
+    const status = getRedeemCodeStatus(entry)
+    const buyer = getRedeemBuyer(entry)
+    const isUsed = status.key === "used"
+    return `
+      <tr class="admin-redeem-row" data-redeem-id="${entry.id}" data-redeem-batch-id="${escapeHtml(getRedeemBatchId(entry))}">
+        <td>
+          <div class="redeem-code">
+            <strong>${escapeHtml(entry.code)}</strong>
+            <button class="copy-btn secondary" type="button" data-copy-code="${escapeHtml(entry.code)}" title="复制兑换码">复制</button>
+          </div>
+        </td>
+        <td><span class="pill ${status.tone}">${status.label}</span></td>
+        <td><input type="date" value="${toDateInputValue(entry.expires_at)}" data-redeem-expire="${entry.id}" ${isUsed ? "disabled" : ""} /></td>
+        <td class="redeem-used">${buyer ? escapeHtml(buyer) : "未使用"}</td>
+        <td>${entry.redeemed_at ? formatDate(entry.redeemed_at) : "-"}</td>
+        <td><input type="text" value="${escapeHtml(entry.note || "")}" data-redeem-note="${entry.id}" ${isUsed ? "disabled" : ""} /></td>
+        <td>
+          <div class="redeem-actions">
+            <button class="secondary" type="button" data-redeem-save="${entry.id}" ${isUsed ? "disabled" : ""}>保存</button>
+            <button class="secondary" type="button" data-redeem-toggle="${entry.id}" data-redeem-active="${entry.is_active ? "0" : "1"}" ${isUsed ? "disabled" : ""}>
+              ${entry.is_active ? "停用" : "启用"}
+            </button>
+            <button class="danger" type="button" data-redeem-delete="${entry.id}" data-redeem-code="${escapeHtml(entry.code)}" ${isUsed ? "disabled" : ""}>删除</button>
+          </div>
+        </td>
+      </tr>
+    `
+  }
+
+  function renderRedeemBatch(batch) {
+    const expanded = (state.expandedRedeemBatchIds || []).includes(batch.id)
+    const batchDeleteDisabled = batch.availableCount + batch.expiredCount + batch.inactiveCount < 1
+    return `
+      <article class="admin-redeem-batch" data-redeem-batch="${escapeHtml(batch.id)}">
+        <div class="redeem-batch-head">
+          <div class="redeem-batch-title">
+            <strong>${escapeHtml(batch.label)}</strong>
+            <span class="muted">${escapeHtml(batch.planLabel)} · 创建于 ${formatDate(batch.createdAt)}</span>
+          </div>
+          <div class="redeem-batch-status">
+            <span class="pill accent">${batch.usedCount}/${batch.totalCount} 已兑换</span>
+            <span class="pill success">${batch.availableCount} 可售卖</span>
+            ${batch.expiredCount ? `<span class="pill warning">${batch.expiredCount} 过期</span>` : ""}
+            ${batch.inactiveCount ? `<span class="pill warning">${batch.inactiveCount} 停用</span>` : ""}
+          </div>
+          <div class="redeem-batch-actions">
+            <button class="secondary" type="button" data-redeem-batch-toggle="${escapeHtml(batch.id)}">${expanded ? "收起状态" : "查看状态"}</button>
+            <button class="secondary" type="button" data-redeem-batch-export="${escapeHtml(batch.id)}">导出</button>
+            <button class="danger" type="button" data-redeem-batch-delete="${escapeHtml(batch.id)}" data-redeem-batch-label="${escapeHtml(batch.label)}" ${batchDeleteDisabled ? "disabled" : ""}>删除未用</button>
+          </div>
+        </div>
+        <div class="redeem-batch-meta">
+          <span>批次 ID ${escapeHtml(batch.id)}</span>
+          <span>总数 ${batch.totalCount}</span>
+          <span>到期 ${batch.expiresAt ? formatDate(batch.expiresAt) : "无期限/混合"}</span>
+          ${batch.note ? `<span>备注 ${escapeHtml(batch.note)}</span>` : ""}
+        </div>
+        ${expanded ? `
+          <div class="redeem-code-table-wrap">
+            <table class="redeem-code-table">
+              <thead>
+                <tr>
+                  <th>兑换码</th>
+                  <th>状态</th>
+                  <th>到期</th>
+                  <th>使用人</th>
+                  <th>兑换时间</th>
+                  <th>备注</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${batch.codes.map((entry) => renderRedeemCodeRow(entry)).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : ""}
+      </article>
+    `
   }
 
   function renderSidebarInfo() {
@@ -109,7 +197,7 @@ export function createAdminDashboard({
       ? plans
           .map(
             (plan) => `
-              <article class="list-row">
+              <article class="list-row admin-plan-snapshot-row">
                 <div class="list-main">
                   <strong>${escapeHtml(plan.name)}</strong>
                   <span class="muted">${escapeHtml(plan.code)} · ${plan.subscriber_count || 0} 位订阅者</span>
@@ -206,54 +294,64 @@ export function createAdminDashboard({
 
     renderDatabaseStatus()
 
-    safeHtml(els.adminPlanSettings, (state.admin.plans || [])
+    safeHtml(els.adminPlanSettingsBody, (state.admin.plans || [])
       .map(
         (plan) => `
-          <article class="list-row admin-plan-row">
-            <div class="list-main">
-              <strong>${escapeHtml(plan.name)}</strong>
-              <span class="muted">${escapeHtml(plan.code)} · ${formatPrice(plan.price_monthly_cents)} · ${plan.subscriber_count || 0} 位订阅者</span>
-              <div class="inline-row toolbar-wrap admin-plan-row-controls">
-                <label class="inline-field narrow-field">
-                  <span>订阅源上限</span>
-                  <input type="number" min="0" step="1" value="${Number(plan.max_feeds || 0)}" data-plan-feeds="${escapeHtml(plan.code)}" />
-                </label>
-                <label class="inline-field narrow-field">
-                  <span>总文章保留</span>
-                  <input type="number" min="0" step="1" value="${Number(plan.max_saved_items || 0)}" data-plan-saved="${escapeHtml(plan.code)}" />
-                </label>
-                <label class="inline-field narrow-field">
-                  <span>收藏文章上限</span>
-                  <input type="number" min="0" step="1" value="${Number(plan.max_favorite_items || 0)}" data-plan-favorite="${escapeHtml(plan.code)}" />
-                </label>
-                <label class="inline-field narrow-field">
-                  <span>简报规则上限</span>
-                  <input type="number" min="0" step="1" value="${Number(plan.max_digest_rules || 0)}" data-plan-digest-rules="${escapeHtml(plan.code)}" />
-                </label>
-                <label class="checkbox-row admin-plan-toggle">
-                  <input type="checkbox" ${plan.ai_translation_enabled ? "checked" : ""} data-plan-translation="${escapeHtml(plan.code)}" />
-                  <span>AI 翻译</span>
-                </label>
-                <label class="checkbox-row admin-plan-toggle">
-                  <input type="checkbox" ${plan.ai_summary_enabled ? "checked" : ""} data-plan-summary="${escapeHtml(plan.code)}" />
-                  <span>AI 总结</span>
-                </label>
-                <label class="checkbox-row admin-plan-toggle">
-                  <input type="checkbox" ${plan.custom_ai_enabled ? "checked" : ""} data-plan-custom-ai="${escapeHtml(plan.code)}" />
-                  <span>自定义 AI</span>
-                </label>
-                <label class="checkbox-row admin-plan-toggle">
-                  <input type="checkbox" ${plan.ai_digest_enabled ? "checked" : ""} data-plan-digest="${escapeHtml(plan.code)}" />
-                  <span>AI 简报</span>
-                </label>
-                <label class="checkbox-row admin-plan-toggle">
-                  <input type="checkbox" ${plan.email_digest_enabled ? "checked" : ""} data-plan-email-digest="${escapeHtml(plan.code)}" />
-                  <span>邮件简报</span>
-                </label>
-                <button class="secondary" type="button" data-plan-save="${escapeHtml(plan.code)}">保存套餐设置</button>
+          <tr data-plan-row="${escapeHtml(plan.code)}">
+            <td>
+              <div class="plan-name">${escapeHtml(plan.name)}</div>
+              <div class="plan-meta">${escapeHtml(plan.code)} · ${plan.subscriber_count || 0}人</div>
+            </td>
+            <td>
+              <div class="plan-info">
+                <input type="number" min="0" step="1" value="${Number(plan.max_feeds || 0)}" data-plan-feeds="${escapeHtml(plan.code)}" />
               </div>
-            </div>
-          </article>
+            </td>
+            <td>
+              <div class="plan-info">
+                <input type="number" min="0" step="1" value="${Number(plan.max_saved_items || 0)}" data-plan-saved="${escapeHtml(plan.code)}" />
+              </div>
+            </td>
+            <td>
+              <div class="plan-info">
+                <input type="number" min="0" step="1" value="${Number(plan.max_favorite_items || 0)}" data-plan-favorite="${escapeHtml(plan.code)}" />
+              </div>
+            </td>
+            <td>
+              <div class="plan-info">
+                <input type="number" min="0" step="1" value="${Number(plan.max_digest_rules || 0)}" data-plan-digest-rules="${escapeHtml(plan.code)}" />
+              </div>
+            </td>
+            <td>
+              <div class="plan-toggles">
+                <label class="checkbox-row">
+                  <input type="checkbox" ${plan.ai_translation_enabled ? "checked" : ""} data-plan-translation="${escapeHtml(plan.code)}" />
+                  <span>翻译</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" ${plan.ai_summary_enabled ? "checked" : ""} data-plan-summary="${escapeHtml(plan.code)}" />
+                  <span>总结</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" ${plan.custom_ai_enabled ? "checked" : ""} data-plan-custom-ai="${escapeHtml(plan.code)}" />
+                  <span>AI</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" ${plan.ai_digest_enabled ? "checked" : ""} data-plan-digest="${escapeHtml(plan.code)}" />
+                  <span>简报</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" ${plan.email_digest_enabled ? "checked" : ""} data-plan-email-digest="${escapeHtml(plan.code)}" />
+                  <span>邮件</span>
+                </label>
+              </div>
+            </td>
+            <td>
+              <div class="plan-actions">
+                <button class="secondary" type="button" data-plan-save="${escapeHtml(plan.code)}">保存</button>
+              </div>
+            </td>
+          </tr>
         `
       )
       .join(""))
@@ -405,29 +503,45 @@ export function createAdminDashboard({
       }
     }
 
-    safeHtml(els.adminRedeemList, (state.admin.redeemCodes || [])
-      .map(
-        (entry) => `
-          <article class="list-row admin-redeem-row">
-            <div class="list-main">
-              <strong>${escapeHtml(entry.code)}</strong>
-              <span class="muted">${escapeHtml(entry.plan_name)} · 已用 ${entry.used_count}/${entry.max_uses} · 到期 ${entry.expires_at ? formatDate(entry.expires_at) : "未设置"}</span>
-              ${entry.note ? `<span class="muted">${escapeHtml(entry.note)}</span>` : ""}
-              <div class="inline-row toolbar-wrap admin-redeem-row-controls">
-                <input type="number" min="${Math.max(1, entry.used_count || 0)}" value="${entry.max_uses}" data-redeem-max="${entry.id}" />
-                <input type="date" value="${toDateInputValue(entry.expires_at)}" data-redeem-expire="${entry.id}" />
-                <input type="text" value="${escapeHtml(entry.note || "")}" placeholder="备注" data-redeem-note="${entry.id}" />
-                <button class="secondary" type="button" data-redeem-save="${entry.id}">保存</button>
-                <button class="secondary" type="button" data-redeem-toggle="${entry.id}" data-redeem-active="${entry.is_active ? "0" : "1"}">
-                  ${entry.is_active ? "停用" : "启用"}
-                </button>
-              </div>
-            </div>
-            <span class="pill ${entry.is_active ? "success" : "warning"}">${entry.is_active ? "启用" : "停用"}</span>
-          </article>
-        `
+    const redeemBatches = getRedeemBatches(state.admin?.redeemCodes || [])
+    const selectedBatch = els.redeemBatchFilter?.value || ""
+    const selectedBatchExists = redeemBatches.some((batch) => batch.id === selectedBatch)
+    const visibleBatches = selectedBatch && selectedBatchExists
+      ? redeemBatches.filter((batch) => batch.id === selectedBatch)
+      : redeemBatches
+    if (els.redeemBatchFilter) {
+      safeHtml(
+        els.redeemBatchFilter,
+        '<option value="">全部批次</option>' +
+          redeemBatches
+            .map((batch) => `<option value="${escapeHtml(batch.id)}" ${batch.id === selectedBatch ? "selected" : ""}>${escapeHtml(batch.label)} (${batch.totalCount})</option>`)
+            .join("")
       )
-      .join(""))
+      if (selectedBatch && !selectedBatchExists) els.redeemBatchFilter.value = ""
+    }
+    if (els.redeemExpandAllBtn) {
+      const visibleIds = visibleBatches.map((batch) => batch.id)
+      const expandedCount = visibleIds.filter((id) => (state.expandedRedeemBatchIds || []).includes(id)).length
+      els.redeemExpandAllBtn.textContent = visibleIds.length && expandedCount === visibleIds.length ? "收起批次" : "展开批次"
+    }
+    safeHtml(els.adminRedeemList, visibleBatches.length
+      ? visibleBatches.map((batch) => renderRedeemBatch(batch)).join("")
+      : `<article class="list-row"><div class="list-main"><strong>暂无兑换码批次</strong><span class="muted">生成兑换码后会按批次显示在这里。</span></div></article>`)
+
+    document.querySelectorAll("[data-copy-code]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const code = btn.dataset.copyCode
+        navigator.clipboard.writeText(code).then(() => {
+          const originalText = btn.textContent
+          btn.textContent = "已复制"
+          btn.disabled = true
+          setTimeout(() => {
+            btn.textContent = originalText
+            btn.disabled = false
+          }, 1500)
+        })
+      })
+    })
 
     safeHtml(els.adminPluginList, (state.admin.plugins || [])
       .map((entry) => {
@@ -727,6 +841,18 @@ export function createAdminDashboard({
       button.addEventListener("click", () =>
         actions.saveRedeemCode(Number(button.dataset.redeemToggle), button.dataset.redeemActive === "1")
       )
+    })
+    document.querySelectorAll("[data-redeem-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.deleteRedeemCode(Number(button.dataset.redeemDelete), button.dataset.redeemCode || ""))
+    })
+    document.querySelectorAll("[data-redeem-batch-toggle]").forEach((button) => {
+      button.addEventListener("click", () => actions.toggleRedeemBatch(button.dataset.redeemBatchToggle))
+    })
+    document.querySelectorAll("[data-redeem-batch-export]").forEach((button) => {
+      button.addEventListener("click", () => actions.exportRedeemBatch(button.dataset.redeemBatchExport))
+    })
+    document.querySelectorAll("[data-redeem-batch-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.deleteRedeemBatch(button.dataset.redeemBatchDelete, button.dataset.redeemBatchLabel || ""))
     })
     document.querySelectorAll("[data-plugin-toggle]").forEach((button) => {
       button.addEventListener("click", () => actions.togglePlugin(button.dataset.pluginToggle))

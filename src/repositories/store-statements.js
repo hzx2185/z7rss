@@ -233,20 +233,88 @@ export function createStoreStatements(db) {
   `);
 
   const listRedeemCodesStmt = db.prepare(`
-    SELECT rc.*, p.code AS plan_code, p.name AS plan_name
+    SELECT
+      rc.*,
+      COALESCE(NULLIF(rc.batch_id, ''), printf('legacy-%s-%s-%s', rc.plan_id, COALESCE(rc.expires_at, 'none'), COALESCE(NULLIF(rc.note, ''), 'none'))) AS resolved_batch_id,
+      p.code AS plan_code,
+      p.name AS plan_name,
+      (
+        SELECT created_at
+        FROM redeem_code_uses
+        WHERE redeem_code_id = rc.id
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+      ) AS redeemed_at,
+      (
+        SELECT user_id
+        FROM redeem_code_uses
+        WHERE redeem_code_id = rc.id
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+      ) AS redeemed_user_id,
+      (
+        SELECT u.email
+        FROM redeem_code_uses rcu
+        JOIN users u ON u.id = rcu.user_id
+        WHERE rcu.redeem_code_id = rc.id
+        ORDER BY rcu.created_at ASC, rcu.id ASC
+        LIMIT 1
+      ) AS redeemed_user_email,
+      (
+        SELECT u.display_name
+        FROM redeem_code_uses rcu
+        JOIN users u ON u.id = rcu.user_id
+        WHERE rcu.redeem_code_id = rc.id
+        ORDER BY rcu.created_at ASC, rcu.id ASC
+        LIMIT 1
+      ) AS redeemed_user_display_name
     FROM redeem_codes rc
     JOIN plans p ON p.id = rc.plan_id
     ORDER BY rc.created_at DESC
   `);
   const getRedeemCodeStmt = db.prepare(`
-    SELECT rc.*, p.code AS plan_code, p.name AS plan_name
+    SELECT
+      rc.*,
+      COALESCE(NULLIF(rc.batch_id, ''), printf('legacy-%s-%s-%s', rc.plan_id, COALESCE(rc.expires_at, 'none'), COALESCE(NULLIF(rc.note, ''), 'none'))) AS resolved_batch_id,
+      p.code AS plan_code,
+      p.name AS plan_name,
+      (
+        SELECT created_at
+        FROM redeem_code_uses
+        WHERE redeem_code_id = rc.id
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+      ) AS redeemed_at,
+      (
+        SELECT user_id
+        FROM redeem_code_uses
+        WHERE redeem_code_id = rc.id
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+      ) AS redeemed_user_id,
+      (
+        SELECT u.email
+        FROM redeem_code_uses rcu
+        JOIN users u ON u.id = rcu.user_id
+        WHERE rcu.redeem_code_id = rc.id
+        ORDER BY rcu.created_at ASC, rcu.id ASC
+        LIMIT 1
+      ) AS redeemed_user_email,
+      (
+        SELECT u.display_name
+        FROM redeem_code_uses rcu
+        JOIN users u ON u.id = rcu.user_id
+        WHERE rcu.redeem_code_id = rc.id
+        ORDER BY rcu.created_at ASC, rcu.id ASC
+        LIMIT 1
+      ) AS redeemed_user_display_name
     FROM redeem_codes rc
     JOIN plans p ON p.id = rc.plan_id
     WHERE rc.code = ?
   `);
   const createRedeemCodeStmt = db.prepare(`
-    INSERT INTO redeem_codes (code, plan_id, max_uses, expires_at, is_active, note)
-    VALUES (@code, @planId, @maxUses, @expiresAt, @isActive, @note)
+    INSERT INTO redeem_codes (code, batch_id, plan_id, max_uses, expires_at, is_active, note)
+    VALUES (@code, @batchId, @planId, @maxUses, @expiresAt, @isActive, @note)
   `);
   const recordRedeemUseStmt = db.prepare(`
     INSERT INTO redeem_code_uses (redeem_code_id, user_id)
@@ -255,8 +323,14 @@ export function createStoreStatements(db) {
   const incrementRedeemCountStmt = db.prepare(`UPDATE redeem_codes SET used_count = used_count + 1 WHERE id = ?`);
   const updateRedeemCodeStmt = db.prepare(`
     UPDATE redeem_codes
-    SET is_active = @isActive, max_uses = @maxUses, expires_at = @expiresAt, note = @note
+    SET is_active = @isActive, expires_at = @expiresAt, note = @note
     WHERE id = @id
+  `);
+  const deleteRedeemCodeStmt = db.prepare(`DELETE FROM redeem_codes WHERE id = ? AND used_count = 0`);
+  const deleteRedeemCodeBatchStmt = db.prepare(`
+    DELETE FROM redeem_codes
+    WHERE used_count = 0
+      AND COALESCE(NULLIF(batch_id, ''), printf('legacy-%s-%s-%s', plan_id, COALESCE(expires_at, 'none'), COALESCE(NULLIF(note, ''), 'none'))) = ?
   `);
 
   const listPluginsStmt = db.prepare(`SELECT * FROM plugins ORDER BY created_at DESC`);
@@ -1275,6 +1349,8 @@ export function createStoreStatements(db) {
     recordRedeemUseStmt,
     incrementRedeemCountStmt,
     updateRedeemCodeStmt,
+    deleteRedeemCodeStmt,
+    deleteRedeemCodeBatchStmt,
     listPluginsStmt,
     upsertPluginStmt,
     listContentRulesStmt,

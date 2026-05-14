@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 
 const FALLBACK_APP_SECRET = "change-me-in-compose";
@@ -28,10 +30,41 @@ function isProduction(env) {
   return String(env.NODE_ENV || "").trim().toLowerCase() === "production";
 }
 
+function readOrCreateAppSecretFile(secretFile) {
+  const normalizedPath = String(secretFile || "").trim();
+  if (!normalizedPath) return "";
+
+  try {
+    const existing = fs.readFileSync(normalizedPath, "utf8").trim();
+    if (existing && !DEFAULT_APP_SECRET_PLACEHOLDERS.has(existing)) {
+      return existing;
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const generated = crypto.randomBytes(48).toString("hex");
+  fs.mkdirSync(path.dirname(normalizedPath), { recursive: true });
+  fs.writeFileSync(normalizedPath, `${generated}\n`, { mode: 0o600 });
+  return generated;
+}
+
 function parseAppSecret(env) {
-  const appSecret = String(env.APP_SECRET || FALLBACK_APP_SECRET).trim();
+  const configuredSecret = String(env.APP_SECRET || "").trim();
+  if (configuredSecret && !DEFAULT_APP_SECRET_PLACEHOLDERS.has(configuredSecret)) {
+    return configuredSecret;
+  }
+
+  const fileSecret = readOrCreateAppSecretFile(env.APP_SECRET_FILE);
+  if (fileSecret) {
+    return fileSecret;
+  }
+
+  const appSecret = configuredSecret || FALLBACK_APP_SECRET;
   if (isProduction(env) && DEFAULT_APP_SECRET_PLACEHOLDERS.has(appSecret)) {
-    const error = new Error("生产环境必须配置非默认 APP_SECRET");
+    const error = new Error("生产环境必须配置非默认 APP_SECRET，或提供可写的 APP_SECRET_FILE");
     error.code = "app_secret_required";
     throw error;
   }

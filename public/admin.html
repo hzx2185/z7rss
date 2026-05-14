@@ -460,43 +460,68 @@
                   <h3>套餐设置</h3>
                 </div>
                 <p class="status-text">普通文章超过上限后会自动清理较早内容，收藏文章不会被自动删除。</p>
-                <div id="admin-plan-settings" class="compact-list"></div>
+                <div id="admin-plan-settings" class="admin-plan-table-wrap">
+                  <table class="admin-plan-table">
+                    <thead>
+                      <tr>
+                        <th>套餐</th>
+                        <th>订阅源</th>
+                        <th>文章保留</th>
+                        <th>收藏上限</th>
+                        <th>简报规则</th>
+                        <th>功能开关</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="admin-plan-settings-body">
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <div class="card">
                 <div class="card-head">
-                  <h3>兑换码管理</h3>
+                  <h3>售卖兑换码</h3>
                 </div>
-                <form id="redeem-create-form" class="stack">
-                  <div class="admin-form-grid">
-                    <label class="field-label">
-                      <span>兑换码</span>
-                      <input id="admin-redeem-code" type="text" autocomplete="off" placeholder="PRO2026" />
-                    </label>
-                    <label class="field-label">
-                      <span>套餐代码</span>
-                      <select id="admin-redeem-plan">
-                        <option value="free">free</option>
-                        <option value="pro">pro</option>
-                        <option value="team">team</option>
-                      </select>
-                    </label>
-                    <label class="field-label">
-                      <span>最大次数</span>
-                      <input id="admin-redeem-max" type="number" value="1" min="1" />
-                    </label>
-                    <label class="field-label">
-                      <span>到期日期</span>
-                      <input id="admin-redeem-expire" type="date" />
-                    </label>
-                    <label class="field-label admin-span-2">
-                      <span>备注</span>
-                      <input id="admin-redeem-note" type="text" autocomplete="off" placeholder="活动批次 / 渠道说明" />
-                    </label>
-                  </div>
-                  <button type="submit">创建兑换码</button>
-                </form>
-                <div id="admin-redeem-list" class="compact-list"></div>
+	                <form id="redeem-create-form" class="stack admin-redeem-form">
+	                  <label class="field-label">
+	                    <span>指定兑换码</span>
+                    <input id="admin-redeem-code" type="text" autocomplete="off" placeholder="留空自动生成" />
+                  </label>
+                  <label class="field-label">
+                    <span>自动前缀</span>
+                    <input id="admin-redeem-prefix" type="text" autocomplete="off" placeholder="PRO / TEAM" />
+                  </label>
+                  <label class="field-label">
+                    <span>售卖套餐</span>
+                    <select id="admin-redeem-plan">
+                      <option value="free">free</option>
+                      <option value="pro">pro</option>
+                      <option value="team">team</option>
+                    </select>
+                  </label>
+                  <label class="field-label">
+                    <span>生成数量</span>
+                    <input id="admin-redeem-quantity" type="number" value="1" min="1" max="200" />
+                  </label>
+                  <label class="field-label">
+                    <span>到期日期</span>
+                    <input id="admin-redeem-expire" type="date" />
+                  </label>
+                  <label class="field-label">
+                    <span>备注</span>
+                    <input id="admin-redeem-note" type="text" autocomplete="off" placeholder="批次" />
+                  </label>
+	                  <button type="submit">生成</button>
+	                </form>
+	                <div class="redeem-toolbar">
+	                  <select id="redeem-batch-filter">
+	                    <option value="">全部批次</option>
+	                  </select>
+	                  <button id="redeem-expand-all-btn" class="secondary" type="button">展开批次</button>
+	                  <button id="redeem-export-btn" class="secondary" type="button">批量导出</button>
+	                </div>
+	                <div id="admin-redeem-list" class="admin-redeem-list"></div>
               </div>
             </section>
 

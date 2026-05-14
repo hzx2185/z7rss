@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { normalizeIp } from "../lib/request.js";
 import { hashPassword } from "../lib/security.js";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
+
+const REDEEM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function parseJsonSafe(value, fallback) {
   try {
@@ -51,6 +54,41 @@ export function createAdminService({
     if (value === true || value === 1 || value === "1" || value === "true") return 1;
     if (value === false || value === 0 || value === "0" || value === "false") return 0;
     throw badRequest(`${label}必须是布尔值`, { code: "invalid_boolean" });
+  }
+
+  function normalizeRedeemCode(value) {
+    return String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "");
+  }
+
+  function generateRedeemCode(prefix = "") {
+    const normalizedPrefix = normalizeRedeemCode(prefix).replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    const chunks = [];
+    for (let i = 0; i < 16; i += 1) {
+      chunks.push(REDEEM_CODE_ALPHABET[crypto.randomInt(REDEEM_CODE_ALPHABET.length)]);
+    }
+    const body = `${chunks.slice(0, 4).join("")}-${chunks.slice(4, 8).join("")}-${chunks.slice(8, 12).join("")}-${chunks.slice(12, 16).join("")}`;
+    return normalizedPrefix ? `${normalizedPrefix}-${body}` : body;
+  }
+
+  function createRedeemBatchId() {
+    return `batch_${Date.now().toString(36)}_${crypto.randomBytes(5).toString("hex")}`;
+  }
+
+  function getRedeemBatchId(entry) {
+    return String(entry?.resolved_batch_id || entry?.batch_id || "").trim();
+  }
+
+  function getRedeemCodeById(id) {
+    return store.listRedeemCodes().find((entry) => Number(entry.id) === Number(id)) || null;
+  }
+
+  function getRedeemBatch(batchId) {
+    const normalizedBatchId = String(batchId || "").trim();
+    if (!normalizedBatchId) return [];
+    return store.listRedeemCodes().filter((entry) => getRedeemBatchId(entry) === normalizedBatchId);
   }
 
   function markUnavailableSecret(output, category, key, rawValue, decryptedValue) {
@@ -861,18 +899,20 @@ export function createAdminService({
       return settings;
     },
     createRedeemCode(payload, context = null) {
-      const code = String(payload.code || "").trim().toUpperCase();
       const planCode = String(payload.planCode || "").trim().toLowerCase();
-      const maxUses = Number(payload.maxUses || 1);
+      const requestedCode = normalizeRedeemCode(payload.code);
+      const quantity = normalizePositiveInteger(payload.quantity ?? 1, "生成数量");
+      const normalizedQuantity = Math.min(Math.max(quantity, 1), 200);
+      const expiresAt = payload.expiresAt || null;
+      const note = String(payload.note || "");
+      const prefix = String(payload.prefix || "");
+      const batchId = createRedeemBatchId();
 
-      if (!code) {
-        throw badRequest("兑换码不能为空", { code: "redeem_code_required" });
-      }
       if (!planCode) {
         throw badRequest("套餐代码不能为空，可用值：free / pro / team", { code: "plan_code_required" });
       }
-      if (!Number.isFinite(maxUses) || maxUses < 1) {
-        throw badRequest("最大次数必须大于等于 1", { code: "invalid_redeem_max_uses" });
+      if (requestedCode && normalizedQuantity > 1) {
+        throw badRequest("填写指定兑换码时只能生成 1 个", { code: "redeem_code_quantity_conflict" });
       }
 
       const plan = store.getPlanByCode(planCode);
@@ -880,32 +920,51 @@ export function createAdminService({
         throw badRequest("套餐代码无效，可用值：free / pro / team", { code: "invalid_plan_code" });
       }
 
-      if (store.getRedeemCode(code)) {
+      if (requestedCode && store.getRedeemCode(requestedCode)) {
         throw conflict("兑换码已存在，请换一个", { code: "redeem_code_exists" });
       }
 
-      const redeemCode = store.createRedeemCode({
-        code,
-        planId: plan.id,
-        maxUses,
-        expiresAt: payload.expiresAt || null,
-        isActive: payload.isActive === false ? 0 : 1,
-        note: String(payload.note || "")
-      });
+      const redeemCodes = [];
+      const seenCodes = new Set();
+      for (let index = 0; index < normalizedQuantity; index += 1) {
+        let code = index === 0 && requestedCode ? requestedCode : "";
+        for (let attempt = 0; !code || store.getRedeemCode(code) || seenCodes.has(code); attempt += 1) {
+          if (attempt > 20) {
+            throw conflict("兑换码生成失败，请稍后重试", { code: "redeem_code_generation_failed" });
+          }
+          code = generateRedeemCode(prefix);
+        }
+        seenCodes.add(code);
+        redeemCodes.push(store.createRedeemCode({
+          code,
+          batchId,
+          planId: plan.id,
+          maxUses: 1,
+          expiresAt,
+          isActive: payload.isActive === false ? 0 : 1,
+          note
+        }));
+      }
+
       logAudit(context, {
         action: "admin.redeem-code.created",
         targetType: "redeem_code",
-        targetId: redeemCode.id,
-        summary: `创建兑换码 ${redeemCode.code}`,
+        targetId: redeemCodes.length === 1 ? redeemCodes[0].id : "batch",
+        summary: redeemCodes.length === 1 ? `创建售卖兑换码 ${redeemCodes[0].code}` : `批量创建 ${redeemCodes.length} 个售卖兑换码`,
         details: {
-          code: redeemCode.code,
+          codes: redeemCodes.map((entry) => entry.code),
+          batchId,
           planCode,
-          maxUses: redeemCode.max_uses,
-          expiresAt: redeemCode.expires_at,
-          isActive: Boolean(redeemCode.is_active)
+          maxUses: 1,
+          expiresAt,
+          isActive: redeemCodes.every((entry) => Boolean(entry.is_active))
         }
       });
-      return redeemCode;
+      return {
+        batchId,
+        redeemCodes,
+        redeemCode: redeemCodes[0] || null
+      };
     },
     updateRedeemCode(payload, context = null) {
       const existing = store.listRedeemCodes().find((entry) => Number(entry.id) === Number(payload.id));
@@ -916,7 +975,6 @@ export function createAdminService({
       store.updateRedeemCode({
         id: Number(payload.id),
         isActive: payload.isActive ? 1 : 0,
-        maxUses: Number(payload.maxUses || 1),
         expiresAt: payload.expiresAt || null,
         note: String(payload.note || "")
       });
@@ -930,12 +988,70 @@ export function createAdminService({
         summary: `更新兑换码 ${updated.code}`,
         details: {
           code: updated.code,
-          maxUses: updated.max_uses,
+          maxUses: 1,
           expiresAt: updated.expires_at,
           isActive: Boolean(updated.is_active)
         }
       });
       return redeemCodes;
+    },
+    deleteRedeemCode(id, context = null) {
+      const existing = getRedeemCodeById(id);
+      if (!existing) {
+        throw notFound("兑换码不存在", { code: "redeem_code_not_found" });
+      }
+      if (Number(existing.used_count || 0) > 0) {
+        throw conflict("已兑换的兑换码不能删除", { code: "redeem_code_used" });
+      }
+
+      const deletedCount = store.deleteRedeemCode(existing.id);
+      if (deletedCount < 1) {
+        throw conflict("兑换码已被使用，不能删除", { code: "redeem_code_used" });
+      }
+      logAudit(context, {
+        action: "admin.redeem-code.deleted",
+        targetType: "redeem_code",
+        targetId: existing.id,
+        summary: `删除兑换码 ${existing.code}`,
+        details: {
+          code: existing.code,
+          batchId: getRedeemBatchId(existing),
+          planCode: existing.plan_code
+        }
+      });
+      return {
+        deleted: true,
+        deletedCount,
+        redeemCodes: store.listRedeemCodes()
+      };
+    },
+    deleteRedeemCodeBatch(batchId, context = null) {
+      const codes = getRedeemBatch(batchId);
+      if (!codes.length) {
+        throw notFound("兑换码批次不存在", { code: "redeem_code_batch_not_found" });
+      }
+
+      const usedCount = codes.filter((entry) => Number(entry.used_count || 0) > 0).length;
+      const deletedCount = store.deleteRedeemCodeBatch(batchId);
+      logAudit(context, {
+        action: "admin.redeem-code.batch-deleted",
+        targetType: "redeem_code_batch",
+        targetId: batchId,
+        summary: `删除兑换码批次 ${codes[0]?.note || batchId}`,
+        details: {
+          batchId,
+          deletedCount,
+          retainedUsedCount: usedCount,
+          totalCount: codes.length,
+          codes: codes.map((entry) => entry.code)
+        }
+      });
+      return {
+        deleted: deletedCount > 0,
+        deletedCount,
+        retainedUsedCount: usedCount,
+        redeemCodes: store.listRedeemCodes()
+      };
     },
     redeemCodeForUser(userId, code) {
       const redeemCode = store.getRedeemCode(String(code || "").trim().toUpperCase());
@@ -945,7 +1061,7 @@ export function createAdminService({
       if (redeemCode.expires_at && new Date(redeemCode.expires_at).getTime() < Date.now()) {
         throw badRequest("兑换码已过期", { code: "redeem_code_expired" });
       }
-      if (redeemCode.used_count >= redeemCode.max_uses) {
+      if (redeemCode.used_count >= 1) {
         throw conflict("兑换码已用完", { code: "redeem_code_exhausted" });
       }
       try {

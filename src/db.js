@@ -183,6 +183,7 @@ function migrate(db, options = {}) {
     CREATE TABLE IF NOT EXISTS redeem_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       code TEXT NOT NULL UNIQUE,
+      batch_id TEXT,
       plan_id INTEGER NOT NULL,
       max_uses INTEGER NOT NULL DEFAULT 1,
       used_count INTEGER NOT NULL DEFAULT 0,
@@ -515,6 +516,12 @@ function migrate(db, options = {}) {
         ELSE 0
       END
     `);
+  }
+  if (!hasColumn(db, "redeem_codes", "batch_id")) {
+    db.exec(`ALTER TABLE redeem_codes ADD COLUMN batch_id TEXT`);
+  }
+  if (hasColumn(db, "redeem_codes", "batch_id")) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_id ON redeem_codes(batch_id)`);
   }
   if (!hasColumn(db, "digest_rules", "lookback_hours")) {
     db.exec(`ALTER TABLE digest_rules ADD COLUMN lookback_hours INTEGER NOT NULL DEFAULT 24`);

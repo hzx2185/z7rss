@@ -101,6 +101,8 @@ export function createStore(db) {
     recordRedeemUseStmt,
     incrementRedeemCountStmt,
     updateRedeemCodeStmt,
+    deleteRedeemCodeStmt,
+    deleteRedeemCodeBatchStmt,
     listPluginsStmt,
     upsertPluginStmt,
     listContentRulesStmt,
@@ -551,7 +553,10 @@ export function createStore(db) {
       return getRedeemCodeStmt.get(code);
     },
     createRedeemCode(codeData) {
-      createRedeemCodeStmt.run(codeData);
+      createRedeemCodeStmt.run({
+        ...codeData,
+        batchId: codeData.batchId ?? null
+      });
       return this.getRedeemCode(codeData.code);
     },
     useRedeemCode(redeemCodeId, userId) {
@@ -563,6 +568,12 @@ export function createStore(db) {
     },
     updateRedeemCode(payload) {
       updateRedeemCodeStmt.run(payload);
+    },
+    deleteRedeemCode(id) {
+      return deleteRedeemCodeStmt.run(id).changes;
+    },
+    deleteRedeemCodeBatch(batchId) {
+      return deleteRedeemCodeBatchStmt.run(batchId).changes;
     },
     listPlugins() {
       return listPluginsStmt.all();
