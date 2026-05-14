@@ -1,4 +1,5 @@
 node_modules
+.vscode
 data
 data-backups
 data-recovery/*.db
@@ -13,3 +14,7 @@ npm-debug.log*
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
+*.pem
+*.key

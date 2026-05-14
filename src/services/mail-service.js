@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import { badRequest, serviceUnavailable } from "../lib/errors.js";
 
 function rowsToSettings(store, secretBox) {
@@ -10,6 +9,15 @@ function rowsToSettings(store, secretBox) {
 }
 
 export function createMailService({ store, secretBox }) {
+  let nodemailerModulePromise = null;
+
+  function getNodemailerModule() {
+    if (!nodemailerModulePromise) {
+      nodemailerModulePromise = import("nodemailer");
+    }
+    return nodemailerModulePromise;
+  }
+
   function hasPartialAuth(config) {
     return Boolean(config.username) !== Boolean(config.password);
   }
@@ -36,9 +44,10 @@ export function createMailService({ store, secretBox }) {
     };
   }
 
-  function createTransport() {
+  async function createTransport() {
     const config = getConfig();
     assertConfigReady(config);
+    const { default: nodemailer } = await getNodemailerModule();
     return nodemailer.createTransport({
       host: config.host,
       port: config.port,
@@ -73,7 +82,7 @@ export function createMailService({ store, secretBox }) {
         throw badRequest("收件邮箱不能为空", { code: "mail_recipient_required" });
       }
       const config = getConfig();
-      const transport = createTransport();
+      const transport = await createTransport();
       try {
         return await transport.sendMail({
           from: config.from,

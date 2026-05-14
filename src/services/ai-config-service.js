@@ -5,8 +5,10 @@ export function createAiConfigService({ accountService, ai, translator }) {
       const errors = [];
       for (const runtime of runtimes) {
         try {
+          const start = Date.now();
           const output = await ai.summarize(runtime, "Please respond with OK.");
-          return { ok: true, output, source: runtime.source, label: runtime.label };
+          const ms = Date.now() - start;
+          return { ok: true, output, source: runtime.source, label: runtime.label, durationMs: ms };
         } catch (error) {
           errors.push(`${runtime.label || runtime.source}: ${error?.message || String(error)}`);
         }
@@ -26,8 +28,10 @@ export function createAiConfigService({ accountService, ai, translator }) {
         if (!runtime.model) runtime.model = stored?.model || "";
       }
       try {
+        const start = Date.now();
         const output = await ai.summarize(runtime, "Please respond with OK.");
-        return { ok: true, output };
+        const ms = Date.now() - start;
+        return { ok: true, output, durationMs: ms };
       } catch (error) {
         return { ok: false, error: error?.message || String(error) };
       }
@@ -43,8 +47,10 @@ export function createAiConfigService({ accountService, ai, translator }) {
         const runtimes = accountService.getEffectiveTranslationRuntimes(0, { provider, targetLanguage: settings.targetLanguage });
         for (const runtime of runtimes) {
           try {
+            const start = Date.now();
             const output = await translator.translate(runtime, sampleText);
-            return { ok: true, provider: runtime.provider, output, source: runtime.source || "system" };
+            const ms = Date.now() - start;
+            return { ok: true, provider: runtime.provider, output, source: runtime.source || "system", durationMs: ms };
           } catch (error) {
             errors.push(`${runtime.provider}: ${error?.message || String(error)}`);
           }
@@ -71,8 +77,10 @@ export function createAiConfigService({ accountService, ai, translator }) {
       }
       const sampleText = "Hello, this is a translation test.";
       try {
+        const start = Date.now();
         const output = await translator.translate(runtime, sampleText);
-        return { ok: true, provider: runtime.provider, output };
+        const ms = Date.now() - start;
+        return { ok: true, provider: runtime.provider, output, durationMs: ms };
       } catch (error) {
         return { ok: false, provider: runtime.provider, error: error?.message || String(error) };
       }

@@ -1,3 +1,11 @@
+function decodeCookiePart(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (_error) {
+    return String(value || "");
+  }
+}
+
 export function parseCookies(cookieHeader = "") {
   return cookieHeader
     .split(";")
@@ -6,8 +14,9 @@ export function parseCookies(cookieHeader = "") {
     .reduce((acc, entry) => {
       const index = entry.indexOf("=");
       if (index === -1) return acc;
-      const key = decodeURIComponent(entry.slice(0, index));
-      const value = decodeURIComponent(entry.slice(index + 1));
+      const key = decodeCookiePart(entry.slice(0, index));
+      const value = decodeCookiePart(entry.slice(index + 1));
+      if (!key) return acc;
       acc[key] = value;
       return acc;
     }, {});

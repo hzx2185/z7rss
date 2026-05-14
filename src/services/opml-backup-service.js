@@ -76,7 +76,7 @@ export function createOpmlBackupService({ store, feedService, mailService }) {
     if (!user) {
       throw badRequest("用户不存在", { code: "user_not_found" });
     }
-    const opmlContent = feedService.exportFeeds(userId, "opml");
+    const opmlContent = await feedService.exportFeeds(userId, "opml");
     const feedCount = (opmlContent.match(/<outline /g) || []).length;
     const dateStr = new Date().toISOString().slice(0, 10);
     await mailService.sendMail({

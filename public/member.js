@@ -10,6 +10,7 @@ import {
   safeVal,
   summarizeUserAgent
 } from "./shared-ui.js"
+import { clearAuthStateCache, fetchAuthState } from "./auth-state.js"
 import {
   getProviderTargetCode,
   getTranslationProviderLabel,
@@ -922,8 +923,7 @@ async function loadConfig() {
 }
 
 async function loadMe() {
-  const result = await api("/api/auth/me")
-  state.me = result.authenticated ? result : null
+  state.me = await fetchAuthState()
   renderAuth()
 }
 
@@ -1035,6 +1035,7 @@ registerMemberEvents({
   actions: {
     applyPreferences,
     boot,
+    clearAuthStateCache,
     getSelectedTranslationProvider,
     loadBackupConfig,
     loadBilling,

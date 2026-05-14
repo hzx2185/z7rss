@@ -1,4 +1,5 @@
 import { cleanCategory, getFeedFreshness, inferFeedCategory } from "./feed-metadata.js";
+import { canConvertTraditionalToSimplified, convertTraditionalToSimplified } from "./chinese-conversion.js";
 
 const FEED_TITLE_SYNC_BATCH_SIZE = 48;
 const FEED_TITLE_SYNC_CONCURRENCY = 3;
@@ -37,7 +38,18 @@ function shouldSkipFeedTitleTranslation(translationSettings, feed) {
   if (!isChineseTargetLanguage(translationSettings?.targetLanguage)) {
     return false;
   }
-  return looksLikeChineseText(getFeedTitleSource(feed));
+  const sourceTitle = getFeedTitleSource(feed);
+  return (
+    looksLikeChineseText(sourceTitle) &&
+    !canConvertTraditionalToSimplified(sourceTitle, translationSettings?.targetLanguage)
+  );
+}
+
+function translateFeedTitleLocally(translationSettings, sourceTitle = "") {
+  if (!canConvertTraditionalToSimplified(sourceTitle, translationSettings?.targetLanguage)) {
+    return "";
+  }
+  return convertTraditionalToSimplified(sourceTitle);
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -179,6 +191,18 @@ export function createFeedTitleTranslations({
     );
   }
 
+  function canProcessFeedTitle(accountInfo, translationSettings, feed) {
+    const sourceTitle = getFeedTitleSource(feed);
+    return Boolean(
+      accountInfo?.features?.translation &&
+        (translationSettings?.displayTranslated || translationSettings?.autoTranslate) &&
+        (
+          canConvertTraditionalToSimplified(sourceTitle, translationSettings?.targetLanguage) ||
+          canTranslateFeedTitle(accountInfo, translationSettings)
+        )
+    );
+  }
+
   function buildFeedTranslationKey(userId, feedId, translationSettings) {
     return [
       Number(userId || 0),
@@ -205,11 +229,13 @@ export function createFeedTitleTranslations({
       };
     }
 
-    const runtimeConfig = accountService.getEffectiveTranslationRuntime(user.id, {
-      provider: translationSettings?.provider,
-      targetLanguage: translationSettings?.targetLanguage
-    });
-    const translatedTitle = await translator.translate(runtimeConfig, sourceTitle);
+    const translatedTitle = translateFeedTitleLocally(translationSettings, sourceTitle) || await (async () => {
+      const runtimeConfig = accountService.getEffectiveTranslationRuntime(user.id, {
+        provider: translationSettings?.provider,
+        targetLanguage: translationSettings?.targetLanguage
+      });
+      return translator.translate(runtimeConfig, sourceTitle);
+    })();
     const stored = store.setUserFeedTranslation(
       user.id,
       feed.feed_id,
@@ -248,7 +274,7 @@ export function createFeedTitleTranslations({
       }
 
       const effectiveTranslation = accountService.getEffectiveFeedTranslationSettings(user.id, entry.feed);
-      if (!effectiveTranslation.displayTranslated || !canTranslateFeedTitle(accountInfo, effectiveTranslation)) {
+      if (!effectiveTranslation.displayTranslated || !canProcessFeedTitle(accountInfo, effectiveTranslation, entry.feed)) {
         continue;
       }
       if (hasSatisfiedFeedTitleTranslation(entry.feed, effectiveTranslation)) {
@@ -289,7 +315,7 @@ export function createFeedTitleTranslations({
     const tasks = [];
     for (const feed of rawFeeds) {
       const effectiveTranslation = accountService.getEffectiveFeedTranslationSettings(user.id, feed);
-      if (!canTranslateFeedTitle(accountInfo, effectiveTranslation)) {
+      if (!canProcessFeedTitle(accountInfo, effectiveTranslation, feed)) {
         continue;
       }
       if (hasSatisfiedFeedTitleTranslation(feed, effectiveTranslation)) {

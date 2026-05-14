@@ -84,15 +84,15 @@ export function createFeedRouter({ feedService, config }) {
     res.status(201).json(result);
   }));
 
-  router.get("/export", (req, res) => {
+  router.get("/export", route(async (req, res) => {
     const format = String(req.query?.format || "opml").toLowerCase() === "json" ? "json" : "opml";
-    const content = feedService.exportFeeds(req.auth.user.id, format);
+    const content = await feedService.exportFeeds(req.auth.user.id, format);
     const extension = format === "json" ? "json" : "opml";
     const contentType = format === "json" ? "application/json; charset=utf-8" : "text/x-opml; charset=utf-8";
     res.setHeader("content-type", contentType);
     res.setHeader("content-disposition", `attachment; filename="z7rss-feeds.${extension}"`);
     res.send(content);
-  });
+  }));
 
   router.post("/:feedId/rename", route(async (req, res) => {
     const body = expectObject(req.body || {});

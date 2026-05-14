@@ -1,4 +1,5 @@
 import { createStoreStatements } from "./store-statements.js";
+import { assertSqliteHealthy, checkSqliteFile } from "../lib/sqlite-health.js";
 
 const databaseTables = [
   "users",
@@ -7,6 +8,7 @@ const databaseTables = [
   "user_feeds",
   "items",
   "user_item_states",
+  "pruned_guids",
   "audit_logs",
   "refresh_runs",
   "digest_rules",
@@ -18,6 +20,37 @@ function toIsoOrNull(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normalizeItemLink(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      const lower = key.toLowerCase();
+      if (
+        lower.startsWith("utm_") ||
+        lower === "fbclid" ||
+        lower === "gclid" ||
+        lower === "yclid" ||
+        lower === "mc_cid" ||
+        lower === "mc_eid"
+      ) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.searchParams.sort();
+    if ((url.protocol === "http:" && url.port === "80") || (url.protocol === "https:" && url.port === "443")) {
+      url.port = "";
+    }
+    url.hostname = url.hostname.toLowerCase();
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return raw.replace(/#.*$/, "").trim();
+  }
 }
 
 export function createStore(db) {
@@ -120,6 +153,7 @@ export function createStore(db) {
     listAdminItemsStmt,
     getUserItemStmt,
     upsertItemStmt,
+    updateItemByIdFromFeedEntryStmt,
     updateItemContentStmt,
     updateItemPageContentStmt,
     updateTranslationStmt,
@@ -147,10 +181,10 @@ export function createStore(db) {
     nullMissingAuditActorsStmt,
     nullMissingRefreshActorsStmt,
     pruneFeedItemsStmt,
-    getItemsToPruneStmt,
     addPrunedGuidStmt,
     checkPrunedGuidStmt,
     pruneExpiredGuidsStmt,
+    deleteItemByIdStmt,
     listDigestRulesByUserStmt,
     getDigestRuleByIdStmt,
     countDigestRulesByUserStmt,
@@ -212,6 +246,15 @@ export function createStore(db) {
     db.pragma("wal_checkpoint(TRUNCATE)");
   }
 
+  function assertDatabaseHealthyForVacuum() {
+    const result = String(db.pragma("quick_check", { simple: true }) || "");
+    if (result.toLowerCase() !== "ok") {
+      const error = new Error(`Database quick_check failed before VACUUM: ${result || "unknown error"}`);
+      error.code = "database_quick_check_failed";
+      throw error;
+    }
+  }
+
   function closeDb() {
     if (isClosed) return;
     try {
@@ -221,6 +264,23 @@ export function createStore(db) {
     }
     db.close();
     isClosed = true;
+  }
+
+  const pruneItemsWithGuidTombstonesTx = db.transaction((feedId, items) => {
+    let deleted = 0;
+    for (const item of items) {
+      addPrunedGuidStmt.run({ feedId, guid: item.guid });
+      deleted += deleteItemByIdStmt.run(item.id).changes;
+    }
+    return deleted;
+  });
+
+  function pruneItemsWithGuidTombstones(feedId, items) {
+    const candidates = Array.isArray(items)
+      ? items.filter((item) => item && Number.isInteger(Number(item.id)) && String(item.guid || "").trim())
+      : [];
+    if (!candidates.length) return 0;
+    return pruneItemsWithGuidTombstonesTx(feedId, candidates);
   }
 
   function getOrphanMetrics() {
@@ -904,13 +964,24 @@ export function createStore(db) {
       const tx = db.transaction((records) => {
         let inserted = 0;
         const existingItemStmt = db.prepare("SELECT id FROM items WHERE feed_id = ? AND guid = ?");
-        for (const item of records) {
-          const existed = existingItemStmt.get(feedId, item.guid);
-          if (!existed) {
-            const pruned = checkPrunedGuidStmt.get(feedId, item.guid);
-            if (pruned) continue;
+        const existingLinkRowsStmt = db.prepare(`
+          SELECT id, link
+          FROM items
+          WHERE feed_id = ?
+            AND link IS NOT NULL
+            AND TRIM(link) <> ''
+          ORDER BY id DESC
+        `);
+        const linkIndex = new Map();
+        for (const row of existingLinkRowsStmt.all(feedId)) {
+          const normalized = normalizeItemLink(row.link);
+          if (normalized && !linkIndex.has(normalized)) {
+            linkIndex.set(normalized, row.id);
           }
-          upsertItemStmt.run({
+        }
+        for (const item of records) {
+          const publishedAt = toIsoOrNull(item.publishedAt);
+          const baseParams = {
             feedId,
             guid: item.guid,
             title: item.title,
@@ -919,10 +990,28 @@ export function createStore(db) {
             summary: item.summary || "",
             contentHtml: item.contentHtml || "",
             contentText: item.contentText || "",
-            publishedAt: toIsoOrNull(item.publishedAt),
+            publishedAt,
             crawledAt: item.crawledAt || null
-          });
+          };
+          const existed = existingItemStmt.get(feedId, item.guid);
+          if (!existed && checkPrunedGuidStmt.get(feedId, item.guid)) {
+            continue;
+          }
+          const normalizedLink = normalizeItemLink(item.link);
+          const linkMatchedItemId = !existed && normalizedLink ? linkIndex.get(normalizedLink) : null;
+          if (linkMatchedItemId) {
+            updateItemByIdFromFeedEntryStmt.run({
+              ...baseParams,
+              id: linkMatchedItemId
+            });
+            continue;
+          }
+          upsertItemStmt.run(baseParams);
           if (!existed) inserted += 1;
+          if (normalizedLink) {
+            const row = existingItemStmt.get(feedId, item.guid);
+            if (row?.id) linkIndex.set(normalizedLink, row.id);
+          }
         }
         return inserted;
       });
@@ -980,7 +1069,7 @@ export function createStore(db) {
       if (!uniqueIds.length) {
         return 0;
       }
-      upsertUserItemReadStateBulkTx(
+      const changed = upsertUserItemReadStateBulkTx(
         uniqueIds.map((itemId) => ({
           userId,
           itemId,
@@ -988,8 +1077,10 @@ export function createStore(db) {
           lastOpenedAt
         }))
       );
-      markUserItemStatsDirty(userId);
-      return uniqueIds.length;
+      if (changed > 0) {
+        markUserItemStatsDirty(userId);
+      }
+      return changed;
     },
     setUserItemFavoriteState(userId, itemId, isFavorited, favoritedAt = null) {
       upsertUserItemFavoriteStateStmt.run({
@@ -1050,7 +1141,6 @@ export function createStore(db) {
             SELECT
               uf.user_id,
               i.id AS item_id,
-              i.guid AS guid,
               COALESCE(i.published_at, i.created_at) AS sort_at,
               COALESCE(p.max_saved_items, free_plan.max_saved_items) AS keep_count,
               COALESCE(uis.is_read, 0) AS is_read,
@@ -1085,22 +1175,8 @@ export function createStore(db) {
           minKeepCount,
           cutoff: hasAgeRule ? new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString() : null
         });
-        
-        if (itemsToPrune.length > 0) {
-          const guidsToPrune = itemsToPrune.map(item => item.guid);
-          const idsToPrune = itemsToPrune.map(item => item.id);
-          changes = idsToPrune.length;
-          
-          const addPrunedTx = db.transaction((guids) => {
-            for (const guid of guids) {
-              addPrunedGuidStmt.run({ feedId, guid });
-            }
-          });
-          addPrunedTx(guidsToPrune);
-          
-          const placeholders = idsToPrune.map(() => '?').join(',');
-          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
-          
+        changes = pruneItemsWithGuidTombstones(feedId, itemsToPrune);
+        if (changes > 0) {
           markFeedSubscribersItemStatsDirty(feedId);
         }
         return changes;
@@ -1115,24 +1191,10 @@ export function createStore(db) {
       const hasAgeRule = Number.isFinite(maxAgeDays) && maxAgeDays > 0;
 
       if (!hasCountRule && !hasAgeRule && minKeepCount < 1 && options.retentionRules !== true) {
-        const itemsToPrune = db.prepare(`SELECT id, guid FROM items WHERE feed_id = ?`).all(feedId);
-        if (itemsToPrune.length > 0) {
-          const guidsToPrune = itemsToPrune.map(item => item.guid);
-          const idsToPrune = itemsToPrune.map(item => item.id);
-          changes = idsToPrune.length;
-          
-          const addPrunedTx = db.transaction((guids) => {
-            for (const guid of guids) {
-              addPrunedGuidStmt.run({ feedId, guid });
-            }
-          });
-          addPrunedTx(guidsToPrune);
-          
-          const placeholders = idsToPrune.map(() => '?').join(',');
-          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
-          
-          markFeedSubscribersItemStatsDirty(feedId);
-        }
+        changes = pruneItemsWithGuidTombstones(
+          feedId,
+          db.prepare(`SELECT id, guid FROM items WHERE feed_id = ?`).all(feedId)
+        );
       } else if (!hasCountRule && !hasAgeRule) {
         changes = 0;
       } else {
@@ -1192,29 +1254,15 @@ export function createStore(db) {
           WHERE (${predicates.join(" OR ") || "0"})
             ${protectionPredicates.length ? `AND ${protectionPredicates.join("\n              AND ")}` : ""}
         `).all(params);
-        
-        if (itemsToPrune.length > 0) {
-          const guidsToPrune = itemsToPrune.map(item => item.guid);
-          const idsToPrune = itemsToPrune.map(item => item.id);
-          changes = idsToPrune.length;
-          
-          const addPrunedTx = db.transaction((guids) => {
-            for (const guid of guids) {
-              addPrunedGuidStmt.run({ feedId, guid });
-            }
-          });
-          addPrunedTx(guidsToPrune);
-          
-          const placeholders = idsToPrune.map(() => '?').join(',');
-          db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...idsToPrune);
-          
-          markFeedSubscribersItemStatsDirty(feedId);
-        }
+        changes = pruneItemsWithGuidTombstones(feedId, itemsToPrune);
+      }
+      if (changes > 0) {
+        markFeedSubscribersItemStatsDirty(feedId);
       }
       return changes;
     },
-    pruneExpiredGuids({ retentionDays = 90 } = {}) {
-      const normalizedRetentionDays = Math.max(0, Math.floor(Number(retentionDays) || 0));
+    pruneExpiredGuids({ retentionDays = 3650 } = {}) {
+      const normalizedRetentionDays = Math.floor(Number(retentionDays) || 0);
       if (normalizedRetentionDays <= 0) return 0;
       return pruneExpiredGuidsStmt.run({ retentionDays: normalizedRetentionDays }).changes;
     },
@@ -1282,12 +1330,19 @@ export function createStore(db) {
     },
     vacuum() {
       if (isClosed) return;
+      assertDatabaseHealthyForVacuum();
       db.exec("VACUUM");
       optimizeDb();
     },
+    checkIntegrity() {
+      if (isClosed) return "closed";
+      return String(db.pragma("quick_check", { simple: true }) || "");
+    },
     async backup(targetPath) {
       if (isClosed) return null;
+      assertSqliteHealthy(db, { label: "database before backup" });
       await db.backup(targetPath);
+      checkSqliteFile(targetPath, { label: `backup ${targetPath}`, cleanupSidecars: true });
       return targetPath;
     },
     getDatabaseMetrics() {

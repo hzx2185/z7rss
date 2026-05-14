@@ -249,10 +249,19 @@ export function createAdminService({
     if (!fs.existsSync(resolvedPath)) {
       throw notFound("备份文件不存在", { code: "backup_not_found" });
     }
+    const walPath = `${resolvedPath}-wal`;
+    const shmPath = `${resolvedPath}-shm`;
+    const deleteRelatedFiles = () => {
+      fs.rmSync(walPath, { force: true });
+      fs.rmSync(shmPath, { force: true });
+    };
     return {
       path: resolvedPath,
       filename: normalized,
-      size: getFileSize(resolvedPath)
+      size: getFileSize(resolvedPath),
+      walPath,
+      shmPath,
+      deleteRelatedFiles
     };
   }
 
@@ -261,6 +270,10 @@ export function createAdminService({
     const settingsRows = store.listSettings();
     const backupSettings = settingsRows.reduce((acc, row) => {
       if (row.category === "database_backup") acc[row.key] = row.value;
+      return acc;
+    }, {});
+    const vacuumSettings = settingsRows.reduce((acc, row) => {
+      if (row.category === "database_vacuum") acc[row.key] = row.value;
       return acc;
     }, {});
     const cleanupSettings = settingsRows.reduce((acc, row) => {
@@ -282,6 +295,17 @@ export function createAdminService({
       .split(",")
       .map((entry) => Number(entry))
       .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6);
+    const vacuumEnabledValue = String(vacuumSettings.enabled ?? "").trim().toLowerCase();
+    const vacuumEnabled = vacuumEnabledValue
+      ? ["1", "true", "yes", "on"].includes(vacuumEnabledValue)
+      : config.databaseVacuumEnabled !== false;
+    const vacuumIntervalDays = Math.max(
+      1,
+      Number(vacuumSettings.interval_days ?? config.databaseVacuumIntervalDays ?? 7) || 7
+    );
+    const vacuumScheduleTime = /^\d{2}:\d{2}$/.test(String(vacuumSettings.schedule_time || "").trim())
+      ? String(vacuumSettings.schedule_time).trim()
+      : config.databaseVacuumTime || "03:30";
     const mainBytes = getFileSize(config.dbPath);
     const walBytes = getFileSize(`${config.dbPath}-wal`);
     const shmBytes = getFileSize(`${config.dbPath}-shm`);
@@ -317,6 +341,12 @@ export function createAdminService({
         totalBytes: backupFiles.reduce((total, entry) => total + Number(entry.size || 0), 0),
         latest: backupFiles[0] || null,
         files: backupFiles.slice(0, 100)
+      },
+      vacuum: {
+        enabled: vacuumEnabled,
+        intervalDays: vacuumIntervalDays,
+        scheduleTime: vacuumScheduleTime,
+        lastVacuumAt: String(vacuumSettings.last_vacuum_at || "")
       },
       cleanup: {
         maxItemsTotal: String(cleanupSettings.max_items_total ?? cleanupSettings.max_items_per_feed ?? ""),
@@ -577,6 +607,7 @@ export function createAdminService({
     },
     vacuumDatabase(context = null) {
       store.vacuum?.();
+      store.setSetting?.("database_vacuum", "last_vacuum_at", new Date().toISOString());
       logAudit(context, {
         action: "admin.database.vacuumed",
         targetType: "database",
@@ -616,6 +647,7 @@ export function createAdminService({
     deleteDatabaseBackup(filename, context = null) {
       const backup = getBackupPath(filename);
       fs.rmSync(backup.path, { force: true });
+      backup.deleteRelatedFiles();
       logAudit(context, {
         action: "admin.database.backup.deleted",
         targetType: "database_backup",

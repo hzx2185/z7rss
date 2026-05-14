@@ -1,12 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { assertSqliteHealthy } from "./lib/sqlite-health.js";
+
+function normalizeSynchronous(value) {
+  const normalized = String(value || "FULL").trim().toUpperCase();
+  return ["OFF", "NORMAL", "FULL", "EXTRA"].includes(normalized) ? normalized : "FULL";
+}
 
 function hasColumn(db, table, column) {
   return db.prepare(`PRAGMA table_info(${table})`).all().some((entry) => entry.name === column);
 }
 
-function seedPlans(db) {
+function seedPlans(db, options = {}) {
   const plans = [
     {
       code: "free",
@@ -38,7 +44,7 @@ function seedPlans(db) {
       aiDigestEnabled: 1,
       emailDigestEnabled: 1,
       maxDigestRules: 3,
-      stripePriceId: process.env.STRIPE_PRICE_PRO_MONTHLY || ""
+      stripePriceId: options.stripePriceProMonthly || ""
     },
     {
       code: "team",
@@ -54,7 +60,7 @@ function seedPlans(db) {
       aiDigestEnabled: 1,
       emailDigestEnabled: 1,
       maxDigestRules: 20,
-      stripePriceId: process.env.STRIPE_PRICE_TEAM_MONTHLY || ""
+      stripePriceId: options.stripePriceTeamMonthly || ""
     }
   ];
 
@@ -80,7 +86,7 @@ function seedPlans(db) {
   }
 }
 
-function migrate(db) {
+function migrate(db, options = {}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -398,6 +404,7 @@ function migrate(db) {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_user_feeds_user_id ON user_feeds(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_feeds_feed_id ON user_feeds(feed_id);
     CREATE INDEX IF NOT EXISTS idx_user_feeds_user_feed ON user_feeds(user_id, feed_id);
@@ -415,6 +422,9 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_refresh_runs_status ON refresh_runs(status);
     CREATE INDEX IF NOT EXISTS idx_digest_rules_user ON digest_rules(user_id, is_enabled);
     CREATE INDEX IF NOT EXISTS idx_digest_runs_rule ON digest_runs(rule_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_subscription_id ON subscriptions(provider_subscription_id);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_customer_id ON subscriptions(provider_customer_id);
+    CREATE INDEX IF NOT EXISTS idx_billing_events_provider_checkout_id ON billing_events(provider_checkout_id);
 
     CREATE TABLE IF NOT EXISTS pruned_guids (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -587,20 +597,33 @@ function migrate(db) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_user_item_states_user_favorited_item ON user_item_states(user_id, is_favorited, item_id)`);
   }
 
-  seedPlans(db);
+  seedPlans(db, options);
 }
 
-export function createDb(dbPath) {
+export function createDb(dbPath, options = {}) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const exists = fs.existsSync(dbPath);
   const db = new Database(dbPath);
+  const busyTimeoutMs = Math.max(1000, Number(options.busyTimeoutMs) || 10000);
+  const synchronous = normalizeSynchronous(options.synchronous);
+  db.pragma(`busy_timeout = ${busyTimeoutMs}`);
+  if (exists) {
+    try {
+      assertSqliteHealthy(db, { label: dbPath });
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  }
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
+  db.pragma(`synchronous = ${synchronous}`);
   db.pragma("temp_store = MEMORY");
-  db.pragma("busy_timeout = 5000");
-  migrate(db);
-  setImmediate(() => {
-    db.pragma("optimize");
+  db.pragma("wal_autocheckpoint = 1000");
+  db.pragma("journal_size_limit = 67108864");
+  migrate(db, {
+    stripePriceProMonthly: options.stripePriceProMonthly,
+    stripePriceTeamMonthly: options.stripePriceTeamMonthly
   });
   return db;
 }

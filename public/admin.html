@@ -5,7 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Z7 RSS - 管理后台</title>
     <script src="/theme-init.js"></script>
-    <link rel="stylesheet" href="/css/pages/admin.css?v=2" />
+    <link rel="stylesheet" href="/css/00-base.css" />
+    <link rel="stylesheet" href="/css/shared/theme-foundation.css" />
+    <link rel="stylesheet" href="/css/shared/app-utilities.css" />
+    <link rel="stylesheet" href="/css/admin/account-shell.css" />
+    <link rel="stylesheet" href="/css/shared/ui-foundation.css" />
+    <link rel="stylesheet" href="/css/shared/data-surfaces.css" />
+    <link rel="stylesheet" href="/css/admin/security-panel.css" />
+    <link rel="stylesheet" href="/css/shared/compact-ui.css" />
+    <link rel="stylesheet" href="/css/admin/page.css" />
+    <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
+    <link rel="stylesheet" href="/css/admin/shell.css" />
+    <link rel="stylesheet" href="/css/admin/shell-extended.css" />
+    <link rel="stylesheet" href="/css/shared/mobile-compact.css" />
+    <link rel="stylesheet" href="/css/shared/top-navigation.css" />
   </head>
   <body class="admin-page" data-admin-mode="guest">
     <div class="site-shell">
@@ -387,6 +400,27 @@
                             </select>
                           </label>
                           <button id="admin-database-cleanup-settings-save-btn" class="secondary" type="button">保存</button>
+                        </div>
+                      </div>
+                      <div class="admin-db-settings-section">
+                        <h4>自动碎片整理</h4>
+                        <div class="admin-db-settings-form">
+                          <label class="field-label">
+                            <span>开关</span>
+                            <select id="setting-database-vacuum-enabled">
+                              <option value="true">开启</option>
+                              <option value="false">关闭</option>
+                            </select>
+                          </label>
+                          <label class="field-label">
+                            <span>间隔天数</span>
+                            <input id="setting-database-vacuum-interval-days" type="number" min="1" max="3650" step="1" placeholder="7" />
+                          </label>
+                          <label class="field-label">
+                            <span>时间</span>
+                            <input id="setting-database-vacuum-schedule-time" type="time" step="60" />
+                          </label>
+                          <button id="admin-database-vacuum-settings-save-btn" class="secondary" type="button">保存</button>
                         </div>
                       </div>
                     </div>

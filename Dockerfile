@@ -12,4 +12,4 @@ RUN mkdir -p /app/data
 
 EXPOSE 39018
 
-CMD ["npm", "start"]
+CMD ["node", "src/server.js"]

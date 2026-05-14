@@ -2,10 +2,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import compression from "compression";
 import express from "express";
-import { createAuthMiddleware } from "./middleware/auth.js";
-import { forbidden } from "./lib/errors.js";
+import { createAccessControlLayer } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler, route } from "./lib/routes.js";
-import { getRequestIp } from "./lib/request.js";
 import { createSecurityHeadersMiddleware } from "./lib/security-headers.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createAdminRouter } from "./routes/admin.js";
@@ -18,6 +16,33 @@ import { createSystemRouter } from "./routes/system.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const publicDir = path.join(__dirname, "../public");
+
+function isVersionedAsset(assetPath = "") {
+  const normalizedPath = String(assetPath || "");
+  if (!normalizedPath || normalizedPath === "/") return false;
+  if (/[?&]v=\w+/i.test(normalizedPath)) return true;
+  return /\.[a-f0-9]{8,}\./i.test(normalizedPath);
+}
+
+function setStaticAssetCacheHeaders(res, filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  const requestPath = String(res.req?.originalUrl || res.req?.url || "");
+  const isHtml = extension === ".html";
+  const isStaticAsset = Boolean(extension) && !isHtml;
+  if (isHtml) {
+    res.setHeader("Cache-Control", "no-cache");
+    return;
+  }
+  if (!isStaticAsset) return;
+
+  if (isVersionedAsset(requestPath)) {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    return;
+  }
+
+  res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+}
 
 export function createApp({
   config,
@@ -34,7 +59,7 @@ export function createApp({
   opmlBackupService
 }) {
   const app = express();
-  const authMiddleware = createAuthMiddleware({ authService, config });
+  const accessControl = createAccessControlLayer({ authService, adminService, config });
 
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
@@ -47,28 +72,28 @@ export function createApp({
   );
   app.use(express.json({ limit: "2mb" }));
   app.use(createSecurityHeadersMiddleware(config));
-  app.use(authMiddleware.attachCurrentUser);
-  app.use((req, res, next) => {
-    const requestIp = getRequestIp(req);
-    if (adminService.isBlockedIp(requestIp)) {
-      return next(forbidden("当前 IP 已被系统屏蔽", { code: "ip_blocked" }));
-    }
-    next();
-  });
-  app.use(express.static(path.join(__dirname, "../public")));
+  app.use(accessControl.identify);
+  app.use(accessControl.denyBlockedIp);
+  app.use(accessControl.requireSameOriginForCookieWrites);
+  app.use(express.static(publicDir, {
+    etag: true,
+    lastModified: true,
+    setHeaders: setStaticAssetCacheHeaders
+  }));
 
   app.use("/api", createSystemRouter({ config, billingService, store, feedService }));
   app.use("/api/auth", createAuthRouter({ authService, accountService, config }));
-  app.use("/api/account", authMiddleware.requireAuth, createAccountRouter({ accountService, aiConfigService, authService, config, digestService, feedService, mailService, opmlBackupService }));
-  app.use("/api/feeds", authMiddleware.requireAuth, createFeedRouter({ feedService, config }));
-  app.use("/api/items", authMiddleware.requireAuth, createItemRouter({ itemService, config }));
-  app.use("/api/billing", authMiddleware.requireAuth, createBillingRouter({ billingService, adminService }));
-  app.use("/api/admin", authMiddleware.requireAdmin, createAdminRouter({ adminService, aiConfigService, config }));
+  app.use("/api/account", accessControl.requireAuth, createAccountRouter({ accountService, aiConfigService, authService, config, digestService, feedService, mailService, opmlBackupService }));
+  app.use("/api/feeds", accessControl.requireAuth, createFeedRouter({ feedService, config }));
+  app.use("/api/items", accessControl.requireAuth, createItemRouter({ itemService, config }));
+  app.use("/api/billing", accessControl.requireAuth, createBillingRouter({ billingService, adminService }));
+  app.use("/api/admin", accessControl.requireAdmin, createAdminRouter({ adminService, aiConfigService, config }));
   app.use(createGoogleReaderRouter({ authService, feedService, itemService, store }));
   app.use("/api", notFoundHandler);
 
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(__dirname, "../public/index.html"));
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(path.join(publicDir, "index.html"));
   });
 
   app.use(errorHandler);

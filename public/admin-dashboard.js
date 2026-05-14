@@ -264,6 +264,7 @@ export function createAdminDashboard({
     const digest = state.admin.settings.digest || {}
     const backups = state.admin.database?.backups || {}
     const cleanup = state.admin.database?.cleanup || {}
+    const vacuum = state.admin.database?.vacuum || {}
     const google = state.admin.settings.translation_google || {}
     const deeplx = state.admin.settings.translation_deeplx || {}
     const bing = state.admin.settings.translation_bing || {}
@@ -362,6 +363,9 @@ export function createAdminDashboard({
     if (els.settingDatabaseCleanupProtectFavorites) els.settingDatabaseCleanupProtectFavorites.value = cleanup.protectFavorites !== false ? "true" : "false"
     if (els.settingDatabaseCleanupProtectUnread) els.settingDatabaseCleanupProtectUnread.value = cleanup.protectUnread ? "true" : "false"
     if (els.settingDatabaseCleanupMinKeepItems) els.settingDatabaseCleanupMinKeepItems.value = String(cleanup.minKeepItems ?? 0)
+    if (els.settingDatabaseVacuumEnabled) els.settingDatabaseVacuumEnabled.value = vacuum.enabled === false ? "false" : "true"
+    if (els.settingDatabaseVacuumIntervalDays) els.settingDatabaseVacuumIntervalDays.value = String(vacuum.intervalDays ?? 7)
+    if (els.settingDatabaseVacuumScheduleTime) els.settingDatabaseVacuumScheduleTime.value = vacuum.scheduleTime || "03:30"
     if (els.settingGoogleTranslateApiKey) {
       els.settingGoogleTranslateApiKey.value = ""
       els.settingGoogleTranslateApiKey.placeholder = google.api_key_configured ? "已配置，留空表示保留当前 Key；勾选下方可清空" : "留空则使用 Google 免 Key 模式"
@@ -776,6 +780,7 @@ export function createAdminDashboard({
     const freeRatio = Number(database.freeRatio || 0)
     const orphanTotal = Number(database.orphanTotal || 0)
     const fkViolations = Number(database.orphanMetrics?.foreignKeyViolations || 0)
+    const vacuum = database.vacuum || {}
     const flags = [
       { tone: freeRatio > 0.2 ? "warning" : "success", label: `碎片率 ${(freeRatio * 100).toFixed(1)}%` },
       { tone: orphanTotal > 0 ? "warning" : "success", label: `孤儿数据 ${orphanTotal}` },
@@ -785,6 +790,12 @@ export function createAdminDashboard({
         label: database.backups?.enabled
           ? `自动备份 ${Number(database.backups?.automaticCount || 0)} / ${Number(database.backups?.maxFiles || 0)}`
           : "自动备份关闭"
+      },
+      {
+        tone: vacuum.enabled === false ? "warning" : "success",
+        label: vacuum.enabled === false
+          ? "自动碎片整理关闭"
+          : `自动碎片整理 ${Number(vacuum.intervalDays || 7)} 天`
       },
       { tone: "accent", label: `页大小 ${formatBytes(database.pageSize)}` },
       { tone: "accent", label: `页数 ${Number(database.pageCount || 0)}` },

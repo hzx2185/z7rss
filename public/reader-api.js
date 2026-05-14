@@ -1,3 +1,5 @@
+import { clearAuthStateCache, fetchAuthState } from "./auth-state.js"
+
 function withJsonHeaders(options = {}) {
   return {
     credentials: "same-origin",
@@ -61,7 +63,10 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
 
   return {
     async getMe() {
-      return request("/api/auth/me")
+      return (await fetchAuthState()) || { authenticated: false, user: null }
+    },
+    clearCachedMe() {
+      clearAuthStateCache()
     },
     async updateReaderPreferences(payload) {
       return request("/api/account/preferences/reader", {

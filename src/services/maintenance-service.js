@@ -79,6 +79,39 @@ function isAutoBackupDue(settings, autoBackups, now = new Date()) {
   return !autoBackups.some((entry) => getLocalDateKey(new Date(entry.mtimeMs)) === todayKey);
 }
 
+function getStoredVacuumSettings(store, config) {
+  const settings = store.listSettings?.().reduce((acc, row) => {
+    if (row.category === "database_vacuum") acc[row.key] = row.value;
+    return acc;
+  }, {}) || {};
+  const enabledValue = String(settings.enabled ?? "").trim().toLowerCase();
+  const enabled = enabledValue
+    ? ["1", "true", "yes", "on"].includes(enabledValue)
+    : config.databaseVacuumEnabled !== false;
+  const scheduleTime = /^\d{2}:\d{2}$/.test(String(settings.schedule_time || "").trim())
+    ? String(settings.schedule_time).trim()
+    : config.databaseVacuumTime || "03:30";
+  const intervalDays = Math.max(1, Number(settings.interval_days ?? config.databaseVacuumIntervalDays ?? 7) || 7);
+  return {
+    enabled,
+    intervalDays,
+    scheduleTime,
+    lastVacuumAt: String(settings.last_vacuum_at || "").trim()
+  };
+}
+
+function isAutoVacuumDue(settings, now = new Date()) {
+  if (!settings.enabled) return false;
+  const [hour, minute] = String(settings.scheduleTime || "03:30").split(":").map((part) => Number(part));
+  const scheduledAt = new Date(now);
+  scheduledAt.setHours(Number.isFinite(hour) ? hour : 3, Number.isFinite(minute) ? minute : 30, 0, 0);
+  if (now.getTime() < scheduledAt.getTime()) return false;
+
+  const lastVacuumMs = settings.lastVacuumAt ? new Date(settings.lastVacuumAt).getTime() : 0;
+  if (!Number.isFinite(lastVacuumMs) || lastVacuumMs <= 0) return true;
+  return now.getTime() - lastVacuumMs >= settings.intervalDays * 24 * 60 * 60 * 1000;
+}
+
 export function createMaintenanceService({ store, feedService, config, logger = console }) {
   let currentRun = null;
   let currentRunPromise = null;
@@ -126,10 +159,18 @@ export function createMaintenanceService({ store, feedService, config, logger = 
       databaseBackupCreated: false,
       databaseBackupFilename: "",
       databaseBackupSize: 0,
+      databaseBackupVerified: false,
+      databaseBackupSkipReason: "",
       databaseBackupsDeleted: 0,
       auditLogsDeleted: 0,
       refreshRunsDeleted: 0,
       prunedGuidsDeleted: 0,
+      databaseVacuumed: false,
+      databaseVacuumSkipped: false,
+      databaseVacuumSkipReason: "",
+      databaseVacuumIntervalDays: 0,
+      databaseVacuumScheduleTime: "",
+      databaseVacuumLastRunAt: "",
       optimized: false,
       errors: []
     };
@@ -174,7 +215,7 @@ export function createMaintenanceService({ store, feedService, config, logger = 
       () => {
         details.prunedGuidsDeleted = Number(
           store.pruneExpiredGuids?.({
-            retentionDays: 90
+            retentionDays: 3650
           }) || 0
         );
       },
@@ -187,15 +228,24 @@ export function createMaintenanceService({ store, feedService, config, logger = 
         if (!isAutoBackupDue(backupSettings, autoBackups)) {
           details.databaseBackupCreated = false;
           details.databaseBackupSkipped = true;
+          details.databaseBackupSkipReason = "not_due";
         } else {
           const stamp = new Date().toISOString().replace(/[:.]/g, "-");
           const filename = `z7rss-auto-${stamp}.db`;
           const targetPath = path.join(backupDir, filename);
-          await store.backup(targetPath);
-          const stat = fs.statSync(targetPath);
-          details.databaseBackupCreated = true;
-          details.databaseBackupFilename = filename;
-          details.databaseBackupSize = stat.size;
+          try {
+            await store.backup(targetPath);
+            const stat = fs.statSync(targetPath);
+            details.databaseBackupCreated = true;
+            details.databaseBackupVerified = true;
+            details.databaseBackupFilename = filename;
+            details.databaseBackupSize = stat.size;
+          } catch (error) {
+            fs.rmSync(targetPath, { force: true });
+            details.databaseBackupSkipped = true;
+            details.databaseBackupSkipReason = "verification_failed";
+            throw error;
+          }
         }
 
         const retentionDays = backupSettings.retentionDays;
@@ -212,8 +262,47 @@ export function createMaintenanceService({ store, feedService, config, logger = 
         }
       },
       () => {
-        store.optimize?.();
+        const vacuumSettings = getStoredVacuumSettings(store, config);
+        details.databaseVacuumIntervalDays = vacuumSettings.intervalDays;
+        details.databaseVacuumScheduleTime = vacuumSettings.scheduleTime;
+        details.databaseVacuumLastRunAt = vacuumSettings.lastVacuumAt;
+        if (!vacuumSettings.enabled) {
+          details.databaseVacuumSkipped = true;
+          details.databaseVacuumSkipReason = "disabled";
+          return;
+        }
+        if (!store.vacuum) {
+          details.databaseVacuumSkipped = true;
+          details.databaseVacuumSkipReason = "unavailable";
+          return;
+        }
+        const integrityCheck = store.checkIntegrity?.() || "ok";
+        if (String(integrityCheck).toLowerCase() !== "ok") {
+          details.databaseVacuumSkipped = true;
+          details.databaseVacuumSkipReason = "integrity_failed";
+          details.databaseVacuumIntegrity = String(integrityCheck || "unknown");
+          return;
+        }
+        if (!isAutoVacuumDue(vacuumSettings)) {
+          details.databaseVacuumSkipped = true;
+          details.databaseVacuumSkipReason = "not_due";
+          return;
+        }
+
+        store.vacuum();
+        const vacuumedAt = new Date().toISOString();
+        store.setSetting?.("database_vacuum", "last_vacuum_at", vacuumedAt);
+        details.databaseVacuumed = true;
+        details.databaseVacuumSkipped = false;
+        details.databaseVacuumSkipReason = "";
+        details.databaseVacuumLastRunAt = vacuumedAt;
         details.optimized = true;
+      },
+      () => {
+        if (!details.databaseVacuumed) {
+          store.optimize?.();
+          details.optimized = true;
+        }
       }
     ];
 

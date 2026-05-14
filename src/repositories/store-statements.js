@@ -870,6 +870,21 @@ export function createStoreStatements(db) {
       crawled_at = COALESCE(excluded.crawled_at, items.crawled_at),
       updated_at = CURRENT_TIMESTAMP
   `);
+  const updateItemByIdFromFeedEntryStmt = db.prepare(`
+    UPDATE items
+    SET
+      guid = COALESCE(NULLIF(@guid, ''), guid),
+      title = @title,
+      link = COALESCE(NULLIF(@link, ''), link),
+      author = @author,
+      summary = @summary,
+      content_html = COALESCE(NULLIF(@contentHtml, ''), content_html),
+      content_text = COALESCE(NULLIF(@contentText, ''), content_text),
+      published_at = COALESCE(@publishedAt, published_at),
+      crawled_at = COALESCE(@crawledAt, crawled_at),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = @id
+  `);
   const updateItemContentStmt = db.prepare(`
     UPDATE items
     SET
@@ -957,10 +972,21 @@ export function createStoreStatements(db) {
       last_opened_at = COALESCE(excluded.last_opened_at, user_item_states.last_opened_at),
       updated_at = CURRENT_TIMESTAMP
   `);
+  const getUserItemReadStateStmt = db.prepare(`
+    SELECT COALESCE(is_read, 0) AS is_read
+    FROM user_item_states
+    WHERE user_id = ? AND item_id = ?
+  `);
   const upsertUserItemReadStateBulkTx = db.transaction((entries) => {
+    let changed = 0;
     for (const entry of entries) {
+      const current = getUserItemReadStateStmt.get(entry.userId, entry.itemId);
+      if (Number(current?.is_read || 0) !== Number(entry.isRead || 0)) {
+        changed += 1;
+      }
       upsertUserItemReadStateStmt.run(entry);
     }
+    return changed;
   });
   const upsertUserItemFavoriteStateStmt = db.prepare(`
     INSERT INTO user_item_states (user_id, item_id, is_favorited, favorited_at)
@@ -1109,31 +1135,19 @@ export function createStoreStatements(db) {
       )
   `);
 
-  const getItemsToPruneStmt = db.prepare(`
-    SELECT id, guid
-    FROM items candidate
-    LEFT JOIN user_item_states favorite_state
-      ON favorite_state.item_id = candidate.id AND favorite_state.is_favorited = 1
-    WHERE candidate.feed_id = @feedId
-      AND favorite_state.id IS NULL
-    ORDER BY COALESCE(candidate.published_at, candidate.created_at) DESC, candidate.id DESC
-    LIMIT -1 OFFSET @keepCount
-  `);
-
   const addPrunedGuidStmt = db.prepare(`
     INSERT INTO pruned_guids (feed_id, guid)
     VALUES (@feedId, @guid)
     ON CONFLICT(feed_id, guid) DO UPDATE SET pruned_at = CURRENT_TIMESTAMP
   `);
-
   const checkPrunedGuidStmt = db.prepare(`
     SELECT id FROM pruned_guids WHERE feed_id = ? AND guid = ?
   `);
-
   const pruneExpiredGuidsStmt = db.prepare(`
     DELETE FROM pruned_guids
     WHERE pruned_at < datetime('now', '-' || @retentionDays || ' days')
   `);
+  const deleteItemByIdStmt = db.prepare(`DELETE FROM items WHERE id = ?`);
 
   const listDigestRulesByUserStmt = db.prepare(`
     SELECT *
@@ -1313,6 +1327,7 @@ export function createStoreStatements(db) {
     listAdminItemsStmt,
     getUserItemStmt,
     upsertItemStmt,
+    updateItemByIdFromFeedEntryStmt,
     updateItemContentStmt,
     updateItemPageContentStmt,
     updateTranslationStmt,
@@ -1340,10 +1355,10 @@ export function createStoreStatements(db) {
     nullMissingAuditActorsStmt,
     nullMissingRefreshActorsStmt,
     pruneFeedItemsStmt,
-    getItemsToPruneStmt,
     addPrunedGuidStmt,
     checkPrunedGuidStmt,
     pruneExpiredGuidsStmt,
+    deleteItemByIdStmt,
     listDigestRulesByUserStmt,
     getDigestRuleByIdStmt,
     countDigestRulesByUserStmt,

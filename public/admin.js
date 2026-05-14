@@ -5,6 +5,7 @@ import {
   safeHtml,
   safeSet
 } from "./shared-ui.js?v=2"
+import { clearAuthStateCache, fetchAuthState } from "./auth-state.js"
 import {
   formatDuration,
   formatRefreshStatus,
@@ -112,8 +113,7 @@ async function loadConfig() {
 }
 
 async function loadMe() {
-  const result = await api("/api/auth/me")
-  state.me = result.authenticated ? result : null
+  state.me = await fetchAuthState()
   renderAuthState()
 }
 
@@ -599,6 +599,23 @@ async function saveDatabaseCleanupSettings() {
   }
 }
 
+async function saveDatabaseVacuumSettings() {
+  try {
+    await api("/api/admin/settings/database_vacuum", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: els.settingDatabaseVacuumEnabled.value,
+        interval_days: els.settingDatabaseVacuumIntervalDays.value,
+        schedule_time: els.settingDatabaseVacuumScheduleTime.value || "03:30"
+      })
+    })
+    await loadAdmin()
+    setStatus("数据库碎片整理设置已保存", "success")
+  } catch (error) {
+    setStatus(error.message, "error")
+  }
+}
+
 async function loadUserSecurity(userId) {
   state.userSecurity[userId] = {
     loading: true,
@@ -980,6 +997,7 @@ els.loginForm.addEventListener("submit", async (event) => {
         password: document.querySelector("#login-password").value
       })
     })
+    clearAuthStateCache()
     await boot()
   } catch (error) {
     setStatus(error.message, "error")
@@ -989,6 +1007,7 @@ els.loginForm.addEventListener("submit", async (event) => {
 els.logoutBtn.addEventListener("click", async () => {
   try {
     await api("/api/auth/logout", { method: "POST" })
+    clearAuthStateCache()
     state.me = null
     state.admin = null
     state.expandedUserSecurityId = null
@@ -1039,6 +1058,10 @@ els.settingDatabaseBackupScheduleFrequency?.addEventListener("change", () => {
 
 els.adminDatabaseCleanupSettingsSaveBtn.addEventListener("click", async () => {
   await saveDatabaseCleanupSettings()
+})
+
+els.adminDatabaseVacuumSettingsSaveBtn.addEventListener("click", async () => {
+  await saveDatabaseVacuumSettings()
 })
 
 els.settingsForm.addEventListener("submit", async (event) => {
@@ -1136,7 +1159,8 @@ els.settingTranslationProviderPoolTestBtn?.addEventListener("click", async () =>
     if (!els.adminTranslationPoolTestStatus) return
 
     if (result.ok) {
-      els.adminTranslationPoolTestStatus.textContent = `此 API 测试成功 (${result.provider}): ${result.output}`
+      const speedInfo = result.durationMs ? ` 耗时: ${(result.durationMs / 1000).toFixed(2)}秒` : ""
+      els.adminTranslationPoolTestStatus.textContent = `此 API 测试成功 (${result.provider})${speedInfo}: ${result.output}`
       els.adminTranslationPoolTestStatus.className = "status-text success-text"
     } else {
       els.adminTranslationPoolTestStatus.textContent = result.error || "翻译测试失败"
@@ -1196,7 +1220,8 @@ els.settingAiPoolTestBtn?.addEventListener("click", async () => {
     if (!els.adminAiPoolTestStatus) return
 
     if (result.ok) {
-      els.adminAiPoolTestStatus.textContent = `此 AI 测试成功: ${result.output}`
+      const speedInfo = result.durationMs ? ` 耗时: ${(result.durationMs / 1000).toFixed(2)}秒` : ""
+      els.adminAiPoolTestStatus.textContent = `此 AI 测试成功${speedInfo}: ${result.output}`
       els.adminAiPoolTestStatus.className = "status-text success-text"
     } else {
       els.adminAiPoolTestStatus.textContent = result.error || "AI 测试失败"

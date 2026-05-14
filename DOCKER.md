@@ -48,6 +48,8 @@ Compose 会自动读取根目录 `.env`。不要把 `.env` 提交或发送给别
 - `DATABASE_BACKUP_ENABLED`：维护任务是否自动创建数据库备份，默认 `true`
 - `DATABASE_BACKUP_RETENTION_DAYS`：备份按天保留，默认 `14`
 - `DATABASE_BACKUP_MAX_FILES`：备份最多保留份数，默认 `24`
+- `DATABASE_SYNCHRONOUS`：SQLite 同步级别，默认 `FULL`，优先保证异常关机后的数据安全
+- `DATABASE_BUSY_TIMEOUT_MS`：SQLite 写锁等待时间，默认 `10000`
 - `APP_SECRET`：会话签名密钥，生产环境必须改成高强度随机值
 - `ADMIN_EMAILS`：管理员邮箱，逗号分隔
 - `BILLING_PROVIDER`：`demo` 或 `stripe`
@@ -61,6 +63,8 @@ AI 邮件简报使用后台“系统设置”里的 SMTP 配置发送。容器�
 Compose 将宿主机 `./data` 挂载到容器 `/app/data`。SQLite 数据库、WAL 文件和备份都在这个目录中。
 
 这些文件可能包含用户邮箱、订阅 URL、文章内容、会话信息、加密后的 API Key 等敏感数据。备份、迁移或排障时请按生产数据处理。
+
+SQLite 损坏通常不是普通应用 SQL 写坏的，而是写入时遇到宿主机断电、Docker/Node 被强杀、磁盘或 bind mount 同步异常、或手动移动/删除 `rss.db-wal` 与 `rss.db-shm` 这类旁路文件。应用启动时会先做数据库健康检查，自动备份完成后也会校验备份文件；如果检查失败，应优先从 `data/backups/` 或 `data/recovery-snapshots/` 恢复。清理目录时不要单独删除 `rss.db-wal`、`rss.db-shm`，除非服务已经停止并且确认是在做数据库恢复。
 
 ## 隐私与安全
 

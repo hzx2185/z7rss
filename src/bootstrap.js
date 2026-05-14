@@ -69,7 +69,12 @@ function migrateAiConfigToPool(store, secretBox) {
 
 export function createRuntime(env = process.env) {
   const config = createConfig(env);
-  const db = createDb(config.dbPath);
+  const db = createDb(config.dbPath, {
+    synchronous: config.databaseSynchronous,
+    busyTimeoutMs: config.databaseBusyTimeoutMs,
+    stripePriceProMonthly: config.stripePriceProMonthly,
+    stripePriceTeamMonthly: config.stripePriceTeamMonthly
+  });
   const store = createStore(db);
   const ai = createAiClient();
   const secretBox = createSecretBox(config.appSecret);

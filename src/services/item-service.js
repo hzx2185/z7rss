@@ -119,6 +119,12 @@ export function createItemService({ feedService, translator, accountService, sto
     const bodyText = bodySource || getBodyTranslationSource(item);
     const needsBody = translationSettings?.translationMode === "full" && Boolean(String(bodyText || "").trim());
     const bodyLooksChinese = !needsBody || looksLikeChineseText(bodyText);
+    const needsLocalConversion =
+      canConvertTraditionalToSimplified(titleSource, translationSettings?.targetLanguage) ||
+      (needsBody && canConvertTraditionalToSimplified(bodyText, translationSettings?.targetLanguage));
+    if (needsLocalConversion) {
+      return false;
+    }
     return titleLooksChinese && bodyLooksChinese;
   }
 
@@ -436,6 +442,29 @@ export function createItemService({ feedService, translator, accountService, sto
     };
   }
 
+  function getNeededTranslationText(sourceItem, translationSettings, existingTranslation = null) {
+    const currentTranslation = existingTranslation || resolveStoredTranslation(sourceItem, translationSettings);
+    const titleSource = getTitleTranslationSource(sourceItem);
+    const bodySource = translationSettings.translationMode === "full" ? getBodyTranslationSource(sourceItem) : "";
+    const needsTitle = !currentTranslation.title;
+    const needsBody = translationSettings.translationMode === "full" && !currentTranslation.text;
+    const titleIsReusableChinese = needsTitle && shouldUseOriginalChineseField(translationSettings, titleSource);
+    const bodyIsReusableChinese = needsBody && shouldUseOriginalChineseField(translationSettings, bodySource);
+
+    return {
+      titleSource,
+      bodySource,
+      needsTitle,
+      needsBody,
+      neededText: {
+        title: needsTitle && !titleIsReusableChinese ? titleSource : "",
+        body: needsBody && !bodyIsReusableChinese ? bodySource : "",
+        existingTitle: currentTranslation.title || (titleIsReusableChinese ? titleSource : ""),
+        existingText: currentTranslation.text || (bodyIsReusableChinese ? bodySource : "")
+      }
+    };
+  }
+
   function canAutoTranslateItem(accountInfo, translationSettings) {
     return Boolean(
       translationSettings?.autoTranslate &&
@@ -473,12 +502,13 @@ export function createItemService({ feedService, translator, accountService, sto
       };
     }
 
-    const titleSource = getTitleTranslationSource(sourceItem);
-    const bodySource = translationSettings.translationMode === "full" ? getBodyTranslationSource(sourceItem) : "";
-    const needsTitle = !existingTranslation.title;
-    const needsBody = translationSettings.translationMode === "full" && !existingTranslation.text;
-    const titleIsReusableChinese = needsTitle && shouldUseOriginalChineseField(translationSettings, titleSource);
-    const bodyIsReusableChinese = needsBody && shouldUseOriginalChineseField(translationSettings, bodySource);
+    const {
+      titleSource,
+      bodySource,
+      needsTitle,
+      needsBody,
+      neededText
+    } = getNeededTranslationText(sourceItem, translationSettings, existingTranslation);
 
     if (!needsTitle && !needsBody) {
       return {
@@ -490,12 +520,6 @@ export function createItemService({ feedService, translator, accountService, sto
       };
     }
 
-    const neededText = {
-      title: needsTitle && !titleIsReusableChinese ? titleSource : "",
-      body: needsBody && !bodyIsReusableChinese ? bodySource : "",
-      existingTitle: existingTranslation.title || (titleIsReusableChinese ? titleSource : ""),
-      existingText: existingTranslation.text || (bodyIsReusableChinese ? bodySource : "")
-    };
     const localTranslation = translateNeededTextLocally(translationSettings, neededText);
     if (!localTranslation && shouldSkipTranslationForChineseSource(translationSettings, sourceItem, bodySource, { titleSource })) {
       return {
@@ -583,13 +607,26 @@ export function createItemService({ feedService, translator, accountService, sto
         ? getAutomaticTranslationSettings(baseTranslation)
         : baseTranslation;
       const presented = presentItemForUser(user.id, item, effectiveTranslation);
-      if (!effectiveTranslation.displayTranslated || !canAutoTranslateItem(accountInfo, effectiveTranslation)) {
+      if (!effectiveTranslation.displayTranslated || !accountInfo?.features?.translation) {
         continue;
       }
       if (hasSatisfiedTranslation(presented, effectiveTranslation)) {
         continue;
       }
-      if (shouldSkipTranslationForChineseSource(effectiveTranslation, item)) {
+      const existingTranslation = resolveStoredTranslation(item, effectiveTranslation);
+      const { titleSource, bodySource, neededText } = getNeededTranslationText(
+        item,
+        effectiveTranslation,
+        existingTranslation
+      );
+      const localTranslation = translateNeededTextLocally(effectiveTranslation, neededText);
+      if (localTranslation && !effectiveTranslation.autoTranslate) {
+        continue;
+      }
+      if (!localTranslation && !canAutoTranslateItem(accountInfo, effectiveTranslation)) {
+        continue;
+      }
+      if (!localTranslation && shouldSkipTranslationForChineseSource(effectiveTranslation, item, bodySource, { titleSource })) {
         continue;
       }
 

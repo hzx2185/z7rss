@@ -47,6 +47,14 @@ const noEntityParser = new XMLParser({
   processEntities: false
 });
 
+function stableFallbackGuid(prefix, parts = []) {
+  const normalized = parts
+    .map((part) => normalizeText(String(part || "")))
+    .filter(Boolean)
+    .join("|");
+  return `${prefix}:${normalized || "untitled"}`;
+}
+
 function asArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -843,15 +851,18 @@ function mapRssItems(channel) {
     const itemLink = item.link || "";
     const rawContentHtml = typeof encoded === "string" ? encoded : item.description || "";
     const contentHtml = sanitizeHtmlFragment(rawContentHtml, itemLink);
+    const contentText = htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml));
+    const publishedAt = toIsoOrNull(item.pubDate);
+    const title = item.title || "Untitled";
     return {
-      guid: item.guid?.text || item.guid || itemLink || crypto.randomUUID(),
-      title: item.title || "Untitled",
+      guid: item.guid?.text || item.guid || itemLink || stableFallbackGuid("rss", [channel.link, title, publishedAt, contentText]),
+      title,
       link: toSafeAbsoluteUrl(itemLink, channel.link || "") || "",
       author: item.author || item["dc:creator"] || "",
       summary: item.description || "",
       contentHtml,
-      contentText: htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml)),
-      publishedAt: toIsoOrNull(item.pubDate)
+      contentText,
+      publishedAt
     };
   });
 }
@@ -862,15 +873,18 @@ function mapAtomEntries(feed) {
     const alternate = links.find((link) => link.rel === "alternate") || links[0] || {};
     const entryLink = alternate.href || "";
     const html = sanitizeHtmlFragment(pickText(entry.content) || pickText(entry.summary), entryLink);
+    const contentText = htmlToStructuredText(html) || normalizeParagraphText(stripHtml(html));
+    const title = pickText(entry.title) || "Untitled";
+    const publishedAt = toIsoOrNull(entry.published || entry.updated);
     return {
-      guid: entry.id || entryLink || crypto.randomUUID(),
-      title: pickText(entry.title) || "Untitled",
+      guid: entry.id || entryLink || stableFallbackGuid("atom", [pickText(feed.title), title, publishedAt, contentText]),
+      title,
       link: toSafeAbsoluteUrl(entryLink, feed.link?.href || "") || "",
       author: entry.author?.name || "",
       summary: pickText(entry.summary),
       contentHtml: html,
-      contentText: htmlToStructuredText(html) || normalizeParagraphText(stripHtml(html)),
-      publishedAt: toIsoOrNull(entry.published || entry.updated)
+      contentText,
+      publishedAt
     };
   });
 }

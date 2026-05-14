@@ -283,40 +283,157 @@ export function createTranslator({ ai }) {
 
     const apiKey = String(runtimeConfig?.apiKey || "").trim();
     const target = getProviderTargetCode("deeplx", runtimeConfig?.targetLanguage);
-    let response;
+
+    // 支持两种 API key 传递方式：Authorization header 或 URL query parameter
+    let url = baseUrl;
+    const headers = {
+      "content-type": "application/json",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    };
+
+    if (apiKey) {
+      // 检查 baseUrl 是否已经包含 {{apiKey}} 占位符
+      if (url.includes("{{apiKey}}")) {
+        url = url.replace("{{apiKey}}", encodeURIComponent(apiKey));
+      } else if (url.includes("?token=") || url.includes("&token=")) {
+        // 如果 URL 已经有 token 参数，替换它
+        url = url.replace(/([?&])token=[^&]*/, `$1token=${encodeURIComponent(apiKey)}`);
+      } else if (url.includes("?api_key=") || url.includes("&api_key=")) {
+        // 如果 URL 已经有 api_key 参数，替换它
+        url = url.replace(/([?&])api_key=[^&]*/, `$1api_key=${encodeURIComponent(apiKey)}`);
+      } else {
+        // 默认使用 Authorization: Bearer header
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+    }
+
+    // 解析响应结果的辅助函数
+    const extractText = (data) => {
+      if (!data) return null;
+      if (typeof data === "string") return data.trim();
+      if (typeof data.data === "string") return data.data.trim();
+      if (Array.isArray(data.data) && data.data[0]) return String(data.data[0]).trim();
+      if (typeof data.result === "string") return data.result.trim();
+      if (typeof data.text === "string") return data.text.trim();
+      if (Array.isArray(data.translations) && data.translations[0]?.text) return String(data.translations[0].text).trim();
+      return null;
+    };
+
+    // 尝试多种请求格式
+    let response, payload;
+
+    // 尝试 1: POST 请求 + JSON body (标准 DeepLX 格式)
     try {
-      response = await fetch(baseUrl, {
+      response = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-        },
+        headers,
         body: JSON.stringify({
           text: String(text || ""),
           source_lang: "auto",
           target_lang: target
         })
       });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload) {
+        const extracted = extractText(payload);
+        if (extracted) return extracted;
+      }
     } catch (error) {
-      throw badGateway(`DeepLX 接口连接失败: ${describeFetchError(error)}`, {
-        code: "translation_request_failed"
-      });
+      // POST 请求失败，继续尝试
     }
 
-    const payload = await response.json().catch(() => null);
-    const payloadCode = Number(payload?.code || 0);
-    if (!response.ok || (payloadCode && payloadCode >= 400)) {
-      const errorText = parseResponseError(payload);
-      const hint =
-        response.status === 418
-          ? " 当前接口主动拒绝请求，通常是地址或密钥路径无效、公共实例限流，或服务端风控。"
-          : "";
-      throw badGateway(`DeepLX 翻译请求失败: ${response.status}${errorText ? ` ${errorText}` : ""}${hint}`, {
-        code: "translation_request_failed"
+    // 尝试 2: POST 请求 + JSON body (简化版本)
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: String(text || ""),
+          target_lang: target
+        })
       });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload) {
+        const extracted = extractText(payload);
+        if (extracted) return extracted;
+      }
+    } catch (error) {
+      // 继续尝试
     }
 
-    return String(payload?.data || "").trim();
+    // 尝试 3: GET 请求 + 查询参数
+    try {
+      const getUrl = new URL(url);
+      getUrl.searchParams.set("text", String(text || ""));
+      getUrl.searchParams.set("source_lang", "auto");
+      getUrl.searchParams.set("target_lang", target);
+
+      response = await fetch(getUrl.toString(), {
+        method: "GET",
+        headers: Object.fromEntries(Object.entries(headers).filter(([key]) => key !== "content-type"))
+      });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload) {
+        const extracted = extractText(payload);
+        if (extracted) return extracted;
+      }
+    } catch (error) {
+      // 继续尝试
+    }
+
+    // 尝试 4: POST + form-urlencoded
+    try {
+      const formHeaders = {
+        ...headers,
+        "content-type": "application/x-www-form-urlencoded"
+      };
+      response = await fetch(url, {
+        method: "POST",
+        headers: formHeaders,
+        body: `text=${encodeURIComponent(String(text || ""))}&source_lang=auto&target_lang=${target}`
+      });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload) {
+        const extracted = extractText(payload);
+        if (extracted) return extracted;
+      }
+    } catch (error) {
+      // 继续尝试
+    }
+
+    // 尝试 5: 官方 DeepL JSON 格式 (text 为数组)
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: [String(text || "")],
+          target_lang: target
+        })
+      });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload) {
+        const extracted = extractText(payload);
+        if (extracted) return extracted;
+      }
+    } catch (error) {
+      // 继续尝试
+    }
+
+    // 所有尝试都失败，抛出错误
+    const errorText = parseResponseError(payload);
+    const hint =
+      (response?.status === 418 || response?.status === 403)
+        ? " 当前接口拒绝请求，可能需要特殊访问权限或 IP 白名单。建议改用谷歌翻译（免费）或 AI 翻译。"
+        : "";
+    throw badGateway(`DeepLX 翻译请求失败: ${response?.status || "连接失败"}${errorText ? ` ${errorText}` : ""}${hint}`, {
+      code: "translation_request_failed"
+    });
   }
 
   return {

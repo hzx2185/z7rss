@@ -1,5 +1,4 @@
 import { badGateway, badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
-import { fetchArticleContent, fetchFeed } from "./fetcher.js";
 import {
   getReadableTextLength,
   hasUsableStoredArticleContent,
@@ -9,8 +8,24 @@ import {
 } from "./article-content.js";
 import { broadFeedCategories, cleanCategory, getDomainFromUrl, getFeedFreshness, inferFeedCategory } from "./feed-metadata.js";
 import { createFeedFetchSettings } from "./feed-fetch-settings.js";
-import { buildOpml, normalizeImportUrl, parseImportPayload } from "./feed-import-export.js";
 import { createFeedTitleTranslations } from "./feed-title-translations.js";
+
+let fetcherModulePromise = null;
+let feedImportExportModulePromise = null;
+
+function loadFetcherModule() {
+  if (!fetcherModulePromise) {
+    fetcherModulePromise = import("./fetcher.js");
+  }
+  return fetcherModulePromise;
+}
+
+function loadFeedImportExportModule() {
+  if (!feedImportExportModulePromise) {
+    feedImportExportModulePromise = import("./feed-import-export.js");
+  }
+  return feedImportExportModulePromise;
+}
 
 export function createFeedService({ store, accountService, config, translator = null, secretBox = null, ai = null }) {
   const userRefreshJobs = new Map();
@@ -339,6 +354,7 @@ export function createFeedService({ store, accountService, config, translator = 
         : getSharedGlobalFeedFetchSettings(feedId);
 
     try {
+      const { fetchFeed } = await loadFetcherModule();
       const result = await fetchFeed(fetchSettings?.feed_url || feed.url, {
         timeoutMs: config.crawlTimeoutMs,
         userAgent: config.userAgent,
@@ -434,6 +450,7 @@ export function createFeedService({ store, accountService, config, translator = 
       const shortItems = store.listFeedItemsShortContent(feedId, 400, 10);
       if (!shortItems.length) return;
       const runtimeOptions = buildRuntimeFeedFetchOptions(fetchSettings || {});
+      const { fetchArticleContent } = await loadFetcherModule();
       for (const item of shortItems) {
         try {
           const article = await fetchArticleContent(item.original_url || item.link, {
@@ -489,6 +506,7 @@ export function createFeedService({ store, accountService, config, translator = 
     const fetchSettings = getFeedFetchSettings(userId, item.feed_id);
     let article;
     try {
+      const { fetchArticleContent } = await loadFetcherModule();
       article = await fetchArticleContent(item.original_url || item.link, {
         timeoutMs: config.crawlTimeoutMs,
         userAgent: config.userAgent,
@@ -548,6 +566,7 @@ export function createFeedService({ store, accountService, config, translator = 
     }
 
     const fetchSettings = getFeedFetchSettings(userId, item.feed_id);
+    const { fetchArticleContent } = await loadFetcherModule();
     const page = await fetchArticleContent(item.original_url || item.link, {
       timeoutMs: config.crawlTimeoutMs,
       userAgent: config.userAgent,
@@ -779,6 +798,7 @@ export function createFeedService({ store, accountService, config, translator = 
       };
     },
     async importFeeds(userId, input) {
+      const { normalizeImportUrl, parseImportPayload } = await loadFeedImportExportModule();
       const candidates = parseImportPayload(input);
       const uniqueFeeds = [];
       const seen = new Set();
@@ -842,7 +862,7 @@ export function createFeedService({ store, accountService, config, translator = 
 
       return results;
     },
-    exportFeeds(userId, format = "opml") {
+    async exportFeeds(userId, format = "opml") {
       const feeds = store.listUserFeeds(userId);
       if (format === "json") {
         return JSON.stringify(
@@ -856,6 +876,7 @@ export function createFeedService({ store, accountService, config, translator = 
           2
         );
       }
+      const { buildOpml } = await loadFeedImportExportModule();
       return buildOpml(feeds, store.getUserById(userId)?.display_name || "Z7 RSS User");
     },
     async refreshFeedForUser(userId, feedId) {

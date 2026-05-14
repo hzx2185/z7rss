@@ -1,5 +1,11 @@
 import path from "node:path";
 
+const FALLBACK_APP_SECRET = "change-me-in-compose";
+const DEFAULT_APP_SECRET_PLACEHOLDERS = new Set([
+  FALLBACK_APP_SECRET,
+  "change-me-before-production"
+]);
+
 function parseInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
@@ -11,6 +17,25 @@ function parseBoolean(value, fallback = false) {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
+}
+
+function parseSqliteSynchronous(value, fallback = "FULL") {
+  const normalized = String(value || "").trim().toUpperCase();
+  return ["OFF", "NORMAL", "FULL", "EXTRA"].includes(normalized) ? normalized : fallback;
+}
+
+function isProduction(env) {
+  return String(env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
+function parseAppSecret(env) {
+  const appSecret = String(env.APP_SECRET || FALLBACK_APP_SECRET).trim();
+  if (isProduction(env) && DEFAULT_APP_SECRET_PLACEHOLDERS.has(appSecret)) {
+    const error = new Error("生产环境必须配置非默认 APP_SECRET");
+    error.code = "app_secret_required";
+    throw error;
+  }
+  return appSecret;
 }
 
 export function createConfig(env) {
@@ -30,7 +55,7 @@ export function createConfig(env) {
     sessionTtlDays: parseInteger(env.SESSION_TTL_DAYS, 30),
     secureCookies,
     trustProxy: parseBoolean(env.TRUST_PROXY, false),
-    appSecret: env.APP_SECRET || "change-me-in-compose",
+    appSecret: parseAppSecret(env),
     adminEmails: String(env.ADMIN_EMAILS || "")
       .split(",")
       .map((entry) => entry.trim().toLowerCase())
@@ -46,6 +71,13 @@ export function createConfig(env) {
     databaseBackupEnabled: parseBoolean(env.DATABASE_BACKUP_ENABLED, true),
     databaseBackupRetentionDays: parseInteger(env.DATABASE_BACKUP_RETENTION_DAYS, 14),
     databaseBackupMaxFiles: parseInteger(env.DATABASE_BACKUP_MAX_FILES, 24),
+    databaseSynchronous: parseSqliteSynchronous(env.DATABASE_SYNCHRONOUS, "FULL"),
+    databaseBusyTimeoutMs: Math.max(1000, parseInteger(env.DATABASE_BUSY_TIMEOUT_MS, 10000)),
+    databaseVacuumEnabled: parseBoolean(env.DATABASE_VACUUM_ENABLED, false),
+    databaseVacuumIntervalDays: parseInteger(env.DATABASE_VACUUM_INTERVAL_DAYS, 7),
+    databaseVacuumTime: /^\d{2}:\d{2}$/.test(String(env.DATABASE_VACUUM_TIME || "").trim())
+      ? String(env.DATABASE_VACUUM_TIME).trim()
+      : "03:30",
     auditLogRetentionDays: parseInteger(env.AUDIT_LOG_RETENTION_DAYS, 30),
     auditLogMaxEntries: parseInteger(env.AUDIT_LOG_MAX_ENTRIES, 5000),
     refreshRunRetentionDays: parseInteger(env.REFRESH_RUN_RETENTION_DAYS, 14),

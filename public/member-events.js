@@ -17,6 +17,7 @@ export function registerMemberEvents({
           password: document.querySelector("#member-login-password").value
         })
       })
+      actions.clearAuthStateCache()
       await actions.boot()
     } catch (error) {
       actions.setStatus(error.message, "error")
@@ -35,6 +36,7 @@ export function registerMemberEvents({
           password: document.querySelector("#member-register-password").value
         })
       })
+      actions.clearAuthStateCache()
       await actions.boot()
     } catch (error) {
       actions.setStatus(error.message, "error")
@@ -44,6 +46,7 @@ export function registerMemberEvents({
   els.logoutBtn.addEventListener("click", async () => {
     try {
       await api("/api/auth/logout", { method: "POST" })
+      actions.clearAuthStateCache()
       state.me = null
       state.billing = null
       state.preferences = null
@@ -91,6 +94,7 @@ export function registerMemberEvents({
         })
       })
       await actions.loadPreferences()
+      actions.clearAuthStateCache()
       await actions.loadMe()
       await actions.loadBilling()
       actions.setStatus("AI 配置已保存", "success")
@@ -102,7 +106,8 @@ export function registerMemberEvents({
   els.aiTestBtn.addEventListener("click", async () => {
     try {
       const result = await api("/api/account/preferences/ai/test", { method: "POST" })
-      actions.setStatus(`AI 测试成功: ${result.output}`, "success")
+      const speedInfo = result.durationMs ? ` 耗时: ${(result.durationMs / 1000).toFixed(2)}秒` : ""
+      actions.setStatus(`AI 测试成功${speedInfo}: ${result.output}`, "success")
     } catch (error) {
       actions.setStatus(error.message, "error")
     }
@@ -132,6 +137,7 @@ export function registerMemberEvents({
         body: JSON.stringify(payload)
       })
       await actions.loadDigest()
+      actions.clearAuthStateCache()
       await actions.loadMe()
       actions.setStatus("简报规则已保存", "success")
     } catch (error) {
@@ -190,6 +196,7 @@ export function registerMemberEvents({
       }
 
       await actions.loadPreferences()
+      actions.clearAuthStateCache()
       await actions.loadMe()
       actions.setStatus("翻译设置已保存", "success")
     } catch (error) {
@@ -227,6 +234,7 @@ export function registerMemberEvents({
         actions.setStatus("DeepLX 已恢复系统默认", "success")
       }
       await actions.loadPreferences()
+      actions.clearAuthStateCache()
       await actions.loadMe()
     } catch (error) {
       actions.setStatus(error.message, "error")

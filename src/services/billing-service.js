@@ -1,4 +1,3 @@
-import Stripe from "stripe";
 import { badRequest, notFound, serviceUnavailable } from "../lib/errors.js";
 
 const BILLING_ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -36,7 +35,15 @@ function getInvoicePeriods(invoice) {
 
 export function createBillingService({ store, accountService, config, feedService }) {
   const hasStripe = Boolean(config.stripeSecretKey);
-  const stripe = hasStripe ? new Stripe(config.stripeSecretKey) : null;
+  let stripeClientPromise = null;
+
+  async function getStripeClient() {
+    if (!hasStripe) return null;
+    if (!stripeClientPromise) {
+      stripeClientPromise = import("stripe").then(({ default: Stripe }) => new Stripe(config.stripeSecretKey));
+    }
+    return stripeClientPromise;
+  }
 
   function createPeriodEnd(days = 30) {
     return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -194,6 +201,7 @@ export function createBillingService({ store, accountService, config, feedServic
       }
 
       const checkoutReference = `cs_local_${Date.now()}_${user.id}`;
+      const stripe = await getStripeClient();
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         success_url: `${config.appUrl}/?checkout=success&plan=${plan.code}`,
@@ -237,6 +245,7 @@ export function createBillingService({ store, accountService, config, feedServic
         throw serviceUnavailable("Stripe webhook is not configured", { code: "stripe_unavailable" });
       }
 
+      const stripe = await getStripeClient();
       const event = stripe.webhooks.constructEvent(payloadBuffer, signature, config.stripeWebhookSecret);
 
       if (event.type === "checkout.session.completed") {

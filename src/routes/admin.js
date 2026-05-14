@@ -220,6 +220,14 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
       }, getAuditContext(req)));
       return;
     }
+    if (category === "database_vacuum") {
+      res.json(adminService.setSettings(category, {
+        enabled: parseTrimmedString(body.enabled, "自动碎片整理开关", { maxLength: 8 }),
+        interval_days: parseTrimmedString(body.interval_days, "碎片整理间隔天数", { maxLength: 8 }),
+        schedule_time: parseTrimmedString(body.schedule_time, "碎片整理时间", { maxLength: 8 })
+      }, getAuditContext(req)));
+      return;
+    }
     if (category === "translation_google") {
       res.json(adminService.setSettings(category, {
         base_url: parseTrimmedString(body.base_url, "谷歌翻译接口地址", { maxLength: 1000 }),

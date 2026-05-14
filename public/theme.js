@@ -1,3 +1,5 @@
+import { fetchAuthState } from "./auth-state.js"
+
 const THEME_KEY = "z7rss-theme"
 const THEMES = [
   { code: "jade", label: "青绿" },
@@ -86,16 +88,8 @@ async function syncSiteAuthLinks() {
   if (!authLinks.length && !registerLinks.length && !loginLinks.length && !userPills.length && !logoutButtons.length) return
 
   try {
-    const response = await fetch("/api/auth/me", {
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json"
-      }
-    })
-    if (!response.ok) return
-
-    const result = await response.json()
-    const isAuthenticated = Boolean(result?.authenticated && result?.user)
+    const result = await fetchAuthState()
+    const isAuthenticated = Boolean(result?.user)
     const user = result?.user || null
     const label = user?.isAdmin ? "管理员" : "会员"
     const identity = String(user?.email || user?.displayName || "").trim()
@@ -132,7 +126,7 @@ async function syncSiteAuthLinks() {
         return
       }
 
-      const email = String(result.user.email || result.user.displayName || "").trim()
+      const email = String(user?.email || user?.displayName || "").trim()
       link.textContent = "会员"
       link.href = "/member.html"
       link.title = email ? `已登录：${email}` : "已登录，打开会员中心"

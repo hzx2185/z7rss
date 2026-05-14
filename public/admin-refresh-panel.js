@@ -149,6 +149,11 @@ export function createAdminRefreshPanel({
       if (Number(details.databaseBackupsDeleted || 0) > 0) {
         flags.push({ tone: "accent", label: `轮转备份 ${Number(details.databaseBackupsDeleted || 0)}` })
       }
+      if (details.databaseVacuumed) {
+        flags.push({ tone: "success", label: "已碎片整理" })
+      } else if (details.databaseVacuumSkipped && details.databaseVacuumSkipReason !== "not_due") {
+        flags.push({ tone: "warning", label: "碎片整理跳过" })
+      }
       flags.push({ tone: details.optimized ? "success" : "warning", label: details.optimized ? "已优化数据库" : "未优化" })
     }
 
@@ -167,6 +172,7 @@ export function createAdminRefreshPanel({
                   <span class="muted">开始：${formatDate(run.startedAt)}${run.finishedAt ? " · 完成：" + formatDate(run.finishedAt) : ""}</span>
                   <span class="muted">清理文章 ${Number(runDetails.itemsDeleted || 0)} · 处理订阅源 ${Number(runDetails.feedsProcessed || 0)} · 孤儿数据 ${Number(runDetails.orphanRecordsDeleted || 0)}</span>
                   <span class="muted">自动备份 ${runDetails.databaseBackupCreated ? "已创建" : "未创建"} · 轮转删除 ${Number(runDetails.databaseBackupsDeleted || 0)}</span>
+                  <span class="muted">碎片整理 ${runDetails.databaseVacuumed ? "已执行" : "未执行"} · 上次 ${formatDate(runDetails.databaseVacuumLastRunAt)}</span>
                   <span class="muted">会话 ${Number(runDetails.expiredSessionsDeleted || 0)} · 审计日志 ${Number(runDetails.auditLogsDeleted || 0)} · 刷新记录 ${Number(runDetails.refreshRunsDeleted || 0)}</span>
                   ${errors.slice(0, 3).map((error) => `<span class="muted">错误：${escapeHtml(error)}</span>`).join("")}
                 </div>
