@@ -1,15 +1,41 @@
-# Docker 部署说明
+# Z7 RSS Docker 镜像说明
 
-Z7 RSS 默认使用 Docker Compose 启动，宿主机端口默认是 `39118`，容器内端口默认是 `39018`。
+Z7 RSS 是一个网页端 RSS 阅读平台，支持多用户、订阅广场、会员套餐、管理员后台、AI 翻译/总结/分类、邮件简报和 Google Reader API 常用兼容接口。
 
-## 快速启动
+> 文档边界：`DOCKER.md` 是公开镜像说明，面向直接使用 `hzx2185/z7rss:latest` 的部署用户，主要说明功能、最小部署、生产配置、持久化和恢复。源码结构、本地开发、测试、内部 API 和源码构建细节放在 [README.md](README.md)。以后修改文档时请先确认读者对象，避免把开发者说明写进公开镜像文档。
 
-```bash
-cp .env.example .env
-docker compose up --build -d
+## 镜像默认约定
+
+- 镜像：`hzx2185/z7rss:latest`
+- 容器内端口：`80`
+- 推荐宿主机端口：`39118`
+- SQLite 默认路径：`/app/data/rss.db`
+- 数据持久化目录：`/app/data`
+- `APP_SECRET` 未配置时会自动生成，并保存到 `/app/data/app-secret`
+- 第一个注册用户会自动成为管理员；也可以用 `ADMIN_EMAILS` 预设管理员邮箱
+
+## 最小部署
+
+新建 `docker-compose.yml`：
+
+```yaml
+services:
+  z7rss:
+    image: hzx2185/z7rss:latest
+    container_name: z7rss
+    ports:
+      - "39118:80"
+    volumes:
+      - ./data:/app/data
 ```
 
-打开：
+启动：
+
+```bash
+docker compose up -d
+```
+
+访问：
 
 ```text
 http://localhost:39118/
@@ -24,82 +50,105 @@ docker compose restart z7rss
 docker compose down
 ```
 
-每次修改代码后的推荐流程：
+## Compose 模板说明
 
-```bash
-npm test
-docker compose build z7rss
-docker compose up -d z7rss
-docker compose ps
+- `image` 使用已发布镜像；只有源码本地构建或自建镜像时才使用 `build`。
+- `container_name` 方便固定容器名；同一台机器部署多个实例时可以去掉。
+- `ports` 左侧是宿主机端口，默认 `39118`；右侧是容器内端口，固定 `80`。要换端口，改成 `"8080:80"` 这类格式即可。
+- `./data:/app/data` 保存 SQLite 数据库、WAL 文件、备份、恢复快照和自动生成的应用密钥。
+- `build`、`env_file`、`.env`、`environment` 和 `restart` 都不是最小启动必需项。
+- 生产部署建议按需要加回 `restart: unless-stopped`。
+
+仓库源码里的 `docker-compose.yml` 使用 `build: .`，是开发者本地源码构建版，不是公开镜像部署模板。
+
+## 推荐生产配置
+
+默认无需 `.env`。需要设置生产域名、反向代理或管理员邮箱时，可以按需添加 `environment`：
+
+```yaml
+services:
+  z7rss:
+    image: hzx2185/z7rss:latest
+    container_name: z7rss
+    restart: unless-stopped
+    ports:
+      - "39118:80"
+    volumes:
+      - ./data:/app/data
+    environment:
+      APP_URL: "https://rss.example.com"
+      ADMIN_EMAILS: "admin@example.com"
+      TRUST_PROXY: "true"
+      SESSION_COOKIE_SECURE: "true"
 ```
 
-本项目默认只需要保留 Docker 暴露的 `HOST_PORT`。如果临时启动过 `node src/server.js` 或其他调试端口，发布前请先停掉，避免 39010、39098 等临时端口继续监听。
+真实收费再加入 Stripe 配置：
 
-## 配置
-
-Compose 会自动读取根目录 `.env`。不要把 `.env` 提交或发送给别人。
-
-关键变量：
-
-- `HOST_PORT`：宿主机访问端口，默认 `39118`
-- `PORT`：容器内监听端口，默认 `39018`
-- `APP_URL`：外部访问地址，本地默认 `http://localhost:39118`
-- `DB_PATH`：容器内 SQLite 路径，默认 `/app/data/rss.db`
-- `DATABASE_BACKUP_ENABLED`：维护任务是否自动创建数据库备份，默认 `true`
-- `DATABASE_BACKUP_RETENTION_DAYS`：备份按天保留，默认 `14`
-- `DATABASE_BACKUP_MAX_FILES`：备份最多保留份数，默认 `24`
-- `DATABASE_SYNCHRONOUS`：SQLite 同步级别，默认 `FULL`，优先保证异常关机后的数据安全
-- `DATABASE_BUSY_TIMEOUT_MS`：SQLite 写锁等待时间，默认 `10000`
-- `APP_SECRET`：会话签名密钥，生产环境必须改成高强度随机值
-- `ADMIN_EMAILS`：管理员邮箱，逗号分隔
-- `BILLING_PROVIDER`：`demo` 或 `stripe`
-- `STRIPE_*`：Stripe 收费所需配置
-- `AI_*`、`DEEPLX_API_URL`：AI 和翻译服务配置
-
-AI 邮件简报使用后台“系统设置”里的 SMTP 配置发送。容器不需要额外端口；只要容器能访问你的 SMTP 服务即可。邮件密码和 AI Key 会加密落库，页面只显示“已配置”状态。
-
-## 数据持久化
-
-Compose 将宿主机 `./data` 挂载到容器 `/app/data`。SQLite 数据库、WAL 文件和备份都在这个目录中。
-
-这些文件可能包含用户邮箱、订阅 URL、文章内容、会话信息、加密后的 API Key 等敏感数据。备份、迁移或排障时请按生产数据处理。
-
-SQLite 损坏通常不是普通应用 SQL 写坏的，而是写入时遇到宿主机断电、Docker/Node 被强杀、磁盘或 bind mount 同步异常、或手动移动/删除 `rss.db-wal` 与 `rss.db-shm` 这类旁路文件。应用启动时会先做数据库健康检查，自动备份完成后也会校验备份文件；如果检查失败，应优先从 `data/backups/` 或 `data/recovery-snapshots/` 恢复。清理目录时不要单独删除 `rss.db-wal`、`rss.db-shm`，除非服务已经停止并且确认是在做数据库恢复。
-
-## 隐私与安全
-
-- 不要提交 `.env`、`data/`、数据库备份、日志或本地导出的 OPML。
-- 生产环境必须设置新的 `APP_SECRET`，不要使用默认占位值。
-- 生产环境建议使用 HTTPS，并将 `APP_URL` 改为 HTTPS 地址。
-- 如果系统部署在反向代理后，可按需要设置 `TRUST_PROXY=true` 和 `SESSION_COOKIE_SECURE=true`。
-- Stripe、AI、翻译 API Key 应只放在 `.env` 或后台配置中，不要写入源码。
-- SMTP 密码、简报收件邮箱、用户订阅源和文章内容都属于敏感数据，会进入 SQLite 数据库和备份。
-- `data/` 目录建议定期备份，并限制文件权限。
-- 发布或排障前可清理 `.DS_Store`、临时日志和本地导出文件；不要为了“清理”直接删除 `rss.db` 或备份，除非确认要清空生产数据。
-
-## 端口与进程检查
-
-检查当前监听端口：
-
-```bash
-lsof -nP -iTCP -sTCP:LISTEN
+```yaml
+      BILLING_PROVIDER: "stripe"
+      STRIPE_SECRET_KEY: "sk_live_..."
+      STRIPE_WEBHOOK_SECRET: "whsec_..."
+      STRIPE_PRICE_PRO_MONTHLY: "price_..."
+      STRIPE_PRICE_TEAM_MONTHLY: "price_..."
 ```
 
-只保留预期的 Docker 端口后，再访问：
+不建议设置 `PORT` 或 `DB_PATH`。容器内端口固定为 `80`，数据库默认在 `/app/data/rss.db`。
 
-```text
-http://localhost:39118/
-```
+## 应用内配置
 
-如果要换端口，修改 `.env` 中的 `HOST_PORT` 和 `APP_URL`，然后重新构建并启动容器。
+AI、SMTP、套餐权益和站点信息建议在管理后台维护。密钥、SMTP 密码、订阅源抓取密码和 Cookie 会加密存储，前端不会回显明文。
 
-## AI 分类与简报
+默认 `BILLING_PROVIDER=demo`，点击升级会直接开通套餐，便于试用。真实收费需要配置 Stripe Secret、Webhook Secret 和价格 ID。
 
-- 后台订阅源列表可点击“AI 分类”，也可以调用 `POST /api/admin/feeds/reclassify` 批量重分。
-- 分类采用“大类”策略：规则分类兜底，AI 只允许输出内置大类，避免过细或跑偏。
-- Pro 默认支持 3 条简报规则，Team 默认支持 20 条；可在后台套餐配置里调整。
-- 简报规则默认每天 `09:00`（Asia/Shanghai）触发，选择订阅源范围、AI 来源、提示词和接收邮箱后自动发送。
+## 自动默认值
 
-## 构建上下文
+这些参数不需要写进 Compose：
 
-`.dockerignore` 会排除 `.env`、`data/`、`node_modules/`、测试目录和系统临时文件，避免隐私数据和本地依赖被发送到 Docker 构建上下文。
+- 自动刷新周期：`REFRESH_INTERVAL_MINUTES=30`
+- 维护任务周期：`MAINTENANCE_INTERVAL_MINUTES=360`
+- 数据库自动备份：默认开启，保留 `14` 天、最多 `24` 份
+- SQLite 同步级别：默认 `FULL`
+- SQLite 忙等待：默认 `10000ms`
+- 审计日志保留：默认 `30` 天、最多 `5000` 条
+- 刷新历史保留：默认 `14` 天、最多 `1000` 条
+- 抓取超时：默认 `15000ms`
+- 会话 Cookie 名称：默认 `z7rss_session`
+- 会话有效期：默认 `30` 天
+- 认证、AI 和订阅写入接口限流：应用内置默认值
+
+如果确实需要调整这些高级项，可以按需添加 `environment` 或 `env_file`，无需把它们展开到默认 Compose 模板。
+
+## 数据持久化与恢复
+
+Compose 将宿主机 `./data` 挂载到容器 `/app/data`。默认包含：
+
+- `rss.db`、`rss.db-wal`、`rss.db-shm`
+- `backups/` 自动备份
+- `recovery-snapshots/` 恢复快照
+- `app-secret` 自动生成的应用密钥
+
+这些文件可能包含用户邮箱、订阅 URL、文章内容、会话信息和加密后的 API Key，请按生产数据处理。
+
+不要在服务运行时单独删除 `rss.db-wal` 或 `rss.db-shm`。如果要恢复数据库，先停止容器，再从 `data/backups/` 或 `data/recovery-snapshots/` 选择完整备份恢复。
+
+迁移服务时，请连同整个 `data/` 目录一起迁移；如果使用自动生成的 `app-secret`，缺失该文件会导致旧会话失效。
+
+## 安全建议
+
+- 将 `APP_URL` 改为公网 HTTPS 地址。
+- 反向代理后设置 `TRUST_PROXY=true`。
+- HTTPS Cookie 场景设置 `SESSION_COOKIE_SECURE=true`。
+- 可以继续使用自动生成的 `data/app-secret`；也可以显式设置高强度 `APP_SECRET`。
+- 不要把 `APP_SECRET`、Stripe Key、AI Key、SMTP 密码、`data/` 或数据库备份提交到公开仓库。
+- 定期备份 `data/`，并限制目录权限。
+
+## 页面入口
+
+- `/`：首页
+- `/plaza.html`：订阅广场
+- `/pricing.html`：会员套餐
+- `/help.html`：帮助中心
+- `/changelog.html`：更新日志
+- `/member.html`：会员中心
+- `/reader.html`：阅读中心
+- `/admin.html`：管理后台
