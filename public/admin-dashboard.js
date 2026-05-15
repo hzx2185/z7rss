@@ -368,9 +368,7 @@ export function createAdminDashboard({
     const deeplx = state.admin.settings.translation_deeplx || {}
     const bing = state.admin.settings.translation_bing || {}
     const translation = state.admin.settings.translation || {}
-    const providerPool = Array.isArray(state.admin.settings.translation_provider_pool?.configs)
-      ? state.admin.settings.translation_provider_pool.configs
-      : []
+    const translationProviderPoolUnavailable = Boolean(state.admin.settings.translation_provider_pool?.configs_unavailable)
     if (els.settingTranslationProvider) els.settingTranslationProvider.value = translation.provider || "google"
     if (els.settingTranslationTarget) els.settingTranslationTarget.value = translation.target_language || "zh-CN"
     if (els.settingTranslationMode) els.settingTranslationMode.value = translation.translation_mode || "title"
@@ -396,7 +394,9 @@ export function createAdminDashboard({
                 </article>
               `)
               .join("")
-          : `<article class="list-row"><div class="list-main"><strong>未配置额外 API</strong><span class="muted">仍会使用上方单个供应商配置。</span></div></article>`
+          : translationProviderPoolUnavailable
+            ? `<article class="list-row"><div class="list-main"><strong>旧翻译 API 列表不可用</strong><span class="muted">数据库里仍有旧列表，但当前 APP_SECRET 无法解密。请恢复原 data/app-secret，或重新添加 API 后保存新列表。</span></div></article>`
+            : `<article class="list-row"><div class="list-main"><strong>未配置额外 API</strong><span class="muted">仍会使用上方单个供应商配置。</span></div></article>`
       )
     }
     if (els.settingSiteName) els.settingSiteName.value = general.site_name || state.config?.appName || ""

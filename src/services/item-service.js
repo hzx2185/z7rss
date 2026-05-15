@@ -1,4 +1,4 @@
-import { forbidden, notFound } from "../lib/errors.js";
+import { badRequest, createError, forbidden, notFound } from "../lib/errors.js";
 import { getTranslationProviderLabel, supportsServerTranslation } from "./translator.js";
 import { hasUsableStoredArticleContent, hasUsableStoredPageContent } from "./article-content.js";
 import { canConvertTraditionalToSimplified, convertTraditionalToSimplified } from "./chinese-conversion.js";
@@ -87,6 +87,25 @@ export function createItemService({ feedService, translator, accountService, sto
         !hasUsableStoredPageContent(item) &&
         String(item.original_url || item.link || "").trim()
     );
+  }
+
+  function formatAiRuntimeError(runtime, error) {
+    const label = runtime.label || runtime.source || "AI";
+    return `${label}: ${error?.message || String(error)}`;
+  }
+
+  function createAiSummaryError(errors) {
+    if (!errors.length) {
+      return badRequest("AI 接口未配置，请先在后台或会员中心填写接口地址和 API Key", {
+        code: "ai_provider_unconfigured"
+      });
+    }
+
+    const first = errors[0].error;
+    const status = Number(first?.status || 502);
+    return createError(status, `AI 总结失败。详情：${errors.map(({ runtime, error }) => formatAiRuntimeError(runtime, error)).join(" | ")}`, {
+      code: first?.code || (status >= 500 ? "ai_summary_failed" : "bad_request")
+    });
   }
 
   function isChineseTargetLanguage(targetLanguage) {
@@ -881,10 +900,10 @@ export function createItemService({ feedService, translator, accountService, sto
           store.updateSummary(item.id, output);
           return { aiSummary: output };
         } catch (error) {
-          errors.push(`${runtime.label || runtime.source}: ${error?.message || String(error)}`);
+          errors.push({ runtime, error });
         }
       }
-      throw errors.length ? new Error(`AI 总结失败。详情：${errors.join(" | ")}`) : new Error("AI 接口未配置");
+      throw createAiSummaryError(errors);
     }
   };
 }

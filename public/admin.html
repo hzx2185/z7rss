@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/css/admin/security-panel.css" />
     <link rel="stylesheet" href="/css/shared/compact-ui.css" />
     <link rel="stylesheet" href="/css/admin/page.css" />
+    <link rel="stylesheet" href="/css/pages/admin.css" />
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/admin/shell.css" />
     <link rel="stylesheet" href="/css/admin/shell-extended.css" />
@@ -680,14 +681,14 @@
 
     <div id="admin-translation-pool-modal" class="admin-modal hidden" aria-hidden="true">
       <button id="admin-translation-pool-backdrop" class="admin-modal-backdrop" type="button" aria-label="关闭"></button>
-      <section class="admin-modal-card" role="dialog" aria-modal="true" aria-labelledby="admin-translation-pool-title">
+      <section class="admin-modal-card admin-translation-pool-card" role="dialog" aria-modal="true" aria-labelledby="admin-translation-pool-title">
         <div class="admin-modal-head">
           <div class="admin-modal-copy">
             <h2 id="admin-translation-pool-title">添加翻译 API</h2>
           </div>
           <button id="admin-translation-pool-close-btn" class="secondary icon-btn" type="button" aria-label="关闭">×</button>
         </div>
-        <form id="admin-translation-pool-form" class="stack compact-form">
+        <form id="admin-translation-pool-form" class="admin-translation-pool-form compact-form">
           <input id="setting-translation-provider-pool-edit-id" type="hidden" />
           <label>
             <span>API 类型</span>
@@ -713,7 +714,7 @@
             <span>优先级</span>
             <input id="setting-translation-provider-pool-priority" type="number" min="1" step="1" autocomplete="off" placeholder="数字越小优先级越高" />
           </label>
-          <label>
+          <label class="admin-modal-span-2">
             <span>接口地址</span>
             <input id="setting-translation-provider-pool-base-url" type="url" autocomplete="off" placeholder="https://..." />
           </label>
@@ -721,16 +722,16 @@
             <span>区域</span>
             <input id="setting-translation-provider-pool-region" type="text" autocomplete="off" placeholder="必应需要，如 eastasia" />
           </label>
-          <label>
+          <label class="admin-modal-span-2">
             <span>API Key</span>
             <input id="setting-translation-provider-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
           </label>
-          <div class="inline-row">
+          <div class="admin-modal-actions admin-modal-span-2">
             <button id="setting-translation-provider-pool-add-btn" type="button">确认</button>
             <button id="setting-translation-provider-pool-test-btn" class="secondary" type="button">测试 API</button>
             <button id="setting-translation-provider-pool-cancel-btn" class="secondary" type="button">取消</button>
           </div>
-          <p id="admin-translation-pool-test-status" class="status-text hidden"></p>
+          <p id="admin-translation-pool-test-status" class="status-text hidden admin-modal-span-2"></p>
         </form>
       </section>
     </div>

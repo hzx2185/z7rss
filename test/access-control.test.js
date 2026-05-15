@@ -91,6 +91,31 @@ test("access control allows same-origin cookie API writes", async () => {
   assert.equal(await runMiddleware(accessControl.requireSameOriginForCookieWrites, req), null);
 });
 
+test("access control accepts reverse proxy https origins without TRUST_PROXY env", async () => {
+  const accessControl = createAccessControlLayer({
+    config: {
+      appUrl: "http://localhost:39118",
+      sessionCookieName: "sid"
+    },
+    authService: { getUserFromToken: () => null },
+    adminService: { isBlockedIp: () => false }
+  });
+  const req = {
+    method: "POST",
+    path: "/api/feeds",
+    protocol: "http",
+    headers: {
+      cookie: "sid=test-token",
+      host: "127.0.0.1:39118",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "rss.example.test",
+      origin: "https://rss.example.test"
+    }
+  };
+
+  assert.equal(await runMiddleware(accessControl.requireSameOriginForCookieWrites, req), null);
+});
+
 test("access control rejects cross-origin cookie API writes", async () => {
   const accessControl = createAccessControlLayer({
     config: {

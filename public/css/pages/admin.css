@@ -59,6 +59,53 @@ body.admin-modal-open {
   gap: 12px;
 }
 
+.admin-translation-pool-card {
+  width: min(680px, calc(100vw - 32px));
+  padding: 18px 20px 20px;
+}
+
+.admin-translation-pool-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-translation-pool-form label {
+  min-width: 0;
+}
+
+.admin-translation-pool-form input,
+.admin-translation-pool-form select {
+  min-height: 38px;
+}
+
+.admin-modal-span-2 {
+  grid-column: 1 / -1;
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.admin-modal-actions button {
+  min-width: 88px;
+}
+
+.admin-modal-actions button:first-child {
+  order: 2;
+}
+
+.admin-modal-actions button:nth-child(2) {
+  order: 1;
+}
+
+.admin-modal-actions button:nth-child(3) {
+  order: 0;
+}
+
 @media (max-width: 560px) {
   .admin-modal {
     align-items: flex-end;
@@ -69,5 +116,25 @@ body.admin-modal-open {
     max-height: min(82vh, 720px);
     padding: 14px;
     border-radius: 16px 16px 0 0;
+  }
+
+  .admin-translation-pool-card {
+    width: 100%;
+    padding: 14px;
+  }
+
+  .admin-translation-pool-form {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .admin-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-modal-actions button {
+    width: 100%;
+    min-width: 0;
   }
 }

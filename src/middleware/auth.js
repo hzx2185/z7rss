@@ -1,6 +1,6 @@
 import { forbidden, unauthorized } from "../lib/errors.js";
 import { parseCookies } from "../lib/http.js";
-import { getRequestIp } from "../lib/request.js";
+import { getForwardedHeaderValue, getRequestIp, getRequestProtocol } from "../lib/request.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -19,9 +19,10 @@ function getOriginFromUrl(value) {
 }
 
 function getRequestOrigin(req, config) {
-  const host = String(getHeader(req, "host") || "").trim();
+  const forwardedHost = getForwardedHeaderValue(req, "x-forwarded-host");
+  const host = String(forwardedHost || getHeader(req, "host") || "").trim();
   if (host) {
-    const protocol = req.protocol || (req.secure ? "https" : "http");
+    const protocol = getRequestProtocol(req);
     return `${protocol}://${host}`;
   }
   return getOriginFromUrl(config.appUrl);

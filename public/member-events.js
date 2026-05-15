@@ -6,6 +6,14 @@ export function registerMemberEvents({
   actions,
   renderers
 }) {
+  function formatAiRuntimeSource(result = {}) {
+    if (result.label) return result.label
+    if (result.source === "user") return "我的 AI 配置"
+    if (result.source === "system_pool") return "系统 AI 池"
+    if (result.source === "system") return "系统默认 AI"
+    return ""
+  }
+
   els.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault()
     try {
@@ -107,7 +115,8 @@ export function registerMemberEvents({
     try {
       const result = await api("/api/account/preferences/ai/test", { method: "POST" })
       const speedInfo = result.durationMs ? ` 耗时: ${(result.durationMs / 1000).toFixed(2)}秒` : ""
-      actions.setStatus(`AI 测试成功${speedInfo}: ${result.output}`, "success")
+      const sourceInfo = formatAiRuntimeSource(result)
+      actions.setStatus(`AI 测试成功${sourceInfo ? `（命中：${sourceInfo}）` : ""}${speedInfo}: ${result.output}`, "success")
     } catch (error) {
       actions.setStatus(error.message, "error")
     }

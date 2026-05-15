@@ -63,7 +63,7 @@ docker compose down
 
 ## 推荐生产配置
 
-默认无需 `.env`。需要设置生产域名、反向代理或管理员邮箱时，可以按需添加 `environment`：
+默认无需 `.env`。生产域名和站点名称优先在管理后台保存；反向代理 HTTPS 场景会自动识别 `X-Forwarded-Proto` / `X-Forwarded-Host`，通常也不需要额外环境变量。需要预设管理员邮箱时，可以按需添加 `ADMIN_EMAILS`：
 
 ```yaml
 services:
@@ -76,10 +76,7 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      APP_URL: "https://rss.example.com"
       ADMIN_EMAILS: "admin@example.com"
-      TRUST_PROXY: "true"
-      SESSION_COOKIE_SECURE: "true"
 ```
 
 真实收费再加入 Stripe 配置：
@@ -135,9 +132,8 @@ Compose 将宿主机 `./data` 挂载到容器 `/app/data`。默认包含：
 
 ## 安全建议
 
-- 将 `APP_URL` 改为公网 HTTPS 地址。
-- 反向代理后设置 `TRUST_PROXY=true`。
-- HTTPS Cookie 场景设置 `SESSION_COOKIE_SECURE=true`。
+- 在管理后台填写公网域名，便于公开页面、帮助页和对外链接显示正确地址。
+- 反向代理需要保留 `Host`、`X-Forwarded-Host` 和 `X-Forwarded-Proto` 头；应用会据此处理同源校验和 HTTPS Cookie。
 - 可以继续使用自动生成的 `data/app-secret`；也可以显式设置高强度 `APP_SECRET`。
 - 不要把 `APP_SECRET`、Stripe Key、AI Key、SMTP 密码、`data/` 或数据库备份提交到公开仓库。
 - 定期备份 `data/`，并限制目录权限。

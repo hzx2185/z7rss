@@ -859,6 +859,13 @@ export function createAdminService({
           try {
             const parsed = JSON.parse(normalizedInput);
             if (Array.isArray(parsed)) {
+              const hasUnavailableCurrentList = Boolean(current[category]?.configs_unavailable);
+              const hasKeepPlaceholder = parsed.some((entry) => String(entry?.apiKey ?? entry?.api_key ?? "") === "__KEEP__");
+              if (hasUnavailableCurrentList && (!parsed.length || hasKeepPlaceholder)) {
+                throw badRequest("旧 API 列表不可用，请恢复 APP_SECRET，或重新填写 API Key 后保存新列表", {
+                  code: "secret_unavailable"
+                });
+              }
               const currentRaw = current[category]?.[key] || "[]";
               const currentParsed = JSON.parse(currentRaw);
               parsed.forEach(entry => {

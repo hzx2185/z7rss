@@ -41,3 +41,19 @@ test("createConfig creates and reuses APP_SECRET_FILE in production", () => {
 
   assert.equal(reused.appSecret, config.appSecret);
 });
+
+test("createConfig can boot production from image defaults without APP_SECRET env", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "z7rss-compose-defaults-"));
+  const secretFile = path.join(dir, "app-secret");
+
+  const config = createConfig({
+    NODE_ENV: "production",
+    PORT: "80",
+    DB_PATH: "/app/data/rss.db",
+    APP_SECRET_FILE: secretFile
+  });
+
+  assert.equal(config.port, 80);
+  assert.equal(config.dbPath, "/app/data/rss.db");
+  assert.match(config.appSecret, /^[a-f0-9]{96}$/);
+});

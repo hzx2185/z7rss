@@ -1,6 +1,6 @@
 import express from "express";
 import { clearSessionCookie, setSessionCookie } from "../lib/http.js";
-import { getRequestIp } from "../lib/request.js";
+import { getRequestIp, isSecureRequest } from "../lib/request.js";
 import { createRateLimiter } from "../lib/rate-limit.js";
 import { route } from "../lib/routes.js";
 import { expectObject, parseEmail, parsePassword, parseTrimmedString } from "../lib/validation.js";
@@ -10,6 +10,9 @@ export function createAuthRouter({ authService, accountService, config }) {
   const getSessionContext = (req) => ({
     requestIp: getRequestIp(req),
     userAgent: req.headers["user-agent"] || ""
+  });
+  const getCookieOptions = (req) => ({
+    secure: Boolean(config.secureCookies || isSecureRequest(req))
   });
   const authWriteLimiter = createRateLimiter({
     name: "auth",
@@ -26,9 +29,7 @@ export function createAuthRouter({ authService, accountService, config }) {
       password: parsePassword(body.password),
       displayName: parseTrimmedString(body.displayName, "昵称", { required: true, maxLength: 80 })
     }, getSessionContext(req));
-    setSessionCookie(res, config.sessionCookieName, result.session.token, config.sessionTtlDays * 24 * 60 * 60, {
-      secure: config.secureCookies
-    });
+    setSessionCookie(res, config.sessionCookieName, result.session.token, config.sessionTtlDays * 24 * 60 * 60, getCookieOptions(req));
     res.status(201).json({
       user: result.user,
       account: accountService.getAccount(result.user)
@@ -41,9 +42,7 @@ export function createAuthRouter({ authService, accountService, config }) {
       email: parseEmail(body.email),
       password: parsePassword(body.password, "密码", { minLength: 1 })
     }, getSessionContext(req));
-    setSessionCookie(res, config.sessionCookieName, result.session.token, config.sessionTtlDays * 24 * 60 * 60, {
-      secure: config.secureCookies
-    });
+    setSessionCookie(res, config.sessionCookieName, result.session.token, config.sessionTtlDays * 24 * 60 * 60, getCookieOptions(req));
     res.json({
       user: result.user,
       account: accountService.getAccount(result.user)
@@ -53,7 +52,7 @@ export function createAuthRouter({ authService, accountService, config }) {
   router.post("/logout", (req, res) => {
     const token = req.auth?.session?.token;
     authService.logout(token);
-    clearSessionCookie(res, config.sessionCookieName, { secure: config.secureCookies });
+    clearSessionCookie(res, config.sessionCookieName, getCookieOptions(req));
     res.status(204).end();
   });
 
