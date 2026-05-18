@@ -1,3 +1,5 @@
+import { findScrollParent, getScrollTop, setScrollTop } from "./shared-ui.js"
+
 const VIRTUAL_ITEM_OVERSCAN = 480
 const VIRTUAL_MIN_VIEWPORT_ROWS = 10
 
@@ -173,6 +175,58 @@ export function createReaderVirtualList({
     return { top, height }
   }
 
+  function getAnchorRow(preferredItemId = 0) {
+    const container = getContainer()
+    if (!container) return null
+    const normalizedPreferredItemId = Number(preferredItemId || 0)
+    if (normalizedPreferredItemId > 0) {
+      const preferredRow = container.querySelector(`[data-item-row="${normalizedPreferredItemId}"]`)
+      if (preferredRow) return preferredRow
+    }
+
+    const scrollNode = findScrollParent(container)
+    const containerRect = container.getBoundingClientRect()
+    const targetTop =
+      scrollNode === window
+        ? Math.max(containerRect.top, 0)
+        : Math.max(containerRect.top, scrollNode.getBoundingClientRect().top)
+    let best = null
+    let bestDistance = Infinity
+
+    container.querySelectorAll("[data-item-row]").forEach((row) => {
+      const rect = row.getBoundingClientRect()
+      const distance = Math.abs(rect.top - targetTop)
+      if (distance < bestDistance) {
+        best = row
+        bestDistance = distance
+      }
+    })
+    return best
+  }
+
+  function captureAnchor(preferredItemId = 0) {
+    const row = getAnchorRow(preferredItemId)
+    if (!row) return null
+    const itemId = Number(row.getAttribute("data-item-row") || 0)
+    if (!itemId) return null
+    return {
+      itemId,
+      scrollNode: findScrollParent(row),
+      top: row.getBoundingClientRect().top
+    }
+  }
+
+  function restoreAnchor(anchor) {
+    if (!anchor) return
+    const container = getContainer()
+    const row = container?.querySelector(`[data-item-row="${anchor.itemId}"]`)
+    if (!row) return
+    const drift = row.getBoundingClientRect().top - anchor.top
+    if (Math.abs(drift) > 1) {
+      setScrollTop(anchor.scrollNode, getScrollTop(anchor.scrollNode) + drift)
+    }
+  }
+
   function getVisibleRange(items = [], metrics) {
     const container = getContainer()
     const rowCount = items.length
@@ -261,9 +315,11 @@ export function createReaderVirtualList({
       })
 
       if (metricsChanged) {
+        const anchor = captureAnchor()
         state.metrics = null
         state.metricsKey = ""
         render(state.items, { force: false })
+        restoreAnchor(anchor)
       }
     })
   }
@@ -345,6 +401,8 @@ export function createReaderVirtualList({
 
     const normalizedIds = [...new Set((itemIds || []).map((value) => Number(value)).filter((value) => value > 0))]
     if (!normalizedIds.length) return { updated: 0 }
+    const anchorItemId = Number(options.anchorItemId || normalizedIds[normalizedIds.length - 1] || 0)
+    const anchorBeforeUpdate = captureAnchor(anchorItemId)
 
     state.items = items
     const itemById = new Map(items.map((item) => [Number(item.id || 0), item]))
@@ -372,6 +430,14 @@ export function createReaderVirtualList({
       if (typeof options.patchRow === "function") {
         const patched = options.patchRow(row, item)
         if (patched !== false) {
+          const measuredHeight = Math.max(0, Math.ceil(row.getBoundingClientRect().height))
+          if (measuredHeight) {
+            const previousHeight = Number(state.rowHeights.get(itemId) || 0)
+            if (Math.abs(previousHeight - measuredHeight) > 1) {
+              state.rowHeights.set(itemId, measuredHeight)
+              metricsChanged = true
+            }
+          }
           updated += 1
           continue
         }
@@ -391,8 +457,11 @@ export function createReaderVirtualList({
     }
 
     if (metricsChanged) {
+      const anchor = anchorBeforeUpdate || captureAnchor()
       state.metrics = null
       state.metricsKey = ""
+      render(state.items, { force: false })
+      restoreAnchor(anchor)
     }
     if (updated) {
       scheduleMeasure()

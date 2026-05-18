@@ -55,6 +55,41 @@ export function safeToggle(el, hidden) {
   el.classList.toggle("hidden", hidden)
 }
 
+export function findScrollParent(element) {
+  let node = element?.parentElement || null
+  while (node && node !== document.body && node !== document.documentElement) {
+    const style = window.getComputedStyle(node)
+    const canScroll = node.scrollHeight > node.clientHeight + 1
+    if (canScroll && /(auto|scroll|overlay)/.test(style.overflowY || "")) {
+      return node
+    }
+    node = node.parentElement
+  }
+  return window
+}
+
+export function getScrollTop(scrollParent) {
+  return scrollParent === window ? window.scrollY || window.pageYOffset || 0 : scrollParent.scrollTop
+}
+
+export function setScrollTop(scrollParent, value) {
+  const nextValue = Math.max(0, Number(value || 0))
+  if (scrollParent === window) {
+    const root = document.documentElement
+    const body = document.body
+    const previousRootBehavior = root?.style.scrollBehavior || ""
+    const previousBodyBehavior = body?.style.scrollBehavior || ""
+
+    if (root) root.style.scrollBehavior = "auto"
+    if (body) body.style.scrollBehavior = "auto"
+    window.scrollTo(window.scrollX || 0, nextValue)
+    if (root) root.style.scrollBehavior = previousRootBehavior
+    if (body) body.style.scrollBehavior = previousBodyBehavior
+    return
+  }
+  scrollParent.scrollTop = nextValue
+}
+
 export function formatDate(value) {
   if (!value) return "未设置"
   const date = new Date(value)

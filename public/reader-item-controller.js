@@ -1,9 +1,12 @@
+import { findScrollParent, getScrollTop, setScrollTop } from "./shared-ui.js"
+
 export function createReaderItemController(deps) {
   const {
     els,
     state,
     readerApi,
     applySelectedItem,
+    applyRememberedListPatches,
     buildTranslatedExcerpt,
     closeMarkReadMenus,
     findRenderedItem,
@@ -27,6 +30,7 @@ export function createReaderItemController(deps) {
     renderScopeButtons,
     resetContentPaneScroll,
     resetItemListScroll,
+    hasLoadedArticleBody,
     clearDeferredReadItems,
     rememberDeferredReadItem,
     removeDeferredReadItem,
@@ -127,34 +131,61 @@ export function createReaderItemController(deps) {
     renderArticle()
   }
 
+  function captureInlineAnchor(_itemId) {
+    const container = els.itemList
+    const normalizedItemId = Number(_itemId || 0)
+    const currentRow = normalizedItemId > 0 ? container?.querySelector(`[data-item-row="${normalizedItemId}"]`) : null
+    const currentAnchor = currentRow?.querySelector?.("[data-item-select]") || currentRow || container
+    const scrollParent = findScrollParent(currentAnchor || container)
+    return {
+      itemId: normalizedItemId,
+      scrollParent,
+      scrollTop: getScrollTop(scrollParent),
+      top: currentRow ? (currentAnchor?.getBoundingClientRect?.().top ?? null) : null
+    }
+  }
+
+  function restoreInlineAnchor(anchor) {
+    const container = els.itemList
+    if (!anchor || !container) return false
+    if (anchor.top === null || anchor.itemId <= 0) {
+      setScrollTop(anchor.scrollParent, anchor.scrollTop)
+      return false
+    }
+
+    const nextRow = container.querySelector(`[data-item-row="${anchor.itemId}"]`)
+    if (!nextRow) {
+      setScrollTop(anchor.scrollParent, anchor.scrollTop)
+      return false
+    }
+
+    const nextAnchor = nextRow.querySelector("[data-item-select]") || nextRow
+    const nextTop = nextAnchor.getBoundingClientRect().top
+    const drift = nextTop - anchor.top
+    if (Math.abs(drift) > 1) {
+      setScrollTop(anchor.scrollParent, getScrollTop(anchor.scrollParent) + drift)
+    }
+    return true
+  }
+
   function preserveInlineItemPosition(_itemId, render) {
     const inlineMode = shouldInlineDetail()
     const container = els.itemList
-    const normalizedItemId = Number(_itemId || 0)
     if (!inlineMode || !container) {
       render()
       return
     }
 
-    const currentRow = normalizedItemId > 0 ? container.querySelector(`[data-item-row="${normalizedItemId}"]`) : null
-    const previousRowTop = currentRow?.getBoundingClientRect?.().top ?? null
-    const previousScrollTop = container.scrollTop
-
+    const anchor = captureInlineAnchor(_itemId)
     render()
+    restoreInlineAnchor(anchor)
 
-    if (previousRowTop === null || normalizedItemId <= 0) {
-      container.scrollTop = previousScrollTop
-      return
-    }
-
-    const nextRow = container.querySelector(`[data-item-row="${normalizedItemId}"]`)
-    if (!nextRow) {
-      container.scrollTop = previousScrollTop
-      return
-    }
-
-    const nextRowTop = nextRow.getBoundingClientRect().top
-    container.scrollTop += nextRowTop - previousRowTop
+    const correctAnchor = () => restoreInlineAnchor(anchor)
+    window.requestAnimationFrame(() => {
+      correctAnchor()
+      window.requestAnimationFrame(correctAnchor)
+    })
+    window.setTimeout(correctAnchor, 80)
   }
 
   function captureReadingPaneScroll(itemId = state.selectedItem?.id) {
@@ -236,9 +267,12 @@ export function createReaderItemController(deps) {
 
   function rememberItemsPage(feedId, page, result, options = {}) {
     if (!state.itemPageCache || !result) return
+    const rememberedResult = Array.isArray(result.items)
+      ? { ...result, items: applyRememberedListPatches(result.items) }
+      : result
     const key = getItemsPageCacheKey(feedId, page, options)
     state.itemPageCache.set(key, {
-      result,
+      result: rememberedResult,
       createdAt: Date.now()
     })
     if (state.itemPageCache.size > 12) {
@@ -378,6 +412,7 @@ export function createReaderItemController(deps) {
       if (!isItemRequestStillCurrent(feedId, options)) return
 
       const nextItems = getItemsForFeedResult(result, feedId)
+      const patchedNextItems = applyRememberedListPatches(nextItems)
       const total = result.total === null || result.total === undefined
         ? Number(state.itemTotal || 0)
         : Number(result.total || 0)
@@ -393,10 +428,10 @@ export function createReaderItemController(deps) {
       preserveInlineItemPosition(selectedId, () => {
         if (append) {
           const seen = new Set(state.items.map((item) => Number(item.id)))
-          state.items = state.items.concat(nextItems.filter((item) => !seen.has(Number(item.id))))
+          state.items = state.items.concat(patchedNextItems.filter((item) => !seen.has(Number(item.id))))
           clearDeferredReadItems()
         } else {
-          state.items = nextItems
+          state.items = patchedNextItems
         }
         state.itemTotal = total
         state.itemPage = nextPage
@@ -511,7 +546,7 @@ export function createReaderItemController(deps) {
       const result = cachedResult || await fetchItemsPageOnce(feedId, 1, pageOptions)
       if (requestToken !== itemsRequestToken) return
 
-      state.items = getItemsForFeedResult(result, feedId)
+      state.items = applyRememberedListPatches(getItemsForFeedResult(result, feedId))
       state.itemTotal = Number(result.total || 0)
       state.itemPage = Math.max(1, Number(result.page || 1))
       state.itemPageCount = Math.max(1, Number(result.pageCount || 1))
@@ -574,7 +609,18 @@ export function createReaderItemController(deps) {
     const normalizedItemId = Number(itemId || 0)
     const isCurrentItem = Number(state.selectedItem?.id || 0) === normalizedItemId
     const isExpandedCurrent = Number(state.expandedItemId || 0) === normalizedItemId
-    if (isCurrentItem && isExpandedCurrent && shouldInlineDetail()) {
+    const inlineMode = shouldInlineDetail()
+
+    if (isCurrentItem && inlineMode && !isExpandedCurrent) {
+      state.expandedItemId = normalizedItemId
+      preserveInlineItemPosition(itemId, () => {
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+      })
+      return
+    }
+
+    if (isCurrentItem && isExpandedCurrent && inlineMode) {
       invalidatePreviewRequest()
       state.expandedItemId = null
       state.selectedItem = null
@@ -593,7 +639,7 @@ export function createReaderItemController(deps) {
     const previousSelectedId = Number(state.selectedItem?.id || 0)
     const collapseCurrent = state.expandedItemId === itemId
     state.expandedItemId = collapseCurrent ? null : itemId
-    if (collapseCurrent && shouldInlineDetail()) {
+    if (collapseCurrent && inlineMode) {
       invalidatePreviewRequest()
       state.selectedItem = null
       preserveInlineItemPosition(itemId, () => {
@@ -607,7 +653,7 @@ export function createReaderItemController(deps) {
     if (seedItem) {
       state.detailView = null
       applySelectedItem(seedItem)
-      if (shouldInlineDetail()) {
+      if (inlineMode) {
         preserveInlineItemPosition(itemId, () => {
           refreshRenderedItemRows([previousSelectedId, itemId])
           renderArticle()
@@ -621,7 +667,7 @@ export function createReaderItemController(deps) {
 
     await openItem(itemId, {
       previousSelectedId,
-      skipInlineRowRefresh: Boolean(seedItem && shouldInlineDetail())
+      skipInlineRowRefresh: Boolean(seedItem && inlineMode)
     })
   }
 
@@ -662,6 +708,7 @@ export function createReaderItemController(deps) {
         has_ai_summary: preview.ai_summary ? 1 : 0,
         translated_title: preview.translated_title || "",
         translated_text: preview.translated_text || "",
+        translated_body_available: preview.translated_text ? 1 : 0,
         translation_display_translated: hasStoredTranslation(preview) ? 1 : 0,
         translation_mode: preview.translation_mode || "",
         translated_excerpt: preview.translated_text
@@ -683,9 +730,6 @@ export function createReaderItemController(deps) {
       if (previousSelectedId !== Number(itemId)) {
         resetContentPaneScroll()
       }
-      if (shouldAutoLoadMissingContent(state.selectedItem)) {
-        void ensureContentLoaded(itemId, { showLoadingState: false, silent: true })
-      }
       scheduleDeferredScopeCounts()
     } catch (error) {
       if (requestToken !== previewRequestToken) return
@@ -693,15 +737,13 @@ export function createReaderItemController(deps) {
     }
   }
 
-  function shouldAutoLoadMissingContent(item) {
-    if (!item || item.content_loaded || state.loadingContentFor === item.id) return false
-    return !String(item.summary || "").trim() && !String(item.content_excerpt || "").trim()
-  }
-
   async function ensureContentLoaded(itemId = state.selectedItem?.id, options = {}) {
     const item = state.selectedItem?.id === itemId ? state.selectedItem : null
     const forceRefresh = Boolean(options.forceRefresh)
-    if (!item || state.loadingContentFor === itemId || (item.content_loaded && !forceRefresh)) {
+    const preferStored = Object.prototype.hasOwnProperty.call(options, "preferStored")
+      ? Boolean(options.preferStored)
+      : !forceRefresh
+    if (!item || state.loadingContentFor === itemId || (hasLoadedArticleBody(item) && !forceRefresh)) {
       return
     }
 
@@ -714,15 +756,16 @@ export function createReaderItemController(deps) {
       })
     }
     try {
-      const content = await readerApi.getItemContent(itemId)
+      const content = await readerApi.getItemContent(itemId, {
+        forceRefresh,
+        preferStored
+      })
       if (state.selectedItem?.id === itemId) {
         const existingTranslationFlag = state.selectedItem.translation_display_translated
         applySelectedItem(content)
         syncItemToList(itemId, {
           is_read: 1,
           content_loaded: content.content_loaded,
-          content_html: content.content_html || "",
-          content_text: content.content_text || "",
           content_excerpt: content.content_excerpt || "",
           summary: content.summary || "",
           crawled_at: content.crawled_at || "",
@@ -730,6 +773,7 @@ export function createReaderItemController(deps) {
           has_translation: hasStoredTranslation(content) ? 1 : 0,
           translated_title: content.translated_title || "",
           translated_text: content.translated_text || "",
+          translated_body_available: content.translated_text ? 1 : 0,
           translation_display_translated: existingTranslationFlag,
           translation_mode: content.translation_mode || "",
           translated_excerpt: content.translated_text
@@ -739,6 +783,14 @@ export function createReaderItemController(deps) {
               : ""
         })
         scheduleDeferredScopeCounts()
+      }
+      if (content.fetch_error) {
+        setStatus(`正文抓取失败：${content.fetch_error}`, "error")
+      } else if (forceRefresh) {
+        syncItemToList(itemId, { fetch_error: null })
+        setStatus("正文已重新抓取", "success")
+      } else {
+        setStatus("正文已读取", "success")
       }
     } catch (error) {
       if (!options.silent) {
@@ -1058,6 +1110,7 @@ export function createReaderItemController(deps) {
           ...state.selectedItem,
           translated_title: result.translatedTitle || "",
           translated_text: result.translatedText || "",
+          translated_body_available: result.translatedText ? 1 : 0,
           translation_display_translated: true,
           translation_mode: result.translationMode || "full",
           translation_loading: false,
@@ -1068,6 +1121,7 @@ export function createReaderItemController(deps) {
         has_translation: 1,
         translated_title: result.translatedTitle || "",
         translated_text: result.translatedText || "",
+        translated_body_available: result.translatedText ? 1 : 0,
         translation_display_translated: true,
         translation_mode: result.translationMode || "full",
         translated_excerpt: translatedExcerpt,
@@ -1244,6 +1298,7 @@ export function createReaderItemController(deps) {
     maybeLoadNextPage,
     openItem,
     prefetchItemsPage,
+    preserveInlineItemPosition,
     selectFeed,
     setFavoriteState,
     setReadState,
