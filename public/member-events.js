@@ -14,6 +14,29 @@ export function registerMemberEvents({
     return ""
   }
 
+  async function revealPreferenceSecret(category, key, input, button) {
+    if (!input || !button) return
+    if (button.dataset.visible === "1") {
+      actions.setSecretInputVisible(input, button, false)
+      return
+    }
+
+    try {
+      button.disabled = true
+      const result = await api(`/api/account/preferences/secrets/${encodeURIComponent(category)}/${encodeURIComponent(key)}/reveal`, {
+        method: "POST",
+        body: JSON.stringify({})
+      })
+      input.value = result.value || ""
+      actions.setSecretInputVisible(input, button, true)
+      actions.setStatus(result.value ? "密钥已显示在当前输入框" : "此配置没有保存密钥", result.value ? "success" : "warning")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    } finally {
+      button.disabled = false
+    }
+  }
+
   els.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault()
     try {
@@ -122,6 +145,10 @@ export function registerMemberEvents({
     }
   })
 
+  els.aiApiKeyRevealBtn?.addEventListener("click", async () => {
+    await revealPreferenceSecret("ai", "api_key", els.aiApiKey, els.aiApiKeyRevealBtn)
+  })
+
   els.digestForm?.addEventListener("submit", async (event) => {
     event.preventDefault()
     const id = els.digestId.value
@@ -227,6 +254,18 @@ export function registerMemberEvents({
 
   els.translationMode?.addEventListener("change", () => {
     renderers.renderTranslationFormState()
+  })
+
+  els.translationGoogleApiKeyRevealBtn?.addEventListener("click", async () => {
+    await revealPreferenceSecret("translation_google", "api_key", els.translationGoogleApiKey, els.translationGoogleApiKeyRevealBtn)
+  })
+
+  els.translationBingApiKeyRevealBtn?.addEventListener("click", async () => {
+    await revealPreferenceSecret("translation_bing", "api_key", els.translationBingApiKey, els.translationBingApiKeyRevealBtn)
+  })
+
+  els.translationDeepLxApiKeyRevealBtn?.addEventListener("click", async () => {
+    await revealPreferenceSecret("translation_deeplx", "api_key", els.translationDeepLxApiKey, els.translationDeepLxApiKeyRevealBtn)
   })
 
   els.translationResetBtn.addEventListener("click", async () => {

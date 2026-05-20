@@ -32,6 +32,20 @@ function formatBytes(value) {
   return `${size.toFixed(precision)} ${units[unitIndex]}`
 }
 
+function formatShortHash(value = "") {
+  const raw = String(value || "").trim()
+  return raw ? raw.slice(0, 12) : "-"
+}
+
+function renderVersionDetail(label, value) {
+  return `
+    <article class="metric-box admin-version-detail">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "-")}</strong>
+    </article>
+  `
+}
+
 export function createAdminDashboard({
   actions,
   els,
@@ -54,6 +68,55 @@ export function createAdminDashboard({
           `<option value="${escapeHtml(plan.code)}" ${plan.code === selectedCode ? "selected" : ""}>${escapeHtml(plan.name)} (${escapeHtml(plan.code)})</option>`
       )
       .join("")
+  }
+
+  function renderVersionInfo() {
+    const system = state.admin?.system || {}
+    const docker = system.docker || {}
+    const check = state.dockerUpdateCheck || docker.update || null
+    const imageLabel = docker.image
+      ? `${docker.image}:${docker.tag || "latest"}`
+      : "-"
+    const status = (() => {
+      if (state.dockerUpdateChecking) return { tone: "accent", label: "检查中" }
+      if (check?.error) return { tone: "warning", label: check.error }
+      if (!check) return { tone: "accent", label: "未检查" }
+      if (check.updateAvailable === true) return { tone: "warning", label: "可能有新镜像" }
+      if (check.updateAvailable === false) return { tone: "success", label: "当前构建不早于 latest" }
+      return { tone: "accent", label: "已获取镜像信息" }
+    })()
+    const detailItems = [
+      renderVersionDetail("当前版本", `v${system.appVersion || "0.0.0"}`),
+      renderVersionDetail("镜像", imageLabel),
+      renderVersionDetail("构建提交", formatShortHash(system.buildCommit)),
+      renderVersionDetail("构建时间", system.buildTime ? formatDate(system.buildTime) : "-")
+    ].join("")
+    const remoteLines = check && !check.error
+      ? [
+          check.remoteUpdatedAt ? `镜像更新时间：${formatDate(check.remoteUpdatedAt)}` : "",
+          check.remoteDigest ? `摘要：${formatShortHash(check.remoteDigest)}` : "",
+          check.remoteSizeBytes ? `大小：${formatBytes(check.remoteSizeBytes)}` : "",
+          check.checkedAt ? `检查时间：${formatDate(check.checkedAt)}` : ""
+        ].filter(Boolean)
+      : [check?.error || "点击检查按钮获取 Docker Hub latest 标签信息"]
+
+    safeHtml(els.adminVersionInfo, `
+      <div class="admin-version-summary">
+        <div class="metrics-grid admin-version-metrics">${detailItems}</div>
+        <div class="admin-version-status">
+          <span class="pill ${status.tone}">${escapeHtml(status.label)}</span>
+          ${check?.sourceUrl ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(check.sourceUrl))}" target="_blank" rel="noreferrer">Docker Hub</a>` : ""}
+        </div>
+      </div>
+      <div class="compact-list admin-version-remote">
+        ${remoteLines.map((line) => `<span class="muted">${escapeHtml(line)}</span>`).join("")}
+      </div>
+    `)
+    if (els.adminDockerUpdateBtn) {
+      els.adminDockerUpdateBtn.disabled = Boolean(state.dockerUpdateChecking)
+      els.adminDockerUpdateBtn.textContent = state.dockerUpdateChecking ? "检查中" : "检查镜像更新"
+      els.adminDockerUpdateBtn.onclick = () => actions.checkDockerImageUpdate()
+    }
   }
 
   function renderRedeemCodeRow(entry) {
@@ -262,6 +325,7 @@ export function createAdminDashboard({
       safeHtml(els.adminDatabaseMetrics, "")
       safeHtml(els.adminDatabaseFlags, "")
       safeHtml(els.adminDatabaseTables, "")
+      safeHtml(els.adminVersionInfo, "")
       safeHtml(els.adminPlanSettings, "")
       safeHtml(els.adminRedeemList, "")
       safeHtml(els.adminPluginList, "")
@@ -294,6 +358,7 @@ export function createAdminDashboard({
     `)
 
     renderDatabaseStatus()
+    renderVersionInfo()
 
     safeHtml(els.adminPlanSettingsBody, (state.admin.plans || [])
       .map(
@@ -369,6 +434,7 @@ export function createAdminDashboard({
     const bing = state.admin.settings.translation_bing || {}
     const translation = state.admin.settings.translation || {}
     const translationProviderPoolUnavailable = Boolean(state.admin.settings.translation_provider_pool?.configs_unavailable)
+    const aiProviderPoolUnavailable = Boolean(state.admin.settings.ai_provider_pool?.configs_unavailable)
     if (els.settingTranslationProvider) els.settingTranslationProvider.value = translation.provider || "google"
     if (els.settingTranslationTarget) els.settingTranslationTarget.value = translation.target_language || "zh-CN"
     if (els.settingTranslationMode) els.settingTranslationMode.value = translation.translation_mode || "title"
@@ -410,11 +476,17 @@ export function createAdminDashboard({
     if (els.settingMailUsername) els.settingMailUsername.value = mail.username || ""
     if (els.settingMailPassword) {
       els.settingMailPassword.value = ""
+      els.settingMailPassword.type = "password"
       els.settingMailPassword.placeholder = mail.password_unavailable
         ? "旧密钥不可用，请重新保存"
         : mail.password_configured
           ? "已配置，留空表示不修改"
           : ""
+    }
+    if (els.settingMailPasswordRevealBtn) {
+      els.settingMailPasswordRevealBtn.disabled = !mail.password_configured
+      els.settingMailPasswordRevealBtn.dataset.visible = "0"
+      els.settingMailPasswordRevealBtn.classList.remove("is-visible")
     }
     if (els.settingAiProviderPoolList) {
       const draftAiPool = state.aiProviderPoolDraft || []
@@ -436,7 +508,9 @@ export function createAdminDashboard({
                 </article>
               `)
               .join("")
-          : `<article class="list-row"><div class="list-main"><strong>未配置 AI 接口</strong><span class="muted">翻译、总结、分类和简报需要 AI 接口。</span></div></article>`
+          : aiProviderPoolUnavailable
+            ? `<article class="list-row"><div class="list-main"><strong>旧 AI 接口列表不可用</strong><span class="muted">数据库里仍有旧列表，但当前 APP_SECRET 无法解密。请恢复原密钥，或重新添加 API 后保存新列表。</span></div></article>`
+            : `<article class="list-row"><div class="list-main"><strong>未配置 AI 接口</strong><span class="muted">翻译、总结、分类和简报需要 AI 接口。</span></div></article>`
       )
     }
     if (els.settingDigestInputMode) els.settingDigestInputMode.value = digest.input_mode || "title_summary"
@@ -467,7 +541,11 @@ export function createAdminDashboard({
     if (els.settingDatabaseVacuumScheduleTime) els.settingDatabaseVacuumScheduleTime.value = vacuum.scheduleTime || "03:30"
     if (els.settingGoogleTranslateApiKey) {
       els.settingGoogleTranslateApiKey.value = ""
-      els.settingGoogleTranslateApiKey.placeholder = google.api_key_configured ? "已配置，留空表示保留当前 Key；勾选下方可清空" : "留空则使用 Google 免 Key 模式"
+      els.settingGoogleTranslateApiKey.placeholder = google.api_key_unavailable
+        ? "旧密钥不可用，请恢复 APP_SECRET 或重新填写"
+        : google.api_key_configured
+          ? "已配置，留空表示保留当前 Key；勾选下方可清空"
+          : "留空则使用 Google 免 Key 模式"
     }
     if (els.settingGoogleTranslateClearApiKey) {
       els.settingGoogleTranslateClearApiKey.checked = false
@@ -479,7 +557,11 @@ export function createAdminDashboard({
     }
     if (els.settingDeepLXApiKey) {
       els.settingDeepLXApiKey.value = ""
-      els.settingDeepLXApiKey.placeholder = deeplx.api_key_configured ? "已配置，留空表示不修改；勾选下方可清空" : "如需认证可填写"
+      els.settingDeepLXApiKey.placeholder = deeplx.api_key_unavailable
+        ? "旧密钥不可用，请恢复 APP_SECRET 或重新填写"
+        : deeplx.api_key_configured
+          ? "已配置，留空表示不修改；勾选下方可清空"
+          : "如需认证可填写"
     }
     if (els.settingDeepLXClearApiKey) {
       els.settingDeepLXClearApiKey.checked = false
@@ -488,7 +570,11 @@ export function createAdminDashboard({
     if (els.settingBingTranslateBaseUrl) els.settingBingTranslateBaseUrl.value = bing.base_url || ""
     if (els.settingBingTranslateApiKey) {
       els.settingBingTranslateApiKey.value = ""
-      els.settingBingTranslateApiKey.placeholder = bing.api_key_configured ? "已配置，留空表示不修改；勾选下方可清空" : ""
+      els.settingBingTranslateApiKey.placeholder = bing.api_key_unavailable
+        ? "旧密钥不可用，请恢复 APP_SECRET 或重新填写"
+        : bing.api_key_configured
+          ? "已配置，留空表示不修改；勾选下方可清空"
+          : ""
     }
     if (els.settingBingTranslateClearApiKey) {
       els.settingBingTranslateClearApiKey.checked = false

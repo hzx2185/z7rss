@@ -136,6 +136,74 @@ select:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.secret-field {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.secret-field input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 42px;
+}
+
+.secret-reveal-btn {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+
+.secret-reveal-btn:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+
+.secret-reveal-btn:disabled {
+  opacity: 0.35;
+}
+
+.secret-reveal-btn::before {
+  content: "";
+  width: 16px;
+  height: 10px;
+  border: 1.7px solid currentColor;
+  border-radius: 999px;
+}
+
+.secret-reveal-btn::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.secret-reveal-btn.is-visible::before {
+  border-color: var(--accent);
+}
+
+.secret-reveal-btn.is-visible::after {
+  background: var(--accent);
+}
+
 textarea {
   width: 100%;
   min-height: 120px;

@@ -169,6 +169,8 @@ export function createReaderFeedController(deps) {
             : {}),
         fetchArticleSelector: els.feedSettingsFetchArticleSelector.value.trim() || null,
         fetchPageSelector: els.feedSettingsFetchPageSelector.value.trim() || null,
+        fetchHtmlStart: els.feedSettingsFetchHtmlStart.value.trim() || null,
+        fetchHtmlEnd: els.feedSettingsFetchHtmlEnd.value.trim() || null,
         fetchJsonItemsPath: els.feedSettingsFetchJsonItemsPath.value.trim() || null,
         fetchJsonTitlePath: els.feedSettingsFetchJsonTitlePath.value.trim() || null,
         fetchJsonLinkPath: els.feedSettingsFetchJsonLinkPath.value.trim() || null,

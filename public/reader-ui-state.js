@@ -245,6 +245,11 @@ export function createReaderUiState({
     const nextAvailabilityKey = [
       loggedIn ? "1" : "0",
       Number(state.selectedItem?.id || 0),
+      state.selectedItem?.original_url || state.selectedItem?.link || "",
+      state.loadingContentFor || 0,
+      state.loadingPageFor || 0,
+      state.selectedItem?.summary_loading ? "sl1" : "sl0",
+      state.selectedItem?.translation_loading ? "tl1" : "tl0",
       account?.features.translation ? "t1" : "t0",
       account?.features.summary ? "s1" : "s0",
       filteredCount,
@@ -280,11 +285,17 @@ export function createReaderUiState({
       !loggedIn
     )
 
-    setControlDisabled(els.favoriteToggleBtn, !state.selectedItem)
-    setControlDisabled(els.readToggleBtn, !state.selectedItem)
-    setControlDisabled(els.translateBtn, !state.selectedItem || !account?.features.translation)
-    setControlDisabled(els.summaryToggleBtn, !state.selectedItem || !account?.features.summary)
-    setControlDisabled(els.originalToggleBtn, !state.selectedItem)
+    const selectedItem = state.selectedItem || null
+    const hasSelectedItem = Boolean(selectedItem)
+    const selectedItemId = Number(selectedItem?.id || 0)
+    const articleUrl = String(selectedItem?.original_url || selectedItem?.link || "").trim()
+    setControlDisabled(els.favoriteToggleBtn, !hasSelectedItem)
+    setControlDisabled(els.readToggleBtn, !hasSelectedItem)
+    setControlDisabled(els.translateBtn, !hasSelectedItem || !account?.features.translation || Boolean(selectedItem?.translation_loading))
+    setControlDisabled(els.summaryToggleBtn, !hasSelectedItem || !account?.features.summary || Boolean(selectedItem?.summary_loading))
+    setControlDisabled(els.browserOpenBtn, !hasSelectedItem || !articleUrl)
+    setControlDisabled(els.pageToggleBtn, !hasSelectedItem || state.loadingPageFor === selectedItemId)
+    setControlDisabled(els.originalToggleBtn, !hasSelectedItem)
     renderMarkReadAvailability(filteredCount)
     els.exportMenu?.classList.toggle("is-disabled", !loggedIn)
     if (!loggedIn) {

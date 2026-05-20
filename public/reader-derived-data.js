@@ -1,4 +1,10 @@
-export function createReaderDerivedData({ getDisplayFeedTitle, getState, shouldInlineDetail }) {
+export function createReaderDerivedData({
+  getDisplayFeedTitle,
+  getDomainSearchTerms,
+  getFeedDomainSearchText,
+  getState,
+  shouldInlineDetail
+}) {
   const cache = {
     feedIndexSource: null,
     feedIndex: new Map(),
@@ -192,13 +198,23 @@ export function createReaderDerivedData({ getDisplayFeedTitle, getState, shouldI
       .filter((feed) => matchesFeedCategory(feed))
       .filter((feed) => matchesFeedShare(feed))
 
+    const queryTerms = typeof getDomainSearchTerms === "function" ? getDomainSearchTerms(query) : [query]
     const filteredFeeds = !query
       ? feeds
-      : feeds.filter((feed) =>
-          `${feed.title} ${getDisplayFeedTitle(feed)} ${feed.url} ${feed.site_url || ""} ${getFeedCategory(feed)} ${feed.last_error || ""}`
+      : feeds.filter((feed) => {
+          const haystack = [
+            feed.title,
+            getDisplayFeedTitle(feed),
+            feed.url,
+            feed.site_url || "",
+            typeof getFeedDomainSearchText === "function" ? getFeedDomainSearchText(feed) : "",
+            getFeedCategory(feed),
+            feed.last_error || ""
+          ]
+            .join(" ")
             .toLowerCase()
-            .includes(query)
-        )
+          return queryTerms.some((term) => haystack.includes(term))
+        })
 
     cache.filteredFeedsSource = state.feeds
     cache.filteredFeedsQuery = query

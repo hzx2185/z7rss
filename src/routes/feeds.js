@@ -139,6 +139,8 @@ export function createFeedRouter({ feedService, config }) {
       fetchCookie: getOptionalTrimmedField(body, "fetchCookie", "Cookie", 20000),
       fetchArticleSelector: getOptionalTrimmedField(body, "fetchArticleSelector", "正文选择器", 500),
       fetchPageSelector: getOptionalTrimmedField(body, "fetchPageSelector", "网页选择器", 500),
+      fetchHtmlStart: getOptionalTrimmedField(body, "fetchHtmlStart", "HTML 开始标记", 2000),
+      fetchHtmlEnd: getOptionalTrimmedField(body, "fetchHtmlEnd", "HTML 结束标记", 2000),
       fetchJsonItemsPath: getOptionalTrimmedField(body, "fetchJsonItemsPath", "JSON 列表路径", 240),
       fetchJsonTitlePath: getOptionalTrimmedField(body, "fetchJsonTitlePath", "JSON 标题路径", 240),
       fetchJsonLinkPath: getOptionalTrimmedField(body, "fetchJsonLinkPath", "JSON 链接路径", 240),

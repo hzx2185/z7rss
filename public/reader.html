@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/shared/top-navigation.css" />
 
-    <link rel="modulepreload" href="/reader.js?v=7" />
+    <link rel="modulepreload" href="/reader.js?v=29" />
   </head>
   <body class="reader-page">
     <div class="site-shell">
@@ -305,8 +305,8 @@
                 <button id="reader-favorite-toggle-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="收藏" aria-label="收藏">★</button>
                 <button id="reader-read-toggle-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="标记已读" aria-label="标记已读">✓</button>
                 <button id="reader-browser-open-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="浏览器打开" aria-label="浏览器打开">↗</button>
-                <button id="reader-original-toggle-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="原文" aria-label="原文">原</button>
-                <button id="reader-load-content-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="刷新正文" aria-label="刷新正文">↓</button>
+                <button id="reader-page-toggle-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="网页原文" aria-label="网页原文">原</button>
+                <button id="reader-original-toggle-btn" class="secondary icon-btn reader-symbol-btn" type="button" title="来源信息" aria-label="来源信息">源</button>
               </div>
 
               <div id="reader-empty-state" class="reader-empty-state">
@@ -334,8 +334,7 @@
                       <span id="reader-content-hint" class="status-text">正在准备正文...</span>
                     </div>
                     <div class="reader-section-tools">
-                      <button id="reader-body-toggle-translation-btn" class="secondary reader-section-action-btn hidden" type="button" aria-label="切换原文/译文">原文</button>
-                      <button id="reader-body-page-btn" class="secondary reader-section-action-btn" type="button" aria-label="显示网页正文">网页</button>
+                      <button id="reader-body-toggle-translation-btn" class="secondary reader-section-action-btn hidden" type="button" aria-label="切换正文显示">正文</button>
                     </div>
                   </div>
                   <div id="reader-article-content" class="reader-panel-body reader-content rich-content"></div>
@@ -539,6 +538,18 @@
 
               <div class="reader-feed-settings-switches">
                 <label>
+                  <span>HTML 开始标记</span>
+                  <textarea id="reader-feed-settings-fetch-html-start" rows="3" autocomplete="off" placeholder="例如：&lt;article class=&quot;post&quot;&gt;"></textarea>
+                </label>
+
+                <label>
+                  <span>HTML 结束标记</span>
+                  <textarea id="reader-feed-settings-fetch-html-end" rows="3" autocomplete="off" placeholder="例如：&lt;/article&gt;"></textarea>
+                </label>
+              </div>
+
+              <div class="reader-feed-settings-switches">
+                <label>
                   <span>JSON 列表</span>
                   <input id="reader-feed-settings-fetch-json-items-path" type="text" autocomplete="off" placeholder="data.items" />
                 </label>
@@ -573,7 +584,7 @@
                 </label>
               </div>
 
-              <p class="status-text">用于难抓取站点：可强制模拟浏览器、填写 Cookie / 登录表单，或把 JSON 返回映射成文章列表。</p>
+              <p class="status-text">用于难抓取站点：可强制模拟浏览器、填写 Cookie / 登录表单、正文选择器、HTML 范围，或把 JSON 返回映射成文章列表。</p>
             </div>
           </details>
 
@@ -586,6 +597,6 @@
     </div>
 
     <script type="module" src="/theme.js"></script>
-    <script type="module" src="/reader.js?v=7"></script>
+    <script type="module" src="/reader.js?v=29"></script>
   </body>
 </html>

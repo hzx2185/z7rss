@@ -11,6 +11,11 @@ const BROWSER_FALLBACK_STATUS_CODES = new Set([401, 403, 406, 409, 412, 425, 429
 const ACCESS_CHALLENGE_PATTERN =
   /just a moment|attention required|cloudflare|cf-browser-verification|captcha|verify you are human|access denied|403 forbidden|security check|checking your browser|browser integrity|ddos-guard/i;
 const XML_ENTITY_LIMIT_PATTERN = /Entity expansion limit exceeded/i;
+const FEED_ACCESS_CHALLENGE_MESSAGE =
+  "Feed 请求遇到反爬或人机验证页面，请在订阅源设置中尝试“模拟浏览器”、填写 Cookie 或登录信息。";
+const ARTICLE_ACCESS_CHALLENGE_MESSAGE =
+  "文章页遇到反爬或人机验证页面，请在订阅源设置中尝试“模拟浏览器”、填写 Cookie 或登录信息；若仍失败，说明该站点不允许服务端直接抓取全文。";
+const FALLBACK_TEXT_ENCODING = "utf-8";
 const BASE_XML_PARSER_OPTIONS = {
   ignoreAttributes: false,
   attributeNamePrefix: "",
@@ -71,6 +76,88 @@ function normalizeParagraphText(value = "") {
     .map((part) => normalizeText(part))
     .filter(Boolean)
     .join("\n\n");
+}
+
+function normalizeEncodingLabel(value = "") {
+  const label = String(value || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .toLowerCase();
+  if (!label) return "";
+  const aliases = {
+    "shift-jis": "shift_jis",
+    "shift_jis": "shift_jis",
+    "sjis": "shift_jis",
+    "x-sjis": "shift_jis",
+    "windows-31j": "shift_jis",
+    "ms932": "shift_jis",
+    "cp932": "shift_jis",
+    "utf8": "utf-8",
+    "gb2312": "gb18030",
+    "gbk": "gb18030",
+    "big5-hkscs": "big5"
+  };
+  return aliases[label] || label;
+}
+
+function extractCharsetFromContentType(contentType = "") {
+  const match = /(?:^|;)\s*charset\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\s]+))/i.exec(String(contentType || ""));
+  return normalizeEncodingLabel(match?.[1] || match?.[2] || match?.[3] || "");
+}
+
+function bytesToAsciiPreview(bytes, limit = 8192) {
+  const size = Math.min(bytes.length, limit);
+  let preview = "";
+  for (let index = 0; index < size; index += 1) {
+    const byte = bytes[index];
+    preview += byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : " ";
+  }
+  return preview;
+}
+
+function extractCharsetFromMarkup(bytes) {
+  const preview = bytesToAsciiPreview(bytes);
+  const directMeta = /<meta\s+[^>]*charset\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'/>;]+))/i.exec(preview);
+  if (directMeta) {
+    return normalizeEncodingLabel(directMeta[1] || directMeta[2] || directMeta[3] || "");
+  }
+  const contentMeta = /<meta\s+[^>]*http-equiv\s*=\s*(?:"content-type"|'content-type'|content-type)[^>]*content\s*=\s*(?:"[^"]*charset\s*=\s*([^"\s;]+)|'[^']*charset\s*=\s*([^'\s;]+))/i.exec(preview);
+  if (contentMeta) {
+    return normalizeEncodingLabel(contentMeta[1] || contentMeta[2] || "");
+  }
+  const xmlEncoding = /<\?xml\s+[^>]*encoding\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(preview);
+  return normalizeEncodingLabel(xmlEncoding?.[1] || xmlEncoding?.[2] || "");
+}
+
+function decodeBytes(bytes, encoding) {
+  return new TextDecoder(encoding || FALLBACK_TEXT_ENCODING, { fatal: true }).decode(bytes);
+}
+
+function decodeResponseBytes(bytes, contentType = "") {
+  const candidates = [
+    extractCharsetFromContentType(contentType),
+    extractCharsetFromMarkup(bytes),
+    FALLBACK_TEXT_ENCODING
+  ].filter((encoding, index, all) => encoding && all.indexOf(encoding) === index);
+
+  for (const encoding of candidates) {
+    try {
+      return decodeBytes(bytes, encoding);
+    } catch (_error) {
+      // Try the next detected encoding before falling back to replacement mode.
+    }
+  }
+
+  return new TextDecoder(FALLBACK_TEXT_ENCODING).decode(bytes);
+}
+
+async function readResponseBody(response) {
+  const contentType = response.headers.get("content-type") || "";
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    body: decodeResponseBytes(bytes, contentType),
+    contentType
+  };
 }
 
 function parseXmlFeedDocument(body = "") {
@@ -479,6 +566,39 @@ function extractDocumentTitle($, fallback = "") {
   return String(fallback || "").trim();
 }
 
+function applyHtmlRange(body = "", { htmlStart = "", htmlEnd = "" } = {}) {
+  const source = String(body || "");
+  const startMarker = String(htmlStart || "").trim();
+  const endMarker = String(htmlEnd || "").trim();
+  if (!source || (!startMarker && !endMarker)) {
+    return source;
+  }
+
+  let startIndex = 0;
+  if (startMarker) {
+    const matchedIndex = source.indexOf(startMarker);
+    if (matchedIndex < 0) {
+      throw badGateway("HTML 开始标记未找到", { code: "article_html_start_not_found" });
+    }
+    startIndex = matchedIndex + startMarker.length;
+  }
+
+  let endIndex = source.length;
+  if (endMarker) {
+    const matchedIndex = source.indexOf(endMarker, startIndex);
+    if (matchedIndex < 0) {
+      throw badGateway("HTML 结束标记未找到", { code: "article_html_end_not_found" });
+    }
+    endIndex = matchedIndex;
+  }
+
+  if (endIndex <= startIndex) {
+    throw badGateway("HTML 开始/结束标记范围为空", { code: "article_html_range_empty" });
+  }
+
+  return source.slice(startIndex, endIndex);
+}
+
 function toIsoOrNull(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -699,19 +819,19 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
         };
       }
 
-      const contentType = response.headers.get("content-type") || "";
       let body = "";
       try {
-        body = await response.text();
+        ({ body } = await readResponseBody(response));
       } catch (_error) {
         body = "";
       }
+      const contentType = response.headers.get("content-type") || "";
       const isAccessChallenge = looksLikeAccessChallengeResponse(response, body, contentType);
       const error = badGateway(
         isAccessChallenge
-          ? `${kind === "feed" ? "Feed" : "Article"} request returned an access challenge page instead of ${
-              kind === "feed" ? "RSS content" : "article content"
-            }`
+          ? kind === "feed"
+            ? FEED_ACCESS_CHALLENGE_MESSAGE
+            : ARTICLE_ACCESS_CHALLENGE_MESSAGE
           : `${kind === "feed" ? "Feed" : "Article"} request failed: ${response.status} ${response.statusText}`,
         {
           code: isAccessChallenge ? `${kind}_request_access_challenge` : `${kind}_request_failed`
@@ -726,8 +846,7 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
       throw error;
     }
 
-    const body = await response.text();
-    const contentType = response.headers.get("content-type") || "";
+    const { body, contentType } = await readResponseBody(response);
     const responseMeta = {
       etag: response.headers.get("etag") || "",
       lastModified: response.headers.get("last-modified") || ""
@@ -965,7 +1084,7 @@ export async function fetchFeed(feedUrl, options = {}) {
         if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
           return {
             retry: true,
-            error: badGateway("Feed request returned an access challenge page instead of RSS content", {
+            error: badGateway(FEED_ACCESS_CHALLENGE_MESSAGE, {
               code: "feed_request_access_challenge"
             })
           };
@@ -995,13 +1114,24 @@ export async function fetchArticleContent(articleUrl, options = {}) {
         if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
           return {
             retry: true,
-            error: badGateway("Article request returned an access challenge page instead of article content", {
+            error: badGateway(ARTICLE_ACCESS_CHALLENGE_MESSAGE, {
               code: "article_request_access_challenge"
             })
           };
         }
 
-        const $ = cheerio.load(body);
+        let selectedBody;
+        try {
+          selectedBody = applyHtmlRange(body, options);
+        } catch (error) {
+          return {
+            retry: profile === "bot",
+            error
+          };
+        }
+
+        const $ = cheerio.load(selectedBody);
+        const metadata$ = selectedBody === body ? $ : cheerio.load(body);
         $("script, style, noscript, iframe").remove();
 
         const candidates = [
@@ -1040,7 +1170,7 @@ export async function fetchArticleContent(articleUrl, options = {}) {
           if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
             return {
               retry: true,
-              error: badGateway("Article request returned an access challenge page instead of article content", {
+              error: badGateway(ARTICLE_ACCESS_CHALLENGE_MESSAGE, {
                 code: "article_request_access_challenge"
               })
             };
@@ -1053,10 +1183,12 @@ export async function fetchArticleContent(articleUrl, options = {}) {
           };
         }
 
-        const mainImageUrl = extractMainImageUrl($, cleaned, articleUrl);
+        const mainImageUrl =
+          extractMainImageUrl($, cleaned, articleUrl) ||
+          (metadata$ === $ ? "" : extractMainImageUrl(metadata$, metadata$("body"), articleUrl));
         const contentHtml = addMainImageToArticleHtml(sanitizeHtmlFragment(selectedHtml, articleUrl), mainImageUrl, articleUrl);
-        const originalUrl = extractCanonicalUrl($, articleUrl);
-        const title = extractDocumentTitle($, articleUrl);
+        const originalUrl = extractCanonicalUrl(metadata$, articleUrl);
+        const title = extractDocumentTitle(metadata$, articleUrl);
 
         return {
           value: { html: contentHtml, text, originalUrl, title }

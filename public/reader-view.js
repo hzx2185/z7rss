@@ -239,12 +239,24 @@ export function renderPlainText(value, fallback = "暂无内容") {
   return content ? escapeHtml(content).replaceAll("\n", "<br />") : `<span class="muted">${escapeHtml(fallback)}</span>`
 }
 
-export function getDomain(value = "") {
+function getHostname(value = "") {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+
   try {
-    return new URL(value).hostname.replace(/^www\./, "")
+    return new URL(raw).hostname.replace(/\.$/, "")
   } catch (_error) {
-    return value || "-"
+    try {
+      return new URL(`https://${raw}`).hostname.replace(/\.$/, "")
+    } catch (_nestedError) {
+      return ""
+    }
   }
+}
+
+export function getDomain(value = "") {
+  const host = getHostname(value).replace(/^www\./i, "")
+  return host || value || "-"
 }
 
 function normalizeDisplayText(value = "") {
@@ -254,20 +266,101 @@ function normalizeDisplayText(value = "") {
 }
 
 function normalizeDomainLabel(value = "") {
-  return String(getDomain(value) || "")
-    .replace(/^(?:www|m|amp)\./i, "")
+  const host = getHostname(value) || String(value || "").trim()
+  return String(host || "")
+    .replace(/^(?:www|m|mobile|amp)\./i, "")
+    .replace(/\.$/, "")
     .trim()
 }
 
-function getDomainSeed(value = "", fallback = "") {
+const COMMON_MULTI_PART_PUBLIC_SUFFIXES = new Set([
+  "ac.cn",
+  "co.jp",
+  "co.kr",
+  "co.nz",
+  "co.uk",
+  "co.za",
+  "com.ar",
+  "com.au",
+  "com.br",
+  "com.cn",
+  "com.hk",
+  "com.mx",
+  "com.sg",
+  "com.tw",
+  "com.tr",
+  "edu.cn",
+  "gov.cn",
+  "ne.jp",
+  "net.cn",
+  "org.cn",
+  "org.uk"
+])
+
+function getRegistrableDomainParts(value = "") {
   const domain = normalizeDomainLabel(value)
-  if (domain) {
-    const parts = domain.split(".").filter(Boolean)
-    const preferred = parts.find((part) => /[a-z0-9]/i.test(part) && !["com", "net", "org", "gov", "edu", "co"].includes(part.toLowerCase()))
-    if (preferred) return preferred
-    return parts[0] || domain
+  const parts = domain.split(".").filter(Boolean)
+  if (parts.length <= 2) return parts
+
+  const lowerParts = parts.map((part) => part.toLowerCase())
+  let suffixLength = 1
+  for (let size = Math.min(3, parts.length - 1); size >= 2; size -= 1) {
+    if (COMMON_MULTI_PART_PUBLIC_SUFFIXES.has(lowerParts.slice(-size).join("."))) {
+      suffixLength = size
+      break
+    }
   }
+  return parts.slice(Math.max(0, parts.length - suffixLength - 1))
+}
+
+function getDomainRootLabel(value = "", fallback = "") {
+  const registrableParts = getRegistrableDomainParts(value)
+  if (registrableParts.length) return registrableParts[0] || registrableParts.join(".")
   return normalizeDisplayText(fallback)
+}
+
+function getRegistrableDomainLabel(value = "") {
+  return getRegistrableDomainParts(value).join(".")
+}
+
+function getDomainSeed(value = "", fallback = "") {
+  return getDomainRootLabel(value, fallback)
+}
+
+export function getDomainShortLabel(value = "", fallback = "") {
+  return getDomainRootLabel(value, fallback)
+}
+
+export function getFeedDomainShortLabel(feed = {}) {
+  return getDomainShortLabel(feed?.site_url || feed?.url || "")
+}
+
+export function getFeedDomainTitle(feed = {}) {
+  const host = normalizeDomainLabel(feed?.site_url || feed?.url || "")
+  const registrableDomain = getRegistrableDomainLabel(feed?.site_url || feed?.url || "")
+  if (host && registrableDomain && host !== registrableDomain) return `${host} · ${registrableDomain}`
+  return host || registrableDomain || ""
+}
+
+function collectDomainSearchParts(value = "") {
+  const host = normalizeDomainLabel(value)
+  const registrableDomain = getRegistrableDomainLabel(value)
+  const shortLabel = getDomainShortLabel(value)
+  return [value, host, registrableDomain, shortLabel]
+    .map((part) => normalizeDisplayText(part).toLowerCase())
+    .filter(Boolean)
+}
+
+export function getFeedDomainSearchText(feed = {}) {
+  return [
+    ...collectDomainSearchParts(feed?.site_url || ""),
+    ...collectDomainSearchParts(feed?.url || "")
+  ].join(" ")
+}
+
+export function getDomainSearchTerms(value = "") {
+  const raw = normalizeDisplayText(value).toLowerCase()
+  return [...new Set([raw, ...collectDomainSearchParts(raw)])].filter(Boolean)
 }
 
 function normalizeBooleanLike(value, fallback = false) {
@@ -330,6 +423,21 @@ export function getDisplayFeedTitle(feed = {}) {
   const translatedTitle = getStoredDisplayFeedTranslation(feed)
   if (translatedTitle) return translatedTitle
   return getCompactFeedLabel(feed?.custom_title || feed?.title || "", feed?.site_url || feed?.url || "")
+}
+
+export function getFeedListTitle(feed = {}) {
+  const displayTitle = getDisplayFeedTitle(feed)
+  const shortLabel = getFeedDomainShortLabel(feed)
+  if (!shortLabel) return displayTitle
+
+  const sourceUrl = feed?.site_url || feed?.url || ""
+  const domain = normalizeDomainLabel(sourceUrl).toLowerCase()
+  const displayDomain = normalizeDomainLabel(displayTitle).toLowerCase()
+  const normalizedTitle = normalizeDisplayText(displayTitle).toLowerCase()
+  if (displayDomain && domain && displayDomain === domain) return shortLabel
+  if (domain && (normalizedTitle === domain || normalizedTitle === `www.${domain}`)) return shortLabel
+  if (/^https?:\/\//i.test(displayTitle) || displayTitle.includes("://")) return shortLabel
+  return displayTitle
 }
 
 export function getDisplayItemFeedTitle(item = {}) {

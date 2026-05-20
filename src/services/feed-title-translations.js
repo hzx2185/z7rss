@@ -155,6 +155,8 @@ export function createFeedTitleTranslations({
       fetch_cookie_configured: fetchSettings.cookie_configured,
       fetch_article_selector: fetchSettings.article_selector,
       fetch_page_selector: fetchSettings.page_selector,
+      fetch_html_start: fetchSettings.html_start,
+      fetch_html_end: fetchSettings.html_end,
       fetch_json_items_path: fetchSettings.json_items_path,
       fetch_json_title_path: fetchSettings.json_title_path,
       fetch_json_link_path: fetchSettings.json_link_path,

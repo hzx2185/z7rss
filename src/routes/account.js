@@ -21,6 +21,13 @@ export function createAccountRouter({ accountService, aiConfigService, authServi
     });
   });
 
+  router.post("/preferences/secrets/:category/:key/reveal", route((req, res) => {
+    const category = parseTrimmedString(req.params.category, "配置分类", { required: true, maxLength: 64 });
+    const key = parseTrimmedString(req.params.key, "密钥字段", { required: true, maxLength: 64 });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(accountService.revealUserSecret(req.auth.user, category, key));
+  }));
+
   router.get("/security", (req, res) => {
     res.json({
       sessions: authService.listSessions(req.auth.user.id, req.auth.session?.token || null)

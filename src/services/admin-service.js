@@ -6,6 +6,7 @@ import { hashPassword } from "../lib/security.js";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
 
 const REDEEM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const DOCKER_HUB_DEFAULT_API_BASE_URL = "https://hub.docker.com/v2";
 
 function parseJsonSafe(value, fallback) {
   try {
@@ -15,6 +16,48 @@ function parseJsonSafe(value, fallback) {
   }
 }
 
+function stripTrailingSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeDockerImageName(value = "") {
+  let raw = String(value || "").trim();
+  if (!raw) return "hzx2185/z7rss";
+  raw = raw.replace(/^docker\.io\//i, "");
+  raw = raw.replace(/^registry-1\.docker\.io\//i, "");
+  raw = raw.replace(/^index\.docker\.io\//i, "");
+  raw = raw.replace(/^library\//i, "library/");
+  if (!raw.includes("/")) return `library/${raw}`;
+  return raw;
+}
+
+function parseDockerImageRef(image, tag) {
+  const normalizedImage = normalizeDockerImageName(image);
+  const segments = normalizedImage.split("/");
+  const repositoryPart = segments.pop() || "z7rss";
+  const namespace = segments.join("/") || "library";
+  const colonIndex = repositoryPart.lastIndexOf(":");
+  const repository = colonIndex > -1 ? repositoryPart.slice(0, colonIndex) : repositoryPart;
+  const inferredTag = colonIndex > -1 ? repositoryPart.slice(colonIndex + 1) : "";
+  return {
+    namespace,
+    repository,
+    tag: String(tag || inferredTag || "latest").trim() || "latest"
+  };
+}
+
+function toIsoOrEmpty(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function isRemoteNewer(localBuildTime, remoteUpdatedAt) {
+  const local = new Date(localBuildTime);
+  const remote = new Date(remoteUpdatedAt);
+  if (Number.isNaN(local.getTime()) || Number.isNaN(remote.getTime())) return null;
+  return remote.getTime() > local.getTime() + 1000;
+}
+
 export function createAdminService({
   store,
   accountService,
@@ -22,7 +65,8 @@ export function createAdminService({
   secretBox,
   feedService,
   refreshService = null,
-  maintenanceService = null
+  maintenanceService = null,
+  dockerHubFetch = globalThis.fetch
 }) {
   function isSecretSettingKey(key) {
     return key === "api_key" || key === "password" || key === "configs_secret";
@@ -106,15 +150,58 @@ export function createAdminService({
     }
   }
 
+  function getUnavailableSecretFlag(key) {
+    if (key === "api_key") return "api_key_unavailable";
+    if (key === "password") return "password_unavailable";
+    if (key === "configs_secret") return "configs_unavailable";
+    return "";
+  }
+
+  function getSecretSettingLabel(category, key) {
+    if (key === "configs_secret") return "API 列表";
+    if (key === "password") return "密码";
+    if (key === "api_key") return "API Key";
+    return `${category}.${key}`;
+  }
+
+  function getSettingSecretValue(category, key) {
+    const normalizedCategory = String(category || "").trim().toLowerCase();
+    const normalizedKey = String(key || "").trim().toLowerCase();
+    const allowedSecrets = new Set([
+      "mail.password",
+      "ai.api_key",
+      "translation_google.api_key",
+      "translation_bing.api_key",
+      "translation_deeplx.api_key"
+    ]);
+    const secretId = `${normalizedCategory}.${normalizedKey}`;
+    if (!allowedSecrets.has(secretId)) {
+      throw badRequest("密钥类型无效", { code: "invalid_secret_setting" });
+    }
+
+    const row = store.getSetting(normalizedCategory, normalizedKey);
+    const value = secretBox.decrypt(row?.value || "");
+    return {
+      category: normalizedCategory,
+      key: normalizedKey,
+      value
+    };
+  }
+
+  function isUnavailableSecret(current, category, key) {
+    const flag = getUnavailableSecretFlag(key);
+    return Boolean(flag && current?.[category]?.[flag]);
+  }
+
   function maskApiKey(output, category) {
     if (!output?.[category]) return;
-    output[category].api_key_configured = Boolean(output[category].api_key);
+    output[category].api_key_configured = Boolean(output[category].api_key || output[category].api_key_unavailable);
     delete output[category].api_key;
   }
 
   function maskPassword(output, category) {
     if (!output?.[category]) return;
-    output[category].password_configured = Boolean(output[category].password);
+    output[category].password_configured = Boolean(output[category].password || output[category].password_unavailable);
     delete output[category].password;
   }
 
@@ -124,10 +211,13 @@ export function createAdminService({
     try {
       const configs = JSON.parse(pool.configs_secret);
       pool.configs = Array.isArray(configs)
-        ? configs.map((entry) => ({
-            ...entry,
-            api_key_configured: Boolean(entry?.apiKey || entry?.api_key)
-          }))
+        ? configs.map((entry) => {
+            const { apiKey: _apiKey, api_key: _api_key, ...safeEntry } = entry || {};
+            return {
+              ...safeEntry,
+              api_key_configured: Boolean(_apiKey || _api_key)
+            };
+          })
         : [];
     } catch (_error) {
       pool.configs = [];
@@ -142,10 +232,13 @@ export function createAdminService({
     try {
       const configs = JSON.parse(pool.configs_secret);
       pool.configs = Array.isArray(configs)
-        ? configs.map((entry) => ({
-            ...entry,
-            api_key_configured: Boolean(entry?.apiKey || entry?.api_key)
-          }))
+        ? configs.map((entry) => {
+            const { apiKey: _apiKey, api_key: _api_key, ...safeEntry } = entry || {};
+            return {
+              ...safeEntry,
+              api_key_configured: Boolean(_apiKey || _api_key)
+            };
+          })
         : [];
     } catch (_error) {
       pool.configs = [];
@@ -159,6 +252,7 @@ export function createAdminService({
     maskApiKey(output, "ai");
     maskApiKey(output, "translation_google");
     maskApiKey(output, "translation_bing");
+    maskApiKey(output, "translation_deeplx");
     maskPassword(output, "mail");
     maskTranslationProviderPool(output);
     maskAiProviderPool(output);
@@ -175,6 +269,45 @@ export function createAdminService({
       return acc;
     }, {});
     return withMaskedSecrets(settings);
+  }
+
+  function getPoolSecretValue(poolType, id) {
+    const normalizedPoolType = String(poolType || "").trim().toLowerCase();
+    const normalizedId = String(id || "").trim();
+    if (!normalizedId) {
+      throw badRequest("API ID 不能为空", { code: "invalid_secret_id" });
+    }
+
+    if (normalizedPoolType === "ai") {
+      const entry = accountService.getSystemAiProviderPool()
+        .find((item) => String(item.id) === normalizedId);
+      if (!entry) {
+        throw notFound("AI 接口不存在", { code: "secret_not_found" });
+      }
+      return {
+        pool: "ai",
+        id: entry.id,
+        name: entry.name,
+        apiKey: entry.apiKey || ""
+      };
+    }
+
+    if (normalizedPoolType === "translation") {
+      const entry = accountService.getSystemTranslationProviderPool()
+        .find((item) => String(item.id) === normalizedId);
+      if (!entry) {
+        throw notFound("翻译 API 不存在", { code: "secret_not_found" });
+      }
+      return {
+        pool: "translation",
+        id: entry.id,
+        name: entry.name,
+        provider: entry.provider,
+        apiKey: entry.apiKey || ""
+      };
+    }
+
+    throw badRequest("API 类型无效", { code: "invalid_secret_pool" });
   }
 
   function getAuditContext(context = null) {
@@ -399,6 +532,54 @@ export function createAdminService({
     };
   }
 
+  function getSystemSnapshot(dockerUpdate = null) {
+    const imageRef = parseDockerImageRef(config.dockerImage, config.dockerImageTag);
+    return {
+      billingProvider: config.billingProvider,
+      aiEnabled: config.aiEnabled,
+      appVersion: config.appVersion || "0.0.0",
+      buildCommit: config.buildCommit || "",
+      buildTime: config.buildTime || "",
+      docker: {
+        image: `${imageRef.namespace}/${imageRef.repository}`,
+        namespace: imageRef.namespace,
+        repository: imageRef.repository,
+        tag: imageRef.tag,
+        update: dockerUpdate
+      }
+    };
+  }
+
+  async function fetchDockerHubTag(imageRef) {
+    if (typeof dockerHubFetch !== "function") {
+      throw badRequest("当前运行环境不支持 Docker Hub 更新检查", { code: "docker_update_check_unavailable" });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.dockerUpdateCheckTimeoutMs || 8000);
+    const baseUrl = stripTrailingSlash(config.dockerHubApiBaseUrl || DOCKER_HUB_DEFAULT_API_BASE_URL);
+    const url = new URL(`${baseUrl}/namespaces/${encodeURIComponent(imageRef.namespace)}/repositories/${encodeURIComponent(imageRef.repository)}/tags/${encodeURIComponent(imageRef.tag)}`);
+
+    try {
+      const response = await dockerHubFetch(url, {
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw badRequest(`Docker Hub 返回 ${response.status}`, { code: "docker_update_check_failed" });
+      }
+      return await response.json();
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw badRequest("Docker Hub 更新检查超时", { code: "docker_update_check_timeout" });
+      }
+      if (error?.code) throw error;
+      throw badRequest("Docker Hub 更新检查失败", { code: "docker_update_check_failed" });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   return {
     getDashboard() {
       return {
@@ -429,11 +610,61 @@ export function createAdminService({
         refresh: refreshService ? refreshService.getStatus() : null,
         maintenance: maintenanceService ? maintenanceService.getStatus() : null,
         database: getDatabaseSnapshot(),
-        system: {
-          billingProvider: config.billingProvider,
-          aiEnabled: config.aiEnabled
-        }
+        system: getSystemSnapshot()
       };
+    },
+    async checkDockerImageUpdate() {
+      const imageRef = parseDockerImageRef(config.dockerImage, config.dockerImageTag);
+      const tagData = await fetchDockerHubTag(imageRef);
+      const remoteUpdatedAt = toIsoOrEmpty(tagData.tag_last_pushed || tagData.last_updated || "");
+      const remoteDigest = String(tagData.digest || "").trim();
+      return {
+        checkedAt: new Date().toISOString(),
+        image: `${imageRef.namespace}/${imageRef.repository}`,
+        namespace: imageRef.namespace,
+        repository: imageRef.repository,
+        tag: imageRef.tag,
+        appVersion: config.appVersion || "0.0.0",
+        buildCommit: config.buildCommit || "",
+        buildTime: config.buildTime || "",
+        remoteUpdatedAt,
+        remoteDigest,
+        remoteStatus: String(tagData.tag_status || "").trim(),
+        remoteSizeBytes: Number(tagData.full_size || 0) || 0,
+        updateAvailable: isRemoteNewer(config.buildTime, remoteUpdatedAt),
+        sourceUrl: `https://hub.docker.com/r/${imageRef.namespace}/${imageRef.repository}/tags?name=${encodeURIComponent(imageRef.tag)}`
+      };
+    },
+    revealProviderSecret(poolType, id, context = null) {
+      const result = getPoolSecretValue(poolType, id);
+      logAudit(context, {
+        action: "admin.settings.secret_revealed",
+        targetType: "settings",
+        targetId: `${result.pool}:${result.id}`,
+        summary: `查看 ${result.pool === "ai" ? "AI" : "翻译"} API Key`,
+        details: {
+          pool: result.pool,
+          id: result.id,
+          provider: result.provider || "",
+          hasApiKey: Boolean(result.apiKey)
+        }
+      });
+      return result;
+    },
+    revealSettingSecret(category, key, context = null) {
+      const result = getSettingSecretValue(category, key);
+      logAudit(context, {
+        action: "admin.settings.secret_revealed",
+        targetType: "settings",
+        targetId: `${result.category}.${result.key}`,
+        summary: `查看 ${getSecretSettingLabel(result.category, result.key)}`,
+        details: {
+          category: result.category,
+          key: result.key,
+          hasValue: Boolean(result.value)
+        }
+      });
+      return result;
     },
     getUserSecurity(userId) {
       return getUserSecuritySnapshot(userId);
@@ -840,7 +1071,8 @@ export function createAdminService({
       return result;
     },
     setSettings(category, values, context = null) {
-      const current = store.listSettings().reduce((acc, row) => {
+      const rows = store.listSettings();
+      const current = rows.reduce((acc, row) => {
         if (!acc[row.category]) acc[row.category] = {};
         const value = isSecretSettingKey(row.key) ? secretBox.decrypt(row.value) : row.value;
         acc[row.category][row.key] = value;
@@ -866,8 +1098,14 @@ export function createAdminService({
                   code: "secret_unavailable"
                 });
               }
-              const currentRaw = current[category]?.[key] || "[]";
-              const currentParsed = JSON.parse(currentRaw);
+              let currentParsed;
+              try {
+                currentParsed = JSON.parse(current[category]?.[key] || "[]");
+              } catch (_error) {
+                throw badRequest("旧 API 列表格式无效，请重新保存 API 列表", {
+                  code: "invalid_provider_pool"
+                });
+              }
               parsed.forEach(entry => {
                 if (entry.apiKey === "__KEEP__") {
                   const existing = currentParsed.find(e => e.id === entry.id);
@@ -876,7 +1114,10 @@ export function createAdminService({
               });
               normalizedInput = JSON.stringify(parsed);
             }
-          } catch (e) {}
+          } catch (error) {
+            if (error?.code === "secret_unavailable") throw error;
+            throw badRequest("API 列表格式无效", { code: "invalid_provider_pool" });
+          }
         }
 
         const normalizedValue =
@@ -885,6 +1126,12 @@ export function createAdminService({
               ? secretBox.encrypt(normalizedInput)
               : current[category]?.[key]
                 ? secretBox.encrypt(current[category][key])
+                : isUnavailableSecret(current, category, key)
+                  ? (() => {
+                      throw badRequest(`旧${getSecretSettingLabel(category, key)}不可用，请恢复 APP_SECRET，或重新填写后保存`, {
+                        code: "secret_unavailable"
+                      });
+                    })()
                 : ""
             : normalizedInput;
         store.setSetting(category, key, normalizedValue);

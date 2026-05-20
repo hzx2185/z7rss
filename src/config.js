@@ -7,6 +7,10 @@ const DEFAULT_APP_SECRET_PLACEHOLDERS = new Set([
   FALLBACK_APP_SECRET,
   "change-me-before-production"
 ]);
+const LEGACY_APP_SECRET_FALLBACKS = [
+  "change-me-before-production",
+  FALLBACK_APP_SECRET
+];
 
 function parseInteger(value, fallback) {
   const parsed = Number(value);
@@ -24,6 +28,16 @@ function parseBoolean(value, fallback = false) {
 function parseSqliteSynchronous(value, fallback = "FULL") {
   const normalized = String(value || "").trim().toUpperCase();
   return ["OFF", "NORMAL", "FULL", "EXTRA"].includes(normalized) ? normalized : fallback;
+}
+
+function readPackageVersion() {
+  try {
+    const packageJsonPath = path.join(process.cwd(), "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    return String(packageJson.version || "").trim();
+  } catch (_error) {
+    return "";
+  }
 }
 
 function isProduction(env) {
@@ -71,12 +85,24 @@ function parseAppSecret(env) {
   return appSecret;
 }
 
+function parseLegacyAppSecrets(env, appSecret) {
+  const configuredFallbacks = String(env.APP_SECRET_LEGACY || env.APP_SECRET_FALLBACKS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return [...configuredFallbacks, ...LEGACY_APP_SECRET_FALLBACKS]
+    .filter((entry, index, all) => entry && entry !== appSecret && all.indexOf(entry) === index);
+}
+
 export function createConfig(env) {
   const appUrl = env.APP_URL || "http://localhost:39118";
   const secureCookies = parseBoolean(env.SESSION_COOKIE_SECURE, /^https:/i.test(appUrl));
+  const appSecret = parseAppSecret(env);
+  const appVersion = String(env.APP_VERSION || readPackageVersion() || "0.0.0").trim();
 
   return {
     appName: env.APP_NAME || "Z7 RSS",
+    appVersion,
     appUrl,
     port: parseInteger(env.PORT, 39018),
     dbPath: env.DB_PATH || path.join(process.cwd(), "data/rss.db"),
@@ -88,7 +114,8 @@ export function createConfig(env) {
     sessionTtlDays: parseInteger(env.SESSION_TTL_DAYS, 30),
     secureCookies,
     trustProxy: parseBoolean(env.TRUST_PROXY, false),
-    appSecret: parseAppSecret(env),
+    appSecret,
+    legacyAppSecrets: parseLegacyAppSecrets(env, appSecret),
     adminEmails: String(env.ADMIN_EMAILS || "")
       .split(",")
       .map((entry) => entry.trim().toLowerCase())
@@ -120,6 +147,12 @@ export function createConfig(env) {
     rateLimitAiWindowMs: parseInteger(env.RATE_LIMIT_AI_WINDOW_MS, 10 * 60 * 1000),
     rateLimitAiMax: parseInteger(env.RATE_LIMIT_AI_MAX, 20),
     rateLimitFeedWriteWindowMs: parseInteger(env.RATE_LIMIT_FEED_WRITE_WINDOW_MS, 10 * 60 * 1000),
-    rateLimitFeedWriteMax: parseInteger(env.RATE_LIMIT_FEED_WRITE_MAX, 30)
+    rateLimitFeedWriteMax: parseInteger(env.RATE_LIMIT_FEED_WRITE_MAX, 30),
+    buildCommit: env.BUILD_COMMIT || env.GIT_COMMIT || "",
+    buildTime: env.BUILD_TIME || "",
+    dockerImage: env.DOCKER_IMAGE || "hzx2185/z7rss",
+    dockerImageTag: env.DOCKER_IMAGE_TAG || "latest",
+    dockerHubApiBaseUrl: env.DOCKER_HUB_API_BASE_URL || "https://hub.docker.com/v2",
+    dockerUpdateCheckTimeoutMs: Math.max(1000, parseInteger(env.DOCKER_UPDATE_CHECK_TIMEOUT_MS, 8000))
   };
 }

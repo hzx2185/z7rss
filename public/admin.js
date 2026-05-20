@@ -12,9 +12,9 @@ import {
   formatRefreshTrigger
 } from "./admin-formatters.js?v=2"
 import { getAdminUserSecurityState } from "./admin-user-security.js?v=2"
-import { getAdminElements } from "./admin-elements.js?v=2"
+import { getAdminElements } from "./admin-elements.js?v=4"
 import { createAdminRefreshPanel } from "./admin-refresh-panel.js?v=2"
-import { createAdminDashboard } from "./admin-dashboard.js?v=2"
+import { createAdminDashboard } from "./admin-dashboard.js?v=4"
 import {
   getRedeemBatchId,
   getRedeemBatches,
@@ -26,6 +26,8 @@ const state = {
   me: null,
   admin: null,
   config: null,
+  dockerUpdateCheck: null,
+  dockerUpdateChecking: false,
   translationProviderPoolDraft: [],
   aiProviderPoolDraft: [],
   expandedUserSecurityId: null,
@@ -35,11 +37,34 @@ const state = {
 
 const els = getAdminElements()
 
+if (els.settingMailPasswordRevealBtn) els.settingMailPasswordRevealBtn.dataset.secretLabel = "SMTP 密码"
+if (els.settingAiPoolRevealBtn) els.settingAiPoolRevealBtn.dataset.secretLabel = "API Key"
+if (els.settingTranslationProviderPoolRevealBtn) els.settingTranslationProviderPoolRevealBtn.dataset.secretLabel = "API Key"
+
 function setStatus(message = "", tone = "info") {
   if (!els.statusBox || !els.statusText) return
   els.statusText.textContent = String(message || "")
   els.statusBox.dataset.tone = tone
   els.statusBox.classList.toggle("hidden", !message)
+}
+
+function setSecretInputVisible(input, button, visible) {
+  if (!input || !button) return
+  input.type = visible ? "text" : "password"
+  const label = button.dataset.secretLabel || "密钥"
+  button.textContent = ""
+  button.classList.toggle("is-visible", visible)
+  button.setAttribute("aria-label", visible ? `隐藏${label}` : `显示${label}`)
+  button.title = visible ? `隐藏${label}` : `显示${label}`
+  button.dataset.visible = visible ? "1" : "0"
+}
+
+function syncSecretRevealButton(input, button, canReveal) {
+  if (!button) return
+  button.disabled = !canReveal
+  if (!canReveal) {
+    setSecretInputVisible(input, button, false)
+  }
 }
 
 function isAdmin() {
@@ -116,6 +141,7 @@ const dashboard = createAdminDashboard({
     deleteRedeemBatch: (...args) => deleteRedeemBatch(...args),
     deleteRedeemCode: (...args) => deleteRedeemCode(...args),
     downloadBackupFile: (...args) => downloadBackupFile(...args),
+    checkDockerImageUpdate: (...args) => checkDockerImageUpdate(...args),
     exportRedeemBatch: (...args) => exportRedeemBatch(...args),
     reclassifyFeed: (...args) => reclassifyFeed(...args),
     saveRedeemCode: (...args) => saveRedeemCode(...args),
@@ -163,6 +189,8 @@ async function loadAdmin() {
     state.expandedUserSecurityId = null
     state.expandedRedeemBatchIds = []
     state.userSecurity = {}
+    state.dockerUpdateCheck = null
+    state.dockerUpdateChecking = false
     renderAdminDashboard()
     return
   }
@@ -172,6 +200,28 @@ async function loadAdmin() {
   state.translationProviderPoolDraft = getTranslationProviderPoolFromSettings()
   state.aiProviderPoolDraft = getAiProviderPoolFromSettings()
   renderAdminDashboard()
+}
+
+async function checkDockerImageUpdate() {
+  if (state.dockerUpdateChecking) return
+  try {
+    state.dockerUpdateChecking = true
+    renderAdminDashboard()
+    state.dockerUpdateCheck = await api("/api/admin/system/docker-update-check", {
+      method: "POST",
+      body: JSON.stringify({})
+    })
+    setStatus("Docker 镜像更新检查完成", "success")
+  } catch (error) {
+    state.dockerUpdateCheck = {
+      checkedAt: new Date().toISOString(),
+      error: error.message || "Docker 镜像更新检查失败"
+    }
+    setStatus(error.message, "error")
+  } finally {
+    state.dockerUpdateChecking = false
+    renderAdminDashboard()
+  }
 }
 
 function getTranslationProviderPoolFromSettings() {
@@ -206,6 +256,8 @@ function closeTranslationPoolModal() {
 
 function updateTranslationPoolProviderFields() {
   const provider = els.settingTranslationProviderPoolProvider?.value || "deeplx"
+  const id = String(els.settingTranslationProviderPoolEditId?.value || "").trim()
+  const existing = id ? state.translationProviderPoolDraft?.find((entry) => entry.id === id) : null
   const showRegion = provider === "bing"
   if (els.settingTranslationProviderPoolRegionRow) {
     els.settingTranslationProviderPoolRegionRow.classList.toggle("hidden", !showRegion)
@@ -223,15 +275,19 @@ function updateTranslationPoolProviderFields() {
     els.settingTranslationProviderPoolBaseUrl.placeholder = placeholders[provider] || "https://..."
   }
   if (els.settingTranslationProviderPoolApiKey) {
-    const id = String(els.settingTranslationProviderPoolEditId?.value || "").trim()
-    const existing = id ? state.translationProviderPoolDraft?.find((entry) => entry.id === id) : null
+    els.settingTranslationProviderPoolApiKey.value = ""
     const canKeep = Boolean(existing?.apiKeyConfigured && existing.provider === provider)
     els.settingTranslationProviderPoolApiKey.placeholder = canKeep
-      ? "已回填，清空后保存会删除 Key"
+      ? "已配置，留空保留当前 Key"
       : provider === "google"
         ? "留空使用 Google 免 Key 模式"
         : "请输入此供应商的 API Key"
   }
+  syncSecretRevealButton(
+    els.settingTranslationProviderPoolApiKey,
+    els.settingTranslationProviderPoolRevealBtn,
+    Boolean(existing?.apiKeyConfigured && existing.provider === provider)
+  )
 }
 
 function resetTranslationProviderPoolForm() {
@@ -247,6 +303,7 @@ function resetTranslationProviderPoolForm() {
     els.settingTranslationProviderPoolApiKey.value = ""
     els.settingTranslationProviderPoolApiKey.placeholder = "编辑时留空表示保留"
   }
+  syncSecretRevealButton(els.settingTranslationProviderPoolApiKey, els.settingTranslationProviderPoolRevealBtn, false)
   if (els.settingTranslationProviderPoolPriority) els.settingTranslationProviderPoolPriority.value = ""
   if (els.adminTranslationPoolTitle) els.adminTranslationPoolTitle.textContent = "添加翻译 API"
   updateTranslationPoolProviderFields()
@@ -299,7 +356,7 @@ async function upsertTranslationProviderPoolEntry() {
     region,
     enabled: (els.settingTranslationProviderPoolEnabled?.value || "1") === "1",
     priority: Math.max(1, Number(els.settingTranslationProviderPoolPriority?.value) || (existing?.priority || state.translationProviderPoolDraft.length + 1)),
-    apiKeyConfigured: Boolean(rawApiKey),
+    apiKeyConfigured: Boolean(rawApiKey) || Boolean(existing?.apiKeyConfigured && existing.provider === provider),
     apiKey: rawApiKey
   }
   if (existing) {
@@ -383,6 +440,7 @@ function resetAiPoolForm() {
     els.settingAiPoolApiKey.value = ""
     els.settingAiPoolApiKey.placeholder = "编辑时留空表示保留"
   }
+  syncSecretRevealButton(els.settingAiPoolApiKey, els.settingAiPoolRevealBtn, false)
   if (els.settingAiPoolModel) els.settingAiPoolModel.value = ""
   if (els.settingAiPoolTranslatePrompt) els.settingAiPoolTranslatePrompt.value = ""
   if (els.settingAiPoolSummaryPrompt) els.settingAiPoolSummaryPrompt.value = ""
@@ -439,7 +497,7 @@ async function upsertAiPoolEntry() {
     maxInputChars: Math.max(0, Number(els.settingAiPoolMaxInputChars?.value) || 0),
     enabled: (els.settingAiPoolEnabled?.value || "1") === "1",
     priority: Math.max(1, Number(els.settingAiPoolPriority?.value) || (existing?.priority || state.aiProviderPoolDraft.length + 1)),
-    apiKeyConfigured: Boolean(rawApiKey),
+    apiKeyConfigured: Boolean(rawApiKey) || Boolean(existing?.apiKeyConfigured),
     apiKey: rawApiKey
   }
   if (existing) {
@@ -462,8 +520,9 @@ function editAiPoolEntry(id) {
   if (els.settingAiPoolBaseUrl) els.settingAiPoolBaseUrl.value = entry.baseUrl || ""
   if (els.settingAiPoolApiKey) {
     els.settingAiPoolApiKey.value = entry.apiKey || ""
-    els.settingAiPoolApiKey.placeholder = entry.apiKeyConfigured ? "已回填，清空后保存会删除 Key" : "请输入 API Key"
+    els.settingAiPoolApiKey.placeholder = entry.apiKeyConfigured ? "已配置，留空保留当前 Key" : "请输入 API Key"
   }
+  syncSecretRevealButton(els.settingAiPoolApiKey, els.settingAiPoolRevealBtn, Boolean(entry.apiKeyConfigured))
   if (els.settingAiPoolModel) els.settingAiPoolModel.value = entry.model || ""
   if (els.settingAiPoolTranslatePrompt) els.settingAiPoolTranslatePrompt.value = entry.translatePrompt || ""
   if (els.settingAiPoolSummaryPrompt) els.settingAiPoolSummaryPrompt.value = entry.summaryPrompt || ""
@@ -479,6 +538,52 @@ async function removeAiPoolEntry(id) {
   await saveAiProviderPoolDraft()
   resetAiPoolForm()
   renderAdminDashboard()
+}
+
+async function revealPoolApiKey(pool, id, input, button) {
+  if (!id || !input || !button) return
+  if (button.dataset.visible === "1") {
+    setSecretInputVisible(input, button, false)
+    return
+  }
+
+  try {
+    button.disabled = true
+    const result = await api(`/api/admin/secrets/${encodeURIComponent(pool)}/${encodeURIComponent(id)}/reveal`, {
+      method: "POST",
+      body: JSON.stringify({})
+    })
+    input.value = result.apiKey || ""
+    setSecretInputVisible(input, button, true)
+    setStatus(result.apiKey ? "API Key 已显示在当前输入框" : "此配置没有保存 API Key", result.apiKey ? "success" : "warning")
+  } catch (error) {
+    setStatus(error.message, "error")
+  } finally {
+    button.disabled = false
+  }
+}
+
+async function revealAdminSettingSecret(category, key, input, button) {
+  if (!category || !key || !input || !button) return
+  if (button.dataset.visible === "1") {
+    setSecretInputVisible(input, button, false)
+    return
+  }
+
+  try {
+    button.disabled = true
+    const result = await api(`/api/admin/secrets/settings/${encodeURIComponent(category)}/${encodeURIComponent(key)}/reveal`, {
+      method: "POST",
+      body: JSON.stringify({})
+    })
+    input.value = result.value || ""
+    setSecretInputVisible(input, button, true)
+    setStatus(result.value ? "密钥已显示在当前输入框" : "此配置没有保存密钥", result.value ? "success" : "warning")
+  } catch (error) {
+    setStatus(error.message, "error")
+  } finally {
+    button.disabled = false
+  }
 }
 
 async function startGlobalRefresh() {
@@ -1158,6 +1263,15 @@ els.adminDatabaseVacuumSettingsSaveBtn.addEventListener("click", async () => {
   await saveDatabaseVacuumSettings()
 })
 
+els.settingMailPasswordRevealBtn?.addEventListener("click", async () => {
+  await revealAdminSettingSecret(
+    "mail",
+    "password",
+    els.settingMailPassword,
+    els.settingMailPasswordRevealBtn
+  )
+})
+
 els.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault()
   try {
@@ -1226,6 +1340,15 @@ els.settingTranslationProviderPoolProvider?.addEventListener("change", () => {
   updateTranslationPoolProviderFields()
 })
 
+els.settingTranslationProviderPoolRevealBtn?.addEventListener("click", async () => {
+  await revealPoolApiKey(
+    "translation",
+    String(els.settingTranslationProviderPoolEditId?.value || "").trim(),
+    els.settingTranslationProviderPoolApiKey,
+    els.settingTranslationProviderPoolRevealBtn
+  )
+})
+
 els.settingTranslationProviderPoolTestBtn?.addEventListener("click", async () => {
   try {
     if (els.adminTranslationPoolTestStatus) {
@@ -1287,6 +1410,15 @@ els.settingAiPoolAddBtn?.addEventListener("click", () => {
 
 els.settingAiPoolCancelBtn?.addEventListener("click", () => {
   resetAiPoolForm()
+})
+
+els.settingAiPoolRevealBtn?.addEventListener("click", async () => {
+  await revealPoolApiKey(
+    "ai",
+    String(els.settingAiPoolEditId?.value || "").trim(),
+    els.settingAiPoolApiKey,
+    els.settingAiPoolRevealBtn
+  )
 })
 
 els.settingAiPoolTestBtn?.addEventListener("click", async () => {

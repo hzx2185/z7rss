@@ -36,6 +36,15 @@ export function createReaderItemTools({
     return String(item?.translated_text || "").trim()
   }
 
+  function hasTranslatedBodyPreview(item = null) {
+    return Boolean(item?.translated_body_available && String(item?.translated_excerpt || "").trim())
+  }
+
+  function getTranslatedBodyPreview(item = null) {
+    if (getTranslatedBody(item)) return getTranslatedBody(item)
+    return hasTranslatedBodyPreview(item) ? String(item.translated_excerpt || "").trim() : ""
+  }
+
   function getOriginalTitle(item) {
     return extractDisplayText(item?.title || "")
   }
@@ -73,7 +82,7 @@ export function createReaderItemTools({
   }
 
   function hasStoredTranslation(item) {
-    return Boolean(getTranslatedTitle(item) || getTranslatedBody(item))
+    return Boolean(getTranslatedTitle(item) || getTranslatedBody(item) || hasTranslatedBodyPreview(item))
   }
 
   function shouldDisplayStoredTranslation(item) {
@@ -126,6 +135,21 @@ export function createReaderItemTools({
     return detectLanguageGlyphFromText(sample) || glyphs.translate
   }
 
+  function isLikelyChineseItem(item) {
+    return getSourceLanguageGlyph(item) === "中"
+  }
+
+  function hasLoadedArticleBody(item = null) {
+    return Boolean(String(item?.content_html || item?.content_text || "").trim())
+  }
+
+  function getArticleBodyActionLabel(item = null, loading = false) {
+    if (!item) return "选择文章后可读取网页原文"
+    if (loading) return "正在读取网页原文"
+    if (item.page_loaded) return "显示网页原文"
+    return "读取网页原文"
+  }
+
   function getTargetLanguageGlyph(item) {
     const translation = getEffectiveTranslationForItem(item)
     return (
@@ -147,7 +171,7 @@ export function createReaderItemTools({
     }
 
     if (shouldDisplayStoredTranslation(item) && hasStoredTranslation(item)) {
-      return translation.translationMode === "title" && !String(item?.translated_text || "").trim()
+      return translation.translationMode === "title" && !getTranslatedBodyPreview(item)
         ? `当前显示 ${translation.targetLabel} 标题`
         : `当前显示 ${translation.targetLabel}`
     }
@@ -160,7 +184,7 @@ export function createReaderItemTools({
       const translatedExcerpt = String(item?.translated_excerpt || "").trim()
       if (translatedExcerpt) return translatedExcerpt
 
-      const translatedBody = getTranslatedBody(item)
+      const translatedBody = getTranslatedBodyPreview(item)
       if (translatedBody) return buildTranslatedExcerpt(translatedBody)
 
       const translatedTitle = getTranslatedTitle(item)
@@ -303,18 +327,23 @@ export function createReaderItemTools({
     detectLanguageGlyphFromText,
     extractDisplayText,
     getItemSiteUrl,
+    getArticleBodyActionLabel,
     getLanguageGlyphFromSetting,
     getOriginalTitle,
     getPreferredSummary,
     getPreferredTitle,
     getSecondaryTitle,
     getTargetLanguageGlyph,
+    getTranslatedBodyPreview,
     getTranslatedBody,
     getTranslatedTitle,
     getTranslateButtonGlyph,
     getTranslateButtonLabel,
     getUsableSummary,
     hasStoredTranslation,
+    hasLoadedArticleBody,
+    hasTranslatedBodyPreview,
+    isLikelyChineseItem,
     openArticleSearch,
     openExternalTranslate,
     openItemInBrowser,

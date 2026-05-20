@@ -34,6 +34,25 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
     res.json(adminService.getDashboard());
   });
 
+  router.post("/system/docker-update-check", route(async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await adminService.checkDockerImageUpdate());
+  }));
+
+  router.post("/secrets/:pool/:id/reveal", route((req, res) => {
+    const pool = parseTrimmedString(req.params.pool, "API 类型", { required: true, maxLength: 32 });
+    const id = parseTrimmedString(req.params.id, "API ID", { required: true, maxLength: 100 });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(adminService.revealProviderSecret(pool, id, getAuditContext(req)));
+  }));
+
+  router.post("/secrets/settings/:category/:key/reveal", route((req, res) => {
+    const category = parseTrimmedString(req.params.category, "配置分类", { required: true, maxLength: 64 });
+    const key = parseTrimmedString(req.params.key, "密钥字段", { required: true, maxLength: 64 });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(adminService.revealSettingSecret(category, key, getAuditContext(req)));
+  }));
+
   router.post("/refresh", route(async (req, res) => {
     const result = adminService.triggerGlobalRefresh(getAuditContext(req));
     res.status(result.started ? 202 : 200).json(result);

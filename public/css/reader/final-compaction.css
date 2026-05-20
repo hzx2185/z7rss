@@ -37,15 +37,13 @@ body.reader-page .card-head h2 {
 .reader-feed-main,
 .reader-toolbar-panel,
 .reader-list-head,
-.reader-item-main,
 .reader-item-preview,
 .reader-content-shell {
   padding-left: 10px;
   padding-right: 10px;
 }
 
-.reader-feed-main,
-.reader-item-main {
+.reader-feed-main {
   padding-top: 8px;
   padding-bottom: 8px;
 }
@@ -67,7 +65,7 @@ body.reader-page .card-head h2 {
 }
 
 .reader-list-head,
-.reader-item-main {
+.reader-item-main:not(.table-view) {
   grid-template-columns: 72px 112px minmax(0, 1fr) 76px;
   gap: 8px;
 }

@@ -44,13 +44,13 @@ export function createAccountService({ store, config, secretBox }) {
 
   function maskApiKey(output, category) {
     if (!output?.[category]) return;
-    output[category].api_key_configured = Boolean(output[category].api_key);
+    output[category].api_key_configured = Boolean(output[category].api_key || output[category].api_key_unavailable);
     delete output[category].api_key;
   }
 
   function maskPassword(output, category) {
     if (!output?.[category]) return;
-    output[category].password_configured = Boolean(output[category].password);
+    output[category].password_configured = Boolean(output[category].password || output[category].password_unavailable);
     delete output[category].password;
   }
 
@@ -59,6 +59,7 @@ export function createAccountService({ store, config, secretBox }) {
     maskApiKey(output, "ai");
     maskApiKey(output, "translation_google");
     maskApiKey(output, "translation_bing");
+    maskApiKey(output, "translation_deeplx");
     maskPassword(output, "mail");
     return output;
   }
@@ -188,6 +189,27 @@ export function createAccountService({ store, config, secretBox }) {
 
   function listUserSettingsMap(userId) {
     return userId ? rowsToSettings(store.listUserSettings(userId)) : {};
+  }
+
+  function getUserSecretValue(userId, category, key) {
+    const normalizedCategory = String(category || "").trim().toLowerCase();
+    const normalizedKey = String(key || "").trim().toLowerCase();
+    const allowedSecrets = new Set([
+      "ai.api_key",
+      "translation_google.api_key",
+      "translation_bing.api_key",
+      "translation_deeplx.api_key"
+    ]);
+    if (!allowedSecrets.has(`${normalizedCategory}.${normalizedKey}`)) {
+      throw badRequest("密钥类型无效", { code: "invalid_secret_setting" });
+    }
+
+    const row = store.getUserSetting(userId, normalizedCategory, normalizedKey);
+    return {
+      category: normalizedCategory,
+      key: normalizedKey,
+      value: secretBox.decrypt(row?.value || "")
+    };
   }
 
   function getStoredTranslationProviderConfig(settings, provider, scope = "system") {
@@ -480,6 +502,7 @@ export function createAccountService({ store, config, secretBox }) {
       return [userAi, ...poolRuntimes].filter((entry) => entry.baseUrl && entry.apiKey);
     },
     getSystemAiProviderPool,
+    getSystemTranslationProviderPool,
     getEffectiveTranslationRuntime(userId, options = {}) {
       const provider = allowedTranslationProviders.has(String(options.provider || "").trim())
         ? String(options.provider || "").trim()
@@ -591,6 +614,12 @@ export function createAccountService({ store, config, secretBox }) {
         item_filter_saved: Object.prototype.hasOwnProperty.call(reader, "item_filter")
       };
       return settings;
+    },
+    revealUserSecret(user, category, key) {
+      if (!user?.id) {
+        throw forbidden("请先登录", { code: "login_required" });
+      }
+      return getUserSecretValue(user.id, category, key);
     },
     updateUserAiSettings(user, payload) {
       const account = this.getAccount(user);

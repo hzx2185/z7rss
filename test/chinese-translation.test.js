@@ -150,6 +150,37 @@ test("automatic zh-CN refresh converts Traditional Chinese instead of skipping i
   assert.match(stored.user_translated_text, /这里是文章内容/);
 });
 
+test("listItems can wait for immediate Traditional Chinese body conversion", async () => {
+  const harness = createTranslationHarness({ targetLanguage: "zh-CN", translationMode: "full" });
+  harness.addItem();
+
+  const result = await harness.itemService.listItems(harness.user.id, harness.feed.id, 20, {
+    skipImmediateTranslations: false
+  });
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].translated_title, "这是一篇关于软体与资料库的文章");
+  assert.match(result.items[0].translated_excerpt, /这里是文章内容/);
+  assert.equal(result.items[0].translated_body_available, 1);
+  assert.equal(result.items[0].translated_text, undefined);
+  assert.equal(harness.getTranslatorCalls(), 0);
+});
+
+test("listItems skipImmediateTranslations keeps fast path without translating first", async () => {
+  const harness = createTranslationHarness({ targetLanguage: "zh-CN", translationMode: "full" });
+  harness.addItem();
+
+  const result = await harness.itemService.listItems(harness.user.id, harness.feed.id, 20, {
+    skipImmediateTranslations: true
+  });
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].translated_title, "");
+  assert.equal(result.items[0].translated_excerpt, "");
+  assert.equal(result.items[0].translated_body_available, 0);
+  assert.equal(harness.getTranslatorCalls(), 0);
+});
+
 test("Simplified Chinese source stays unchanged and is skipped as already Chinese", async () => {
   const harness = createTranslationHarness({ targetLanguage: "zh-CN", translationMode: "full" });
   const item = harness.addItem({

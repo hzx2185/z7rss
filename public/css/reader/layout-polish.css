@@ -456,7 +456,7 @@ body.reader-modal-open {
     minmax(28px, var(--reader-table-site-width, 28px))
     minmax(0, 1fr)
     minmax(56px, var(--reader-table-time-width, 56px));
-  gap: 6px;
+  gap: var(--reader-item-row-gap);
 }
 
 .reader-list-head {

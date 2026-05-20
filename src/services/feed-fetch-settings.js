@@ -55,6 +55,8 @@ export function createFeedFetchSettings({ store, secret }) {
       cookie: normalizeFetchSettingText(raw.cookie),
       article_selector: normalizeFetchSettingText(raw.article_selector),
       page_selector: normalizeFetchSettingText(raw.page_selector),
+      html_start: normalizeFetchSettingText(raw.html_start),
+      html_end: normalizeFetchSettingText(raw.html_end),
       json_items_path: normalizeFetchSettingText(raw.json_items_path),
       json_title_path: normalizeFetchSettingText(raw.json_title_path),
       json_link_path: normalizeFetchSettingText(raw.json_link_path),
@@ -77,6 +79,8 @@ export function createFeedFetchSettings({ store, secret }) {
         normalized.cookie ||
         normalized.article_selector ||
         normalized.page_selector ||
+        normalized.html_start ||
+        normalized.html_end ||
         normalized.json_items_path ||
         normalized.json_title_path ||
         normalized.json_link_path ||
@@ -136,6 +140,8 @@ export function createFeedFetchSettings({ store, secret }) {
       feed_url: normalized.feed_url,
       article_selector: normalized.article_selector,
       page_selector: normalized.page_selector,
+      html_start: normalized.html_start,
+      html_end: normalized.html_end,
       json_items_path: normalized.json_items_path,
       json_title_path: normalized.json_title_path,
       json_link_path: normalized.json_link_path,
@@ -202,6 +208,8 @@ export function createFeedFetchSettings({ store, secret }) {
       cookie: normalized.cookie,
       articleSelector: normalized.article_selector,
       pageSelector: normalized.page_selector,
+      htmlStart: normalized.html_start,
+      htmlEnd: normalized.html_end,
       jsonItemsPath: normalized.json_items_path,
       jsonTitlePath: normalized.json_title_path,
       jsonLinkPath: normalized.json_link_path,
@@ -239,6 +247,8 @@ export function createFeedFetchSettings({ store, secret }) {
       ["cookie", ["fetchCookie", "fetch_cookie", "cookie"]],
       ["article_selector", ["fetchArticleSelector", "fetch_article_selector", "articleSelector"]],
       ["page_selector", ["fetchPageSelector", "fetch_page_selector", "pageSelector"]],
+      ["html_start", ["fetchHtmlStart", "fetch_html_start", "htmlStart"]],
+      ["html_end", ["fetchHtmlEnd", "fetch_html_end", "htmlEnd"]],
       ["json_items_path", ["fetchJsonItemsPath", "fetch_json_items_path", "jsonItemsPath"]],
       ["json_title_path", ["fetchJsonTitlePath", "fetch_json_title_path", "jsonTitlePath"]],
       ["json_link_path", ["fetchJsonLinkPath", "fetch_json_link_path", "jsonLinkPath"]],

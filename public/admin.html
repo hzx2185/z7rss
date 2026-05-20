@@ -9,12 +9,12 @@
     <link rel="stylesheet" href="/css/shared/theme-foundation.css" />
     <link rel="stylesheet" href="/css/shared/app-utilities.css" />
     <link rel="stylesheet" href="/css/admin/account-shell.css" />
-    <link rel="stylesheet" href="/css/shared/ui-foundation.css" />
+    <link rel="stylesheet" href="/css/shared/ui-foundation.css?v=3" />
     <link rel="stylesheet" href="/css/shared/data-surfaces.css" />
     <link rel="stylesheet" href="/css/admin/security-panel.css" />
     <link rel="stylesheet" href="/css/shared/compact-ui.css" />
     <link rel="stylesheet" href="/css/admin/page.css" />
-    <link rel="stylesheet" href="/css/pages/admin.css" />
+    <link rel="stylesheet" href="/css/pages/admin.css?v=3" />
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/admin/shell.css" />
     <link rel="stylesheet" href="/css/admin/shell-extended.css" />
@@ -117,6 +117,15 @@
                   <div id="admin-metrics" class="metrics-grid"></div>
                 </div>
               </div>
+              <div class="card admin-version-card">
+                <div class="card-head">
+                  <h3>版本与镜像</h3>
+                  <div class="reader-actions toolbar-wrap">
+                    <button id="admin-docker-update-btn" class="secondary" type="button">检查镜像更新</button>
+                  </div>
+                </div>
+                <div id="admin-version-info" class="admin-version-grid"></div>
+              </div>
               <div class="card">
                 <div class="card-head">
                   <h3>套餐概览</h3>
@@ -167,7 +176,10 @@
                       </label>
                       <label class="field-label">
                         <span>SMTP 密码</span>
-                        <input id="setting-mail-password" type="password" autocomplete="new-password" />
+                        <span class="secret-field">
+                          <input id="setting-mail-password" type="password" autocomplete="new-password" />
+                          <button id="setting-mail-password-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 SMTP 密码" title="显示 SMTP 密码"></button>
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -724,7 +736,10 @@
           </label>
           <label class="admin-modal-span-2">
             <span>API Key</span>
-            <input id="setting-translation-provider-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+            <span class="secret-field">
+              <input id="setting-translation-provider-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+              <button id="setting-translation-provider-pool-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 API Key" title="显示 API Key"></button>
+            </span>
           </label>
           <div class="admin-modal-actions admin-modal-span-2">
             <button id="setting-translation-provider-pool-add-btn" type="button">确认</button>
@@ -768,7 +783,10 @@
           </label>
           <label>
             <span>API Key</span>
-            <input id="setting-ai-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+            <span class="secret-field">
+              <input id="setting-ai-pool-api-key" type="password" autocomplete="new-password" placeholder="留空不修改" />
+              <button id="setting-ai-pool-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 API Key" title="显示 API Key"></button>
+            </span>
           </label>
           <label>
             <span>模型</span>
@@ -798,6 +816,6 @@
 
     <script type="module" src="/theme.js?v=2"></script>
     <script type="module" src="/shared-settings.js?v=2"></script>
-    <script type="module" src="/admin.js?v=2"></script>
+    <script type="module" src="/admin.js?v=4"></script>
   </body>
 </html>

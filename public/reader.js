@@ -1,5 +1,5 @@
-import { createReaderApi } from "./reader-api.js"
-import { createReaderController } from "./reader-controller.js"
+import { createReaderApi } from "./reader-api.js?v=29"
+import { createReaderController } from "./reader-controller.js?v=29"
 import {
   buildTranslatedExcerpt,
   createReaderTemplates,
@@ -7,15 +7,20 @@ import {
   escapeHtml,
   formatDate,
   getDomain,
+  getDomainSearchTerms,
   getDisplayFeedTitle,
   getDisplayItemFeedTitle,
+  getFeedDomainSearchText,
+  getFeedDomainShortLabel,
+  getFeedDomainTitle,
+  getFeedListTitle,
   getFeedMonogram,
   getItemBodyHtml,
   getItemPageHtml,
   renderPlainText,
   renderRichFallback,
   safeUrl
-} from "./reader-view.js"
+} from "./reader-view.js?v=29"
 import {
   COLUMN_WIDTHS_KEY,
   DEFAULT_COLUMN_WIDTHS,
@@ -40,24 +45,25 @@ import {
   normalizeFeedVisibilityFilter,
   normalizeItemFilter,
   state
-} from "./reader-state.js"
-import { createReaderCollapsibleBody } from "./reader-collapsible-body.js"
-import { createReaderArticleDetail } from "./reader-article-detail.js"
-import { createReaderDerivedData } from "./reader-derived-data.js"
-import { createReaderFeedControls } from "./reader-feed-controls.js"
-import { createReaderFeedSettings } from "./reader-feed-settings.js"
-import { createReaderItemTools } from "./reader-item-tools.js"
-import { createReaderVirtualList } from "./reader-virtual-list.js"
-import { getReaderElements } from "./reader-elements.js"
-import { createReaderDetailSections } from "./reader-detail-sections.js"
-import { registerReaderEvents } from "./reader-events.js"
-import { createReaderUiState } from "./reader-ui-state.js"
-import { createReaderListRenderer } from "./reader-list-renderer.js"
-import { createReaderMenus } from "./reader-menus.js"
-import { createReaderFeedActions } from "./reader-feed-actions.js"
-import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js"
+} from "./reader-state.js?v=29"
+import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=29"
+import { createReaderArticleDetail } from "./reader-article-detail.js?v=29"
+import { createReaderDerivedData } from "./reader-derived-data.js?v=29"
+import { createReaderFeedControls } from "./reader-feed-controls.js?v=29"
+import { createReaderFeedSettings } from "./reader-feed-settings.js?v=29"
+import { createReaderItemTools } from "./reader-item-tools.js?v=29"
+import { createReaderVirtualList } from "./reader-virtual-list.js?v=29"
+import { getReaderElements } from "./reader-elements.js?v=29"
+import { createReaderDetailSections } from "./reader-detail-sections.js?v=29"
+import { registerReaderEvents } from "./reader-events.js?v=29"
+import { createReaderUiState } from "./reader-ui-state.js?v=29"
+import { createReaderListRenderer } from "./reader-list-renderer.js?v=29"
+import { createReaderMenus } from "./reader-menus.js?v=29"
+import { createReaderFeedActions } from "./reader-feed-actions.js?v=29"
+import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=29"
 const compactMedia = window.matchMedia("(max-width: 900px)")
 const LOAD_MORE_EDGE_OFFSET = 280
+const ITEM_LIST_PATCH_TTL_MS = 35_000
 let loadMoreFrame = null
 const readerApi = createReaderApi()
 
@@ -73,6 +79,8 @@ const {
 
 const derivedData = createReaderDerivedData({
   getDisplayFeedTitle,
+  getDomainSearchTerms,
+  getFeedDomainSearchText,
   getState: () => state,
   shouldInlineDetail: () => shouldInlineDetail()
 })
@@ -246,6 +254,7 @@ const {
   copyItemLink,
   copyItemTitle,
   extractDisplayText,
+  getArticleBodyActionLabel,
   getItemSiteUrl,
   getLanguageGlyphFromSetting,
   getOriginalTitle,
@@ -253,12 +262,13 @@ const {
   getPreferredTitle,
   getSecondaryTitle,
   getTargetLanguageGlyph,
-  getTranslatedBody,
+  getTranslatedBodyPreview,
   getTranslatedTitle,
   getTranslateButtonGlyph,
   getTranslateButtonLabel,
   getUsableSummary,
   hasStoredTranslation,
+  hasLoadedArticleBody,
   openArticleSearch,
   openExternalTranslate,
   openItemInBrowser,
@@ -278,11 +288,14 @@ const articleDetail = createReaderArticleDetail({
   getDomain,
   getEffectiveTranslationForFeed: (feed) => getEffectiveTranslationForFeed(feed),
   getEffectiveTranslationForItem: (item) => getEffectiveTranslationForItem(item),
-  getItemBodyHtml,
+  getArticleBodyActionLabel,
+  getItemSiteUrl,
+  hasLoadedArticleBody,
   getItemPageHtml,
+  getItemBodyHtml,
   getLanguageGlyphFromSetting,
   getPreferredTitle,
-  getTranslatedBody,
+  getTranslatedBodyPreview,
   getTranslatedTitle,
   getTranslateButtonGlyph,
   getTranslateButtonLabel,
@@ -294,9 +307,7 @@ const articleDetail = createReaderArticleDetail({
   renderRichFallback,
   safeUrl,
   setGlyphButton,
-  shouldDisplayStoredTranslation,
-  state,
-  ensurePageLoaded: (itemId) => ensurePageLoaded(itemId)
+  state
 })
 
 const {
@@ -355,7 +366,7 @@ function getEffectiveTranslationForItem(item = state.selectedItem) {
     translationModeLabel: item.translation_mode_label || base.translationModeLabel
   }
 
-  if (String(item.translated_text || "").trim()) {
+  if (String(item.translated_text || "").trim() || item.translated_body_available) {
     return {
       ...translation,
       translationMode: "full"
@@ -367,7 +378,7 @@ function getEffectiveTranslationForItem(item = state.selectedItem) {
 function hasFullStoredTranslation(item = state.selectedItem) {
   if (!item) return false
   const hasTitle = Boolean(String(item.translated_title || "").trim())
-  return hasTitle && Boolean(String(item.translated_text || "").trim())
+  return hasTitle && Boolean(String(item.translated_text || "").trim() || item.translated_body_available)
 }
 
 function getTodayStartIso() {
@@ -406,6 +417,96 @@ function setGlyphButton(button, glyph, label) {
   }
 }
 
+function hasOpenableItemUrl(item = null) {
+  if (!item) return false
+  return Boolean(safeUrl(item.original_url || item.link || "") || getItemSiteUrl(item))
+}
+
+function mergeListPatch(item, patch) {
+  if (!item || !patch || typeof patch !== "object") return item
+  const nextPatch = { ...patch }
+  if (!String(nextPatch.translated_title || "").trim() && String(item.translated_title || "").trim()) {
+    delete nextPatch.translated_title
+  }
+  if (!String(nextPatch.translated_excerpt || "").trim() && String(item.translated_excerpt || "").trim()) {
+    delete nextPatch.translated_excerpt
+  }
+  if (!String(nextPatch.translated_text || "").trim() && String(item.translated_text || "").trim()) {
+    delete nextPatch.translated_text
+  }
+  if (!nextPatch.translated_body_available && (item.translated_body_available || item.translated_text)) {
+    delete nextPatch.translated_body_available
+  }
+  if (nextPatch.has_translation === 0 && (item.has_translation || item.translated_title || item.translated_text)) {
+    delete nextPatch.has_translation
+  }
+  return { ...item, ...nextPatch }
+}
+
+function rememberListPatch(itemId, patch) {
+  const normalizedItemId = Number(itemId || 0)
+  if (!Number.isInteger(normalizedItemId) || normalizedItemId <= 0 || !patch || typeof patch !== "object") return
+  const previous = state.itemListPatches.get(normalizedItemId)
+  state.itemListPatches.set(normalizedItemId, {
+    patch: { ...(previous?.patch || {}), ...patch },
+    createdAt: Date.now()
+  })
+  if (state.itemListPatches.size > 200) {
+    state.itemListPatches.delete(state.itemListPatches.keys().next().value)
+  }
+}
+
+function getRememberedListPatch(itemId) {
+  const normalizedItemId = Number(itemId || 0)
+  const entry = state.itemListPatches.get(normalizedItemId)
+  if (!entry) return null
+  if (Date.now() - Number(entry.createdAt || 0) > ITEM_LIST_PATCH_TTL_MS) {
+    state.itemListPatches.delete(normalizedItemId)
+    return null
+  }
+  return entry.patch || null
+}
+
+function applyRememberedListPatches(items) {
+  if (!state.itemListPatches.size) return items
+  let changed = false
+  const patchedItems = items.map((item) => {
+    const patch = getRememberedListPatch(item?.id)
+    if (!patch) return item
+    changed = true
+    return mergeListPatch(item, patch)
+  })
+  return changed ? patchedItems : items
+}
+
+function patchItemsPageCache(itemIds, patch) {
+  const normalizedIds = new Set(
+    itemIds
+      .map((itemId) => Number(itemId || 0))
+      .filter((itemId) => Number.isInteger(itemId) && itemId > 0)
+  )
+  if (!normalizedIds.size || !state.itemPageCache?.size) return
+
+  for (const [key, entry] of state.itemPageCache.entries()) {
+    const cachedItems = Array.isArray(entry?.result?.items) ? entry.result.items : null
+    if (!cachedItems) continue
+    let changed = false
+    const nextItems = cachedItems.map((item) => {
+      if (!normalizedIds.has(Number(item?.id || 0))) return item
+      changed = true
+      return mergeListPatch(item, patch)
+    })
+    if (!changed) continue
+    state.itemPageCache.set(key, {
+      ...entry,
+      result: {
+        ...entry.result,
+        items: nextItems
+      }
+    })
+  }
+}
+
 let listRenderer = null
 
 function estimateVirtualRowHeight(item = null) {
@@ -425,29 +526,19 @@ function refreshRenderedFeedRows(feedIds = []) {
 }
 
 function syncItemToList(itemId, patch) {
-  state.items = state.items.map((item) => {
-    if (item.id !== itemId) return item
-    const nextPatch = { ...patch }
-    if (!String(nextPatch.translated_title || "").trim() && String(item.translated_title || "").trim()) {
-      delete nextPatch.translated_title
-    }
-    if (!String(nextPatch.translated_excerpt || "").trim() && String(item.translated_excerpt || "").trim()) {
-      delete nextPatch.translated_excerpt
-    }
-    if (!String(nextPatch.translated_text || "").trim() && String(item.translated_text || "").trim()) {
-      delete nextPatch.translated_text
-    }
-    if (nextPatch.has_translation === 0 && (item.has_translation || item.translated_title || item.translated_text)) {
-      delete nextPatch.has_translation
-    }
-    return { ...item, ...nextPatch }
-  })
+  rememberListPatch(itemId, patch)
+  patchItemsPageCache([itemId], patch)
+  state.items = state.items.map((item) => (Number(item.id) === Number(itemId) ? mergeListPatch(item, patch) : item))
   derivedData.invalidateItems()
 }
 
 function syncManyItemsToList(itemIds, patch) {
-  const idSet = new Set(itemIds)
-  state.items = state.items.map((item) => (idSet.has(item.id) ? { ...item, ...patch } : item))
+  const idSet = new Set(itemIds.map((itemId) => Number(itemId || 0)))
+  for (const itemId of idSet) {
+    rememberListPatch(itemId, patch)
+  }
+  patchItemsPageCache([...idSet], patch)
+  state.items = state.items.map((item) => (idSet.has(Number(item.id)) ? mergeListPatch(item, patch) : item))
   derivedData.invalidateItems()
 }
 
@@ -525,6 +616,9 @@ function applySelectedItem(nextItem) {
     const hasNextContentExcerpt = Object.prototype.hasOwnProperty.call(nextItem, "content_excerpt")
     const hasNextPageHtml = Object.prototype.hasOwnProperty.call(nextItem, "page_html")
     const hasNextPageText = Object.prototype.hasOwnProperty.call(nextItem, "page_text")
+    const hasNextFetchError = Object.prototype.hasOwnProperty.call(nextItem, "fetch_error")
+    const hasNextPageFetchError = Object.prototype.hasOwnProperty.call(nextItem, "page_fetch_error")
+    const hasNextTranslatedBodyAvailable = Object.prototype.hasOwnProperty.call(nextItem, "translated_body_available")
     state.selectedItem = {
       ...nextItem,
       content_html: hasNextContentHtml ? nextItem.content_html : previous.content_html,
@@ -532,15 +626,19 @@ function applySelectedItem(nextItem) {
       content_excerpt: hasNextContentExcerpt ? nextItem.content_excerpt : previous.content_excerpt,
       content_loaded: nextItem.content_loaded || previous.content_loaded,
       crawled_at: nextItem.crawled_at || previous.crawled_at || null,
-      fetch_error: nextItem.fetch_error || previous.fetch_error || null,
+      fetch_error: hasNextFetchError ? nextItem.fetch_error || null : previous.fetch_error || null,
       page_html: hasNextPageHtml ? nextItem.page_html : previous.page_html,
       page_text: hasNextPageText ? nextItem.page_text : previous.page_text,
       page_loaded: nextItem.page_loaded || previous.page_loaded,
-      page_fetch_error: nextItem.page_fetch_error || previous.page_fetch_error || null,
+      page_fetch_error: hasNextPageFetchError ? nextItem.page_fetch_error || null : previous.page_fetch_error || null,
       original_url: nextItem.original_url || previous.original_url || "",
       original_title: nextItem.original_title || previous.original_title || "",
       translated_title: nextItem.translated_title || previous.translated_title || "",
       translated_text: nextItem.translated_text || previous.translated_text || "",
+      translated_excerpt: nextItem.translated_excerpt || previous.translated_excerpt || "",
+      translated_body_available: hasNextTranslatedBodyAvailable
+        ? nextItem.translated_body_available
+        : previous.translated_body_available || 0,
       translation_target_language: nextItem.translation_target_language || previous.translation_target_language || "",
       translation_target_label: nextItem.translation_target_label || previous.translation_target_label || "",
       translation_display_translated: Object.prototype.hasOwnProperty.call(nextItem, "translation_display_translated")
@@ -588,8 +686,11 @@ const detailSections = createReaderDetailSections({
   getActiveDetailView,
   getCurrentAccount: () => getCurrentAccount(),
   getEffectiveTranslationForItem: (item) => getEffectiveTranslationForItem(item),
+  getArticleBodyActionLabel,
   getItemBodyHtml,
-  getTranslatedBody,
+  getItemPageHtml,
+  hasLoadedArticleBody,
+  getTranslatedBodyPreview,
   getTranslatedTitle,
   getTranslateButtonGlyph,
   getTranslateButtonLabel,
@@ -599,7 +700,6 @@ const detailSections = createReaderDetailSections({
   renderCollapsibleBody: (itemId, contentHtml, sourceText, options) => renderCollapsibleBody(itemId, contentHtml, sourceText, options),
   renderPlainText,
   renderRichFallback,
-  shouldDisplayStoredTranslation,
   state
 })
 
@@ -631,6 +731,9 @@ listRenderer = createReaderListRenderer({
   escapeAttribute,
   escapeHtml,
   getDisplayFeedTitle,
+  getFeedDomainShortLabel,
+  getFeedDomainTitle,
+  getFeedListTitle,
   getFeedMonogram,
   getFilteredFeeds,
   getFilteredItems,
@@ -733,7 +836,9 @@ async function toggleDetailView(view) {
   const nextView = getActiveDetailView() === view ? "none" : view
   state.detailView = nextView
   if (shouldInlineDetail()) {
-    refreshRenderedItemRows([state.selectedItem.id])
+    preserveInlineItemPosition(state.selectedItem.id, () => {
+      refreshRenderedItemRows([state.selectedItem.id])
+    })
   }
   renderArticle()
 
@@ -742,21 +847,78 @@ async function toggleDetailView(view) {
   }
   if (nextView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
     const selectedItemId = state.selectedItem.id
-    void translateItem(selectedItemId).then((result) => {
-      if (
-        result?.skipped &&
-        state.selectedItem?.id === selectedItemId &&
-        getActiveDetailView() === "translation"
-      ) {
-        state.detailView = "none"
-        refreshRenderedItemRows([state.selectedItem.id])
-        renderArticle()
-      }
+    void translateItem(selectedItemId)
+  }
+}
+
+async function showDetailView(view, itemId = state.selectedItem?.id, options = {}) {
+  if (!state.selectedItem || !itemId) return
+
+  const normalizedItemId = Number(itemId)
+  const wasCurrentInlineView =
+    !options.forceOpen &&
+    shouldInlineDetail() &&
+    Number(state.selectedItem.id || 0) === normalizedItemId &&
+    Number(state.expandedItemId || 0) === normalizedItemId &&
+    getActiveDetailView() === view
+
+  state.detailView = wasCurrentInlineView ? "none" : view
+  if (shouldInlineDetail()) {
+    state.expandedItemId = normalizedItemId
+    preserveInlineItemPosition(itemId, () => {
+      refreshRenderedItemRows([itemId])
     })
   }
-  if (nextView === "page") {
-    await ensurePageLoaded(state.selectedItem.id)
+  renderArticle()
+
+  if (state.detailView === "summary" && !state.selectedItem.ai_summary) {
+    void summarizeItem(state.selectedItem.id)
   }
+  if (state.detailView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
+    const selectedItemId = state.selectedItem.id
+    void translateItem(selectedItemId)
+  }
+}
+
+async function showTranslationView(itemId = state.selectedItem?.id, options = {}) {
+  await showDetailView("translation", itemId, options)
+}
+
+async function showOriginalInfo(itemId = state.selectedItem?.id, options = {}) {
+  await showDetailView("original", itemId, options)
+}
+
+async function showPageView(itemId = state.selectedItem?.id, options = {}) {
+  await showDetailView("page", itemId, options)
+  if (state.detailView === "page" && Number(state.selectedItem?.id || 0) === Number(itemId || 0)) {
+    await ensurePageLoaded(itemId)
+  }
+}
+
+async function loadArticleBody(itemId = state.selectedItem?.id, options = {}) {
+  if (!state.selectedItem || !itemId) return
+
+  const normalizedItemId = Number(itemId)
+  if (Number(state.selectedItem.id || 0) !== normalizedItemId) return
+
+  const forceRefresh = Boolean(options.forceRefresh)
+  state.detailView = "none"
+  state.forceOriginalBody = true
+  if (shouldInlineDetail()) {
+    state.expandedItemId = normalizedItemId
+    preserveInlineItemPosition(itemId, () => {
+      refreshRenderedItemRows([itemId])
+    })
+  }
+  renderArticle()
+
+  if (hasLoadedArticleBody(state.selectedItem) && !forceRefresh) {
+    setStatus("已显示正文", "success")
+    return
+  }
+
+  setStatus(forceRefresh ? "正在重新抓取正文..." : "正在读取正文...")
+  await ensureContentLoaded(itemId, { forceRefresh, preferStored: !forceRefresh, showLoadingState: true })
 }
 
 function toggleContentColumn() {
@@ -773,6 +935,7 @@ const readerController = createReaderController({
   state,
   readerApi,
   applySelectedItem,
+  applyRememberedListPatches,
   buildTranslatedExcerpt,
   closeFeedSettingsModal,
   closeMarkReadMenus,
@@ -806,6 +969,7 @@ const readerController = createReaderController({
   renderScopeButtons,
   resetContentPaneScroll,
   resetItemListScroll,
+  hasLoadedArticleBody,
   clearDeferredReadItems,
   applySavedReaderPreferences,
   rememberDeferredReadItem,
@@ -835,6 +999,7 @@ const {
   maybeLoadNextPage,
   openItem,
   prefetchItemsPage,
+  preserveInlineItemPosition,
   refreshAllFeeds,
   refreshCurrentView,
   refreshSelectedFeeds,
@@ -917,16 +1082,6 @@ async function handleItemListClick(event) {
   if (!(event.target instanceof Element)) return
   const target = event.target
 
-  const selectButton = target.closest("[data-item-select]")
-  if (selectButton && els.itemList?.contains(selectButton)) {
-    selectButton.blur?.()
-    const itemId = Number(selectButton.dataset.itemSelect)
-    if (Number.isInteger(itemId) && itemId > 0) {
-      await toggleItem(itemId)
-    }
-    return
-  }
-
   const actionButton = target.closest(
     [
       "[data-item-ai-summary]",
@@ -935,78 +1090,103 @@ async function handleItemListClick(event) {
       "[data-item-read]",
       "[data-item-browser]",
       "[data-item-page]",
-      "[data-item-original]",
-      "[data-item-load-content]"
+      "[data-item-original]"
     ].join(",")
   )
-  if (!actionButton || !els.itemList?.contains(actionButton)) return
+  if (actionButton && els.itemList?.contains(actionButton)) {
+    event.preventDefault()
+    event.stopPropagation()
 
-  const itemId = Number(
-    actionButton.dataset.itemAiSummary ||
-      actionButton.dataset.itemAiTranslate ||
-      actionButton.dataset.itemFavorite ||
-      actionButton.dataset.itemRead ||
-      actionButton.dataset.itemBrowser ||
-      actionButton.dataset.itemPage ||
-      actionButton.dataset.itemOriginal ||
-      actionButton.dataset.itemLoadContent
-  )
-  if (!Number.isInteger(itemId) || itemId < 1) return
+    const itemId = Number(
+      actionButton.dataset.itemAiSummary ||
+        actionButton.dataset.itemAiTranslate ||
+        actionButton.dataset.itemFavorite ||
+        actionButton.dataset.itemRead ||
+        actionButton.dataset.itemBrowser ||
+        actionButton.dataset.itemPage ||
+        actionButton.dataset.itemOriginal
+    )
+    if (!Number.isInteger(itemId) || itemId < 1) return
 
-  const item = getItemById(itemId) || (state.selectedItem?.id === itemId ? state.selectedItem : null)
+    const item = getItemById(itemId) || (state.selectedItem?.id === itemId ? state.selectedItem : null)
+    const itemAccount = getCurrentAccount()
 
-  if (actionButton.matches("[data-item-browser]")) {
-    openItemInBrowser(item)
-    return
-  }
-  if (actionButton.matches("[data-item-favorite]")) {
-    await setFavoriteState(itemId, !Boolean(item?.is_favorited))
-    return
-  }
-  if (actionButton.matches("[data-item-read]")) {
-    await setReadState(itemId, !Boolean(item?.is_read))
-    return
-  }
-
-  const wasSelected = state.selectedItem?.id === itemId
-  if (!wasSelected && item) {
-    applySelectedItem(item)
-    state.expandedItemId = shouldInlineDetail() ? itemId : state.expandedItemId
-    refreshRenderedItemRows([itemId])
-    renderArticle()
-
-    if (actionButton.matches("[data-item-ai-summary]") || actionButton.matches("[data-item-ai-translate]")) {
-      const requestedView = actionButton.matches("[data-item-ai-summary]") ? "summary" : "translation"
-      state.detailView = requestedView
-      refreshRenderedItemRows([itemId])
-      renderArticle()
-      void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true }).then(() => {
-        if (state.selectedItem?.id !== itemId || getActiveDetailView() !== requestedView) return
-        if (requestedView === "summary" && !state.selectedItem.ai_summary) {
-          void summarizeItem(itemId)
-        }
-        if (requestedView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
-          void translateItem(itemId)
-        }
-      })
+    if (actionButton.matches("[data-item-browser]")) {
+      if (!hasOpenableItemUrl(item)) {
+        setStatus("当前没有可打开的地址", "warning")
+        return
+      }
+      openItemInBrowser(item)
+      return
+    }
+    if (actionButton.matches("[data-item-favorite]")) {
+      await setFavoriteState(itemId, !Boolean(item?.is_favorited))
+      return
+    }
+    if (actionButton.matches("[data-item-read]")) {
+      await setReadState(itemId, !Boolean(item?.is_read))
       return
     }
 
-    void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true })
-  } else if (!wasSelected) {
-    await openItem(itemId)
+    const wasSelected = state.selectedItem?.id === itemId
+    const isPageAction = actionButton.matches("[data-item-page]")
+    if (!wasSelected && item) {
+      applySelectedItem(item)
+      state.expandedItemId = shouldInlineDetail() ? itemId : state.expandedItemId
+      refreshRenderedItemRows([itemId])
+      renderArticle()
+
+      if (actionButton.matches("[data-item-ai-summary]") || actionButton.matches("[data-item-ai-translate]")) {
+        const requestedView = actionButton.matches("[data-item-ai-summary]") ? "summary" : "translation"
+        state.detailView = requestedView
+        refreshRenderedItemRows([itemId])
+        renderArticle()
+        void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true }).then(() => {
+          if (state.selectedItem?.id !== itemId || getActiveDetailView() !== requestedView) return
+          if (requestedView === "summary" && !state.selectedItem.ai_summary) {
+            void summarizeItem(itemId)
+          }
+          if (requestedView === "translation" && !hasFullStoredTranslation(state.selectedItem)) {
+            void translateItem(itemId)
+          }
+        })
+        return
+      }
+
+      if (!isPageAction) {
+        void openItem(itemId, { preserveDetailView: true, skipInlineRowRefresh: true })
+      }
+    } else if (!wasSelected) {
+      await openItem(itemId)
+    }
+
+    if (actionButton.matches("[data-item-ai-summary]")) {
+      if (!itemAccount?.features.summary) {
+        setStatus("当前套餐不支持 AI 总结", "warning")
+        return
+      }
+      await toggleDetailView("summary")
+    } else if (actionButton.matches("[data-item-ai-translate]")) {
+      if (!itemAccount?.features.translation) {
+        setStatus("当前套餐不支持翻译功能", "warning")
+        return
+      }
+      await showTranslationView(itemId, { forceOpen: !wasSelected })
+    } else if (actionButton.matches("[data-item-page]")) {
+      await showPageView(itemId, { forceOpen: !wasSelected })
+    } else if (actionButton.matches("[data-item-original]")) {
+      await showOriginalInfo(itemId, { forceOpen: !wasSelected })
+    }
+    return
   }
 
-  if (actionButton.matches("[data-item-ai-summary]")) {
-    await toggleDetailView("summary")
-  } else if (actionButton.matches("[data-item-ai-translate]")) {
-    await toggleDetailView("translation")
-  } else if (actionButton.matches("[data-item-page]")) {
-    await toggleDetailView("page")
-  } else if (actionButton.matches("[data-item-original]")) {
-    await toggleDetailView("original")
-  } else if (actionButton.matches("[data-item-load-content]")) {
-    await ensureContentLoaded(itemId, { showLoadingState: true })
+  const selectButton = target.closest("[data-item-select]")
+  if (selectButton && els.itemList?.contains(selectButton)) {
+    selectButton.blur?.()
+    const itemId = Number(selectButton.dataset.itemSelect)
+    if (Number.isInteger(itemId) && itemId > 0) {
+      await toggleItem(itemId)
+    }
   }
 }
 
@@ -1094,6 +1274,10 @@ registerReaderEvents({
     setReadState,
     setStatus,
     shareSelectedFeeds,
+    loadArticleBody,
+    showPageView,
+    showTranslationView,
+    showOriginalInfo,
     toggleAllVisibleFeeds,
     toggleBodyExpanded,
     toggleContentColumn,

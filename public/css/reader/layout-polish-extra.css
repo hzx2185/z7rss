@@ -72,8 +72,9 @@ body.reader-page .site-header {
 .reader-feed-copy {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  flex-direction: row;
+  gap: 6px;
 }
 
 .reader-feed-heading {
@@ -102,6 +103,28 @@ body.reader-page .site-header {
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
+}
+
+.reader-feed-name {
+  min-width: 0;
+}
+
+.reader-feed-domain {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  max-width: 82px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .reader-feed-tag.is-category,
@@ -462,7 +485,8 @@ body.reader-page .site-header {
   }
 
   #reader-feed-drawer .reader-feed-copy {
-    display: block;
+    display: flex;
+    align-items: center;
     min-width: 0;
   }
 
@@ -474,9 +498,14 @@ body.reader-page .site-header {
   #reader-feed-drawer .reader-feed-name {
     display: block;
     min-width: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  #reader-feed-drawer .reader-feed-domain {
+    max-width: 58px;
   }
 
   #reader-feed-drawer .reader-feed-badges,

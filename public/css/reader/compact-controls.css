@@ -119,6 +119,12 @@ body.reader-page .reader-feed-name {
   font-size: 12px;
 }
 
+body.reader-page .reader-feed-domain {
+  max-width: 62px;
+  padding: 1px 5px;
+  font-size: 9px;
+}
+
 body.reader-page .reader-feed-unread-count {
   min-width: 22px;
   height: 20px;

@@ -5,6 +5,9 @@ export function createReaderListRenderer(deps) {
     escapeAttribute,
     escapeHtml,
     getDisplayFeedTitle,
+    getFeedDomainShortLabel,
+    getFeedDomainTitle,
+    getFeedListTitle,
     getFeedMonogram,
     getFilteredFeeds,
     getFilteredItems,
@@ -120,7 +123,7 @@ export function createReaderListRenderer(deps) {
     if (state.viewMode === "list") {
       return inlineExpanded ? 336 : 112
     }
-    return inlineExpanded ? 304 : shouldInlineDetail() ? 96 : 68
+    return inlineExpanded ? 272 : 34
   }
 
   function buildItemRowMarkup(item, inlineMode = shouldInlineDetail()) {
@@ -362,7 +365,11 @@ export function createReaderListRenderer(deps) {
         `${visibleFeeds
           .map(
             (feed) => {
-              const displayTitle = getDisplayFeedTitle(feed)
+              const displayTitle = typeof getFeedListTitle === "function" ? getFeedListTitle(feed) : getDisplayFeedTitle(feed)
+              const fullTitle = getDisplayFeedTitle(feed)
+              const domainLabel = typeof getFeedDomainShortLabel === "function" ? getFeedDomainShortLabel(feed) : ""
+              const domainTitle = typeof getFeedDomainTitle === "function" ? getFeedDomainTitle(feed) : ""
+              const titleLabel = [fullTitle, domainTitle].filter(Boolean).join(" · ")
               return `
               <article class="reader-feed-row ${state.selectedFeedId === feed.feed_id ? "is-active" : ""} ${state.feedBulkMode ? "is-bulk" : ""} ${state.selectedFeedIds.includes(Number(feed.feed_id)) ? "is-checked" : ""}">
                 ${
@@ -377,7 +384,12 @@ export function createReaderListRenderer(deps) {
                 <button class="reader-feed-main" type="button" data-feed-select="${feed.feed_id}">
                   <span class="reader-feed-icon">${getFeedMonogram(feed)}</span>
                   <span class="reader-feed-copy">
-                    <span class="reader-feed-name" title="${escapeAttribute(feed.title || displayTitle)}">${escapeHtml(displayTitle)}</span>
+                    <span class="reader-feed-name" title="${escapeAttribute(titleLabel || feed.title || displayTitle)}">${escapeHtml(displayTitle)}</span>
+                    ${
+                      domainLabel
+                        ? `<span class="reader-feed-domain" title="${escapeAttribute(domainTitle || domainLabel)}">${escapeHtml(domainLabel)}</span>`
+                        : ""
+                    }
                   </span>
                   <span class="reader-feed-unread-count ${Number(feed.unread_count || 0) > 0 ? "has-unread" : ""}">${Number(feed.unread_count || 0)}</span>
                 </button>
@@ -424,6 +436,22 @@ export function createReaderListRenderer(deps) {
       if (unreadBadge) {
         setTextWhenChanged(unreadBadge, String(unreadCount))
         unreadBadge.classList.toggle("has-unread", unreadCount > 0)
+      }
+
+      const displayTitle = typeof getFeedListTitle === "function" ? getFeedListTitle(feed) : getDisplayFeedTitle(feed)
+      const fullTitle = getDisplayFeedTitle(feed)
+      const domainLabel = typeof getFeedDomainShortLabel === "function" ? getFeedDomainShortLabel(feed) : ""
+      const domainTitle = typeof getFeedDomainTitle === "function" ? getFeedDomainTitle(feed) : ""
+      const titleLabel = [fullTitle, domainTitle].filter(Boolean).join(" · ")
+      const name = row.querySelector(".reader-feed-name")
+      if (name) {
+        setTextWhenChanged(name, displayTitle)
+        name.setAttribute("title", titleLabel || feed.title || displayTitle)
+      }
+      const domain = row.querySelector(".reader-feed-domain")
+      if (domain) {
+        setTextWhenChanged(domain, domainLabel)
+        domain.setAttribute("title", domainTitle || domainLabel)
       }
     }
   }

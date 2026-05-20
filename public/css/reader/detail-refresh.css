@@ -251,7 +251,7 @@ body.reader-page textarea {
     var(--reader-table-site-width, 28px)
     minmax(0, 1fr)
     var(--reader-table-time-width, 56px);
-  gap: 6px;
+  gap: var(--reader-item-row-gap);
 }
 
 .reader-item-main.list-view,
@@ -419,7 +419,7 @@ body.reader-page textarea {
 
   .reader-item-main.table-view,
   .reader-item-summary-row {
-    gap: 6px;
+    gap: var(--reader-item-row-gap);
   }
 }
 

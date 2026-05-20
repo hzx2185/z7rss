@@ -80,7 +80,13 @@ export function createItemRouter({ itemService, config }) {
   }));
 
   router.get("/:id/content", route(async (req, res) => {
-    const item = await itemService.getItemContent(req.auth.user, parseItemId(req.params.id));
+    const forceRefresh = req.query.forceRefresh === undefined
+      ? false
+      : parseBoolean(req.query.forceRefresh, "强制重新抓取");
+    const preferStored = req.query.preferStored === undefined
+      ? false
+      : parseBoolean(req.query.preferStored, "优先使用已存正文");
+    const item = await itemService.getItemContent(req.auth.user, parseItemId(req.params.id), { forceRefresh, preferStored });
     res.json(item);
   }));
 

@@ -79,6 +79,10 @@ body.admin-modal-open {
   min-height: 38px;
 }
 
+.secret-reveal-btn {
+  height: 28px;
+}
+
 .admin-modal-span-2 {
   grid-column: 1 / -1;
 }

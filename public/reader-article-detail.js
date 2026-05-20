@@ -10,11 +10,14 @@ export function createReaderArticleDetail({
   getDomain,
   getEffectiveTranslationForFeed,
   getEffectiveTranslationForItem,
+  getArticleBodyActionLabel,
   getItemBodyHtml,
   getItemPageHtml,
+  getItemSiteUrl,
+  hasLoadedArticleBody,
   getLanguageGlyphFromSetting,
   getPreferredTitle,
-  getTranslatedBody,
+  getTranslatedBodyPreview,
   getTranslatedTitle,
   getTranslateButtonGlyph,
   getTranslateButtonLabel,
@@ -26,9 +29,7 @@ export function createReaderArticleDetail({
   renderRichFallback,
   safeUrl,
   setGlyphButton,
-  shouldDisplayStoredTranslation,
-  state,
-  ensurePageLoaded
+  state
 }) {
   const renderCache = {
     articleBodyKey: "",
@@ -59,6 +60,24 @@ export function createReaderArticleDetail({
     if (element && element.title !== title) {
       element.title = title
     }
+  }
+
+  function setAriaLabelWhenChanged(element, label) {
+    if (element && element.getAttribute("aria-label") !== label) {
+      element.setAttribute("aria-label", label)
+    }
+  }
+
+  function setControlLabel(element, label) {
+    setTitleWhenChanged(element, label)
+    setAriaLabelWhenChanged(element, label)
+  }
+
+  function setActionButton(button, glyph, label, { active = false, disabled = false } = {}) {
+    if (!button) return
+    setGlyphButton(button, glyph, label)
+    setDisabledWhenChanged(button, Boolean(disabled))
+    button.classList.toggle("active", Boolean(active))
   }
 
   function getTextSignature(value) {
@@ -94,15 +113,99 @@ export function createReaderArticleDetail({
     const translation = state.selectedItem
       ? getEffectiveTranslationForItem(state.selectedItem)
       : getEffectiveTranslationForFeed(getCurrentFeed())
+    const canTranslate = Boolean(getCurrentAccount()?.features.translation)
     if (els.translateBtn) {
       setGlyphButton(
         els.translateBtn,
         state.selectedItem
           ? getTranslateButtonGlyph(state.selectedItem)
           : getLanguageGlyphFromSetting(translation.targetLanguage) || glyphs.translate,
-        getTranslateButtonLabel(state.selectedItem)
+        !state.selectedItem
+          ? "选择文章后可翻译"
+          : canTranslate
+            ? getTranslateButtonLabel(state.selectedItem)
+            : "当前套餐不支持翻译"
       )
     }
+  }
+
+  function syncArticleActionButtons({ activeView, canSummarize, canTranslate, item }) {
+    const hasItem = Boolean(item)
+    const articleUrl = hasItem ? safeUrl(item.original_url || item.link || "") || getItemSiteUrl(item) : ""
+    const summaryLoading = Boolean(hasItem && item.summary_loading)
+    const translationLoading = Boolean(hasItem && item.translation_loading)
+    const pageLoading = Boolean(hasItem && state.loadingPageFor === item.id)
+    const translation = hasItem ? getEffectiveTranslationForItem(item) : getEffectiveTranslationForFeed(getCurrentFeed())
+    const translateGlyph = hasItem
+      ? getTranslateButtonGlyph(item)
+      : getLanguageGlyphFromSetting(translation.targetLanguage) || glyphs.translate
+
+    setActionButton(els.summaryToggleBtn, glyphs.summary, !hasItem
+      ? "选择文章后可生成摘要"
+      : summaryLoading
+        ? "正在生成 AI 摘要"
+        : canSummarize
+          ? "生成或显示摘要"
+          : "当前套餐不支持 AI 摘要", {
+      active: hasItem && activeView === "summary",
+      disabled: !hasItem || !canSummarize || summaryLoading
+    })
+
+    setActionButton(els.translateBtn, translateGlyph, !hasItem
+      ? "选择文章后可翻译"
+      : translationLoading
+        ? `正在翻译到 ${translation.targetLabel}`
+        : canTranslate
+          ? getTranslateButtonLabel(item)
+          : "当前套餐不支持翻译", {
+      active: hasItem && activeView === "translation",
+      disabled: !hasItem || !canTranslate || translationLoading
+    })
+
+    setActionButton(els.favoriteToggleBtn, glyphs.favorite, !hasItem
+      ? "选择文章后可收藏"
+      : item.is_favorited
+        ? "取消收藏"
+        : "收藏", {
+      active: hasItem && Boolean(item.is_favorited),
+      disabled: !hasItem
+    })
+
+    setActionButton(els.readToggleBtn, hasItem && item.is_read ? glyphs.unread : glyphs.read, !hasItem
+      ? "选择文章后可标记已读"
+      : item.is_read
+        ? "标记为未读"
+        : "标记为已读", {
+      active: false,
+      disabled: !hasItem
+    })
+
+    setActionButton(els.browserOpenBtn, glyphs.browser, !hasItem
+      ? "选择文章后可打开原文"
+      : articleUrl
+        ? "在新窗口打开原文"
+        : "当前没有可打开的原文地址", {
+      disabled: !hasItem || !articleUrl
+    })
+
+    setActionButton(els.pageToggleBtn, glyphs.page, !hasItem
+      ? "选择文章后可读取网页原文"
+      : getArticleBodyActionLabel(item, pageLoading), {
+      active: hasItem && activeView === "page",
+      disabled: !hasItem || pageLoading
+    })
+
+    setActionButton(els.originalToggleBtn, glyphs.original, !hasItem
+      ? "选择文章后可查看来源信息"
+      : activeView === "original"
+        ? "收起来源信息"
+        : item.original_url
+          ? "显示原文地址和采集信息"
+          : "显示来源识别信息", {
+      active: hasItem && activeView === "original",
+      disabled: !hasItem
+    })
+
   }
 
   function renderOriginalInfo(item) {
@@ -179,23 +282,30 @@ export function createReaderArticleDetail({
       body = `
         ${translateErrorBox}
         ${renderRichFallback(
-          getTranslatedBody(item),
+          getTranslatedBodyPreview(item),
           translationLoading ? "正在翻译正文..." : "",
           item.original_url || item.link || "",
           { splitOnSingleNewline: true }
         )}
       `
     } else if (activeView === "page") {
-      title = "网页内容"
-      meta = item.page_fetch_error ? `抓取失败：${item.page_fetch_error}` : item.page_loaded ? "已从网页抓取并保存" : "正在抓取网页内容..."
+      const pageLoading = Boolean(state.loadingPageFor === item.id)
+      title = "网页原文"
+      meta = item.page_fetch_error
+        ? `读取失败：${item.page_fetch_error}`
+        : item.page_loaded
+          ? "已读取原始网页图文"
+          : pageLoading
+            ? "正在读取原始网页图文..."
+            : "尚未读取网页原文"
       lead = extractDisplayText(item.original_title || item.title || "")
       body = item.page_loaded
         ? getItemPageHtml(item)
         : item.page_fetch_error
-          ? renderPlainText(item.page_fetch_error, "网页抓取失败")
-          : `<p class="muted">正在加载网页内容...</p>`
+          ? renderPlainText(item.page_fetch_error, "网页原文读取失败")
+          : `<p class="muted">${pageLoading ? "正在读取原始网页图文..." : "尚未读取网页原文。"}</p>`
     } else if (activeView === "original") {
-      title = "原文信息"
+      title = "来源信息"
       meta = safeUrl(item.original_url || item.link || "") ? getDomain(item.original_url || item.link || "") : "未识别"
       lead = extractDisplayText(item.original_title || item.title || "")
       body = renderOriginalInfo(item)
@@ -216,7 +326,7 @@ export function createReaderArticleDetail({
         item.summary_loading ? 1 : 0,
         item.summary_error || "",
         getTranslatedTitle(item) || "",
-        getTextSignature(getTranslatedBody(item)),
+        getTextSignature(getTranslatedBodyPreview(item)),
         item.translation_loading ? 1 : 0,
         item.translate_error || "",
         item.page_loaded ? 1 : 0,
@@ -237,7 +347,7 @@ export function createReaderArticleDetail({
     if (!canTranslate) warnings.push("当前套餐不支持翻译功能")
     if (!canSummarize) warnings.push("当前套餐不支持 AI 总结")
     if (item.fetch_error) warnings.push(`正文抓取失败：${item.fetch_error}`)
-    if (item.page_fetch_error) warnings.push(`网页抓取失败：${item.page_fetch_error}`)
+    if (item.page_fetch_error) warnings.push(`网页原文读取失败：${item.page_fetch_error}`)
     if (translation.autoTranslate && !translation.autoTranslateSupported) {
       warnings.push(`当前订阅已开启自动翻译，但 ${getTranslationProviderLabel(translation.provider)} 暂不支持自动翻译`)
     } else if (translation.autoTranslate && !translation.providerConfigured) {
@@ -269,18 +379,24 @@ export function createReaderArticleDetail({
     }
   }
 
-  function renderArticleBody({ item, showTranslatedBody, translation }) {
+  function shouldRenderTranslatedBody(item) {
+    return (
+      !state.forceOriginalBody &&
+      getEffectiveTranslationForItem(item).displayTranslated &&
+      getActiveDetailView() !== "translation" &&
+      Boolean(String(getTranslatedBodyPreview(item) || "").trim())
+    )
+  }
+
+  function renderArticleBody({ item }) {
     const expandedKey = Array.isArray(state.expandedBodyItemIds) ? state.expandedBodyItemIds.join(",") : ""
-    const effectiveShowTranslated = showTranslatedBody && !state.forceOriginalBody
+    const showTranslatedBody = shouldRenderTranslatedBody(item)
     const bodyKey = [
       Number(item.id || 0),
-      effectiveShowTranslated ? 1 : 0,
-      translation.translationMode || "",
-      translation.targetLabel || "",
+      showTranslatedBody ? 1 : 0,
       item.content_loaded ? 1 : 0,
       item.fetch_error || "",
       state.loadingContentFor === item.id ? 1 : 0,
-      state.forceOriginalBody ? 1 : 0,
       getTextSignature(item.content_html),
       getTextSignature(item.content_text),
       getTextSignature(item.content_excerpt),
@@ -290,16 +406,27 @@ export function createReaderArticleDetail({
       expandedKey
     ].join(":")
 
-    if (effectiveShowTranslated) {
-      setTextWhenChanged(els.contentHint, `当前显示 ${translation.targetLabel} 译文。`)
+    if (showTranslatedBody) {
+      setTextWhenChanged(els.contentHint, `当前显示 ${getEffectiveTranslationForItem(item).targetLabel} 译文。`)
+      if (els.bodyToggleTranslationBtn) {
+        els.bodyToggleTranslationBtn.classList.remove("hidden")
+        setTextWhenChanged(els.bodyToggleTranslationBtn, "原文")
+        els.bodyToggleTranslationBtn.setAttribute("aria-label", "显示原文正文")
+      }
       setHtmlWhenChanged(els.articleContent, "articleBodyKey", bodyKey, () => renderCollapsibleBody(
         item.id,
-        renderRichFallback(getTranslatedBody(item), "", item.original_url || item.link || "", { splitOnSingleNewline: true }),
-        getTranslatedBody(item),
+        renderRichFallback(getTranslatedBodyPreview(item), "", item.original_url || item.link || "", { splitOnSingleNewline: true }),
+        getTranslatedBodyPreview(item),
         { contentClass: "reader-content rich-content" }
       ))
-    } else if (item.content_loaded) {
+    } else if (hasLoadedArticleBody(item)) {
       setTextWhenChanged(els.contentHint, item.fetch_error ? `正文抓取失败：${item.fetch_error}` : "正文已加载并存储。")
+      if (els.bodyToggleTranslationBtn) {
+        const hasTranslatedBody = Boolean(String(getTranslatedBodyPreview(item) || "").trim())
+        els.bodyToggleTranslationBtn.classList.toggle("hidden", !hasTranslatedBody)
+        setTextWhenChanged(els.bodyToggleTranslationBtn, "译文")
+        els.bodyToggleTranslationBtn.setAttribute("aria-label", "显示译文正文")
+      }
       setHtmlWhenChanged(els.articleContent, "articleBodyKey", bodyKey, () => renderCollapsibleBody(
         item.id,
         getItemBodyHtml(item),
@@ -307,14 +434,23 @@ export function createReaderArticleDetail({
         { contentClass: "reader-content rich-content" }
       ))
     } else {
+      if (els.bodyToggleTranslationBtn) {
+        els.bodyToggleTranslationBtn.classList.add("hidden")
+      }
       setTextWhenChanged(els.contentHint, item.fetch_error
         ? `正文抓取失败：${item.fetch_error}`
         : state.loadingContentFor === item.id
-          ? "正在抓取正文..."
-          : "正文尚未抓取，点击“抓取正文”后可查看全文。")
+          ? "正在读取正文..."
+          : item.content_loaded
+            ? "原文正文已存储。"
+            : "暂无完整正文。")
       setHtmlWhenChanged(els.articleContent, "articleBodyKey", bodyKey, () => renderCollapsibleBody(
         item.id,
-        renderRichFallback(getUsableSummary(item) || item.title || "", "正文尚未抓取，点击“抓取正文”后可查看全文。", item.original_url || item.link || ""),
+        renderRichFallback(
+          getUsableSummary(item) || item.title || "",
+          item.content_loaded ? "原文正文已存储。" : "暂无完整正文。",
+          item.original_url || item.link || ""
+        ),
         getUsableSummary(item) || item.title || "",
         { contentClass: "reader-content rich-content" }
       ))
@@ -326,15 +462,14 @@ export function createReaderArticleDetail({
     const canTranslate = Boolean(account?.features.translation)
     const canSummarize = Boolean(account?.features.summary)
     const inlineMode = shouldInlineDetail()
+    const activeView = getActiveDetailView()
 
-    setDisabledWhenChanged(els.translateBtn, !state.selectedItem || !canTranslate)
-    setDisabledWhenChanged(els.summaryToggleBtn, !state.selectedItem || !canSummarize)
-    setDisabledWhenChanged(els.bodyPageBtn, !state.selectedItem)
-    setDisabledWhenChanged(els.favoriteToggleBtn, !state.selectedItem)
-    setDisabledWhenChanged(els.readToggleBtn, !state.selectedItem)
-    setDisabledWhenChanged(els.browserOpenBtn, !state.selectedItem)
-    setDisabledWhenChanged(els.loadContentBtn, !state.selectedItem)
-    renderTranslationMeta()
+    syncArticleActionButtons({
+      activeView,
+      canSummarize,
+      canTranslate,
+      item: state.selectedItem
+    })
 
     if (inlineMode) {
       els.emptyState.classList.add("hidden")
@@ -342,7 +477,6 @@ export function createReaderArticleDetail({
       setTextWhenChanged(els.articleTitle, "内容已并入标题列表")
       setTextWhenChanged(els.articleMeta, "右侧内容列已折叠。")
       setTextWhenChanged(els.contentHeading, "正文")
-      if (els.bodyPageBtn) els.bodyPageBtn.classList.remove("active")
       renderDetailView()
       return
     }
@@ -353,7 +487,6 @@ export function createReaderArticleDetail({
       setTextWhenChanged(els.articleTitle, "选择一篇文章开始")
       setTextWhenChanged(els.articleMeta, "桌面右侧阅读，窄屏自动适配为单列展开。")
       setTextWhenChanged(els.contentHeading, "正文")
-      if (els.bodyPageBtn) els.bodyPageBtn.classList.remove("active")
       els.articleWarnings.classList.add("hidden")
       setHtmlWhenChanged(els.articleWarnings, "warningsKey", "empty", "")
       renderDetailView()
@@ -362,50 +495,21 @@ export function createReaderArticleDetail({
 
     const item = state.selectedItem
     const translation = getEffectiveTranslationForItem(item)
-    const activeView = getActiveDetailView()
     const displayedTitle = getPreferredTitle(item)
-    const showTranslatedBody =
-      shouldDisplayStoredTranslation(item) &&
-      translation.translationMode !== "title" &&
-      Boolean(String(getTranslatedBody(item) || "").trim())
-    const canShowTranslatedBody = showTranslatedBody && activeView !== "translation"
     const feedLabel = getDisplayItemFeedTitle(item)
-    const effectiveShowTranslated = canShowTranslatedBody && !state.forceOriginalBody
     els.emptyState.classList.add("hidden")
     els.articlePanel.classList.remove("hidden")
     setTextWhenChanged(els.articleTitle, `${item.is_favorited ? "★ " : ""}${displayedTitle || "未命名文章"}`)
     setTextWhenChanged(els.articleMeta, `${feedLabel || "-"} · ${formatDate(item.published_at || item.created_at)}`)
-    setTextWhenChanged(els.contentHeading, effectiveShowTranslated ? "译文" : "正文")
+    setTextWhenChanged(els.contentHeading, "正文")
     if (els.bodyToggleTranslationBtn) {
-      const hasTranslation = canShowTranslatedBody
-      els.bodyToggleTranslationBtn.classList.toggle("hidden", !hasTranslation)
-      if (hasTranslation) {
-        setTextWhenChanged(els.bodyToggleTranslationBtn, state.forceOriginalBody ? "译文" : "原文")
-        setTitleWhenChanged(els.bodyToggleTranslationBtn, state.forceOriginalBody ? "切换到译文" : "切换到原文")
-      }
-    }
-    setGlyphButton(els.favoriteToggleBtn, glyphs.favorite, item.is_favorited ? "取消收藏" : "收藏")
-    setGlyphButton(els.readToggleBtn, item.is_read ? glyphs.unread : glyphs.read, item.is_read ? "标记为未读" : "标记为已读")
-    setGlyphButton(els.originalToggleBtn, glyphs.original, item.original_url ? "显示原文地址和采集信息" : "显示原文识别信息")
-    setGlyphButton(els.summaryToggleBtn, glyphs.summary, canSummarize ? "生成或显示摘要" : "当前套餐不支持 AI 摘要")
-    setGlyphButton(els.loadContentBtn, glyphs.load, item.content_loaded ? "刷新正文" : "抓取正文")
-    if (els.bodyPageBtn) {
-      setDisabledWhenChanged(els.bodyPageBtn, false)
-      setTitleWhenChanged(els.bodyPageBtn, state.loadingPageFor === item.id ? "正在加载网页内容" : "显示网页正文")
-      els.bodyPageBtn.classList.toggle("active", activeView === "page")
+      els.bodyToggleTranslationBtn.classList.add("hidden")
     }
 
-    const articleUrl = safeUrl(item.original_url || item.link || "")
-    setDisabledWhenChanged(els.browserOpenBtn, !articleUrl)
-    setGlyphButton(els.browserOpenBtn, glyphs.browser, articleUrl ? "在新窗口打开原文" : "当前没有可打开的原文地址")
-
-    renderArticleBody({ item, showTranslatedBody: canShowTranslatedBody, translation })
+    renderArticleBody({ item })
     renderArticleWarnings({ account, canSummarize, canTranslate, item, translation })
     renderDetailView()
 
-    if (activeView === "page" && !item.page_loaded) {
-      void ensurePageLoaded(item.id)
-    }
   }
 
   return {

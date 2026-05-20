@@ -105,8 +105,12 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
     async getItemPreview(itemId) {
       return request(`/api/items/${itemId}`)
     },
-    async getItemContent(itemId) {
-      return request(`/api/items/${itemId}/content`)
+    async getItemContent(itemId, options = {}) {
+      const params = new URLSearchParams()
+      if (options.forceRefresh) params.set("forceRefresh", "true")
+      if (options.preferStored) params.set("preferStored", "true")
+      const query = params.toString()
+      return request(`/api/items/${itemId}/content${query ? `?${query}` : ""}`, options.forceRefresh ? { cache: "no-store" } : {})
     },
     async getItemPage(itemId) {
       return request(`/api/items/${itemId}/page`)

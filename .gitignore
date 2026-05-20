@@ -8,6 +8,7 @@ data-recovery/*.db-wal
 .env
 .env.*
 !.env.example
+AGENTS.md
 npm-debug.log*
 .DS_Store
 **/.DS_Store

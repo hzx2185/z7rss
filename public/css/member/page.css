@@ -75,6 +75,16 @@ body.member-page textarea {
   padding: 8px 10px;
 }
 
+body.member-page .secret-field input {
+  padding-right: 42px;
+}
+
+body.member-page .secret-reveal-btn {
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+}
+
 body.member-page input,
 body.member-page select,
 body.member-page .member-layout button {

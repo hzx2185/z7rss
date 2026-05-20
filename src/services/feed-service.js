@@ -493,13 +493,18 @@ export function createFeedService({ store, accountService, config, translator = 
     }
   }
 
-  async function hydrateItemContent(userId, itemId) {
+  async function hydrateItemContent(userId, itemId, options = {}) {
     const item = store.getUserItem(userId, itemId);
     if (!item) {
       throw notFound("Item not found");
     }
 
-    if (hasStoredContent(item) && (item.crawled_at || getReadableTextLength(item.content_text || item.content_html || "") > 400)) {
+    const forceRefresh = Boolean(options.forceRefresh);
+    const preferStored = Boolean(options.preferStored);
+    if (!forceRefresh && preferStored && hasStoredContent(item)) {
+      return store.getUserItem(userId, itemId);
+    }
+    if (!forceRefresh && hasStoredContent(item) && (item.crawled_at || getReadableTextLength(item.content_text || item.content_html || "") > 400)) {
       return store.getUserItem(userId, itemId);
     }
 
@@ -513,7 +518,7 @@ export function createFeedService({ store, accountService, config, translator = 
         ...buildRuntimeFeedFetchOptions(fetchSettings)
       });
     } catch (error) {
-      if (hasStoredContent(item) && shouldKeepStoredContentAfterArticleFetchError(error)) {
+      if (!forceRefresh && hasStoredContent(item) && shouldKeepStoredContentAfterArticleFetchError(error)) {
         return store.getUserItem(userId, itemId) || item;
       }
       throw error;
@@ -539,7 +544,7 @@ export function createFeedService({ store, accountService, config, translator = 
         html: article.html
       })
     ) {
-      if (hasStoredContent(item)) {
+      if (!forceRefresh && hasStoredContent(item)) {
         return store.getUserItem(userId, itemId);
       }
       throw badGateway("Article request returned content unrelated to the feed item", {
@@ -611,7 +616,7 @@ export function createFeedService({ store, accountService, config, translator = 
     return toItemPreview(marked || item);
   }
 
-  async function getItemContent(userId, itemId) {
+  async function getItemContent(userId, itemId, options = {}) {
     const item = store.getUserItem(userId, itemId);
     if (!item) {
       throw notFound("Item not found");
@@ -619,7 +624,7 @@ export function createFeedService({ store, accountService, config, translator = 
 
     store.setUserItemReadState(userId, itemId, true, new Date().toISOString());
     try {
-      const hydrated = await hydrateItemContent(userId, itemId);
+      const hydrated = await hydrateItemContent(userId, itemId, options);
       return {
         ...hydrated,
         content_loaded: hasStoredContent(hydrated)

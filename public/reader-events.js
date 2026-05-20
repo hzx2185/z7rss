@@ -291,23 +291,22 @@ export function registerReaderEvents(deps) {
   })
 
   on(els.browserOpenBtn, "click", () => actions.openItemInBrowser(state.selectedItem))
-  on(els.bodyPageBtn, "click", () => void actions.toggleDetailView("page"))
+  on(els.pageToggleBtn, "click", () => void actions.showPageView())
   on(els.bodyToggleTranslationBtn, "click", () => {
-    state.forceOriginalBody = !state.forceOriginalBody
+    if (!state.forceOriginalBody) {
+      void actions.loadArticleBody()
+      return
+    }
+    state.forceOriginalBody = false
     renderers.renderArticle()
   })
   on(els.summaryToggleBtn, "click", () => void actions.toggleDetailView("summary"))
-  on(els.translateBtn, "click", () => void actions.toggleDetailView("translation"))
-  on(els.originalToggleBtn, "click", () => void actions.toggleDetailView("original"))
+  on(els.translateBtn, "click", () => void actions.showTranslationView())
+  on(els.originalToggleBtn, "click", () => void actions.showOriginalInfo())
 
   on(els.readToggleBtn, "click", async () => {
     if (!state.selectedItem) return
     await actions.setReadState(state.selectedItem.id, !state.selectedItem.is_read)
-  })
-
-  on(els.loadContentBtn, "click", async () => {
-    if (!state.selectedItem) return
-    await actions.ensureContentLoaded(state.selectedItem.id, { showLoadingState: true })
   })
 
   compactMedia.addEventListener("change", () => {

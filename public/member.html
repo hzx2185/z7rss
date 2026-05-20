@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="/css/shared/theme-foundation.css" />
     <link rel="stylesheet" href="/css/shared/app-utilities.css" />
     <link rel="stylesheet" href="/css/member/account-shell.css" />
-    <link rel="stylesheet" href="/css/shared/ui-foundation.css" />
+    <link rel="stylesheet" href="/css/shared/ui-foundation.css?v=3" />
     <link rel="stylesheet" href="/css/shared/data-surfaces.css" />
     <link rel="stylesheet" href="/css/shared/compact-ui.css" />
-    <link rel="stylesheet" href="/css/member/page.css" />
+    <link rel="stylesheet" href="/css/member/page.css?v=3" />
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/shared/mobile-compact.css" />
     <link rel="stylesheet" href="/css/shared/top-navigation.css" />
@@ -186,7 +186,10 @@
                   </div>
                   <label class="field-label">
                     <span>API Key</span>
-                    <input id="member-ai-api-key" type="password" autocomplete="new-password" />
+                    <span class="secret-field">
+                      <input id="member-ai-api-key" type="password" autocomplete="new-password" />
+                      <button id="member-ai-api-key-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 API Key" title="显示 API Key"></button>
+                    </span>
                   </label>
                   <label class="field-label">
                     <span>翻译提示词</span>
@@ -251,7 +254,10 @@
                       </label>
                       <label class="field-label">
                         <span>API Key（选填）</span>
-                        <input id="member-translation-google-api-key" type="password" autocomplete="new-password" placeholder="Google 默认免 Key 模式" />
+                        <span class="secret-field">
+                          <input id="member-translation-google-api-key" type="password" autocomplete="new-password" placeholder="Google 默认免 Key 模式" />
+                          <button id="member-translation-google-api-key-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 Google API Key" title="显示 Google API Key"></button>
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -264,7 +270,10 @@
                       </label>
                       <label class="field-label">
                         <span>API Key</span>
-                        <input id="member-translation-bing-api-key" type="password" autocomplete="new-password" />
+                        <span class="secret-field">
+                          <input id="member-translation-bing-api-key" type="password" autocomplete="new-password" />
+                          <button id="member-translation-bing-api-key-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 Bing API Key" title="显示 Bing API Key"></button>
+                        </span>
                       </label>
                     </div>
                     <label class="field-label">
@@ -281,7 +290,10 @@
                       </label>
                       <label class="field-label">
                         <span>API Key（选填）</span>
-                        <input id="member-translation-deeplx-api-key" type="password" autocomplete="new-password" placeholder="如需认证可填写" />
+                        <span class="secret-field">
+                          <input id="member-translation-deeplx-api-key" type="password" autocomplete="new-password" placeholder="如需认证可填写" />
+                          <button id="member-translation-deeplx-api-key-reveal-btn" class="secret-reveal-btn" type="button" aria-label="显示 DeepLX API Key" title="显示 DeepLX API Key"></button>
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -488,6 +500,6 @@
 
     <script type="module" src="/theme.js"></script>
     <script type="module" src="/shared-settings.js"></script>
-    <script type="module" src="/member.js"></script>
+    <script type="module" src="/member.js?v=3"></script>
   </body>
 </html>

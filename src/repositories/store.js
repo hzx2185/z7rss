@@ -53,6 +53,22 @@ function normalizeItemLink(value) {
   }
 }
 
+function normalizeItemTitle(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function arePotentialSameFeedItem(existing, incoming) {
+  if (!existing || !incoming) return false;
+  const existingPublishedAt = toIsoOrNull(existing.published_at);
+  const incomingPublishedAt = toIsoOrNull(incoming.publishedAt);
+  if (existingPublishedAt && incomingPublishedAt && existingPublishedAt === incomingPublishedAt) {
+    return true;
+  }
+  const existingTitle = normalizeItemTitle(existing.title);
+  const incomingTitle = normalizeItemTitle(incoming.title);
+  return Boolean(existingTitle && incomingTitle && existingTitle === incomingTitle);
+}
+
 export function createStore(db) {
   let isClosed = false;
   const {
@@ -974,20 +990,125 @@ export function createStore(db) {
     upsertItems(feedId, items) {
       const tx = db.transaction((records) => {
         let inserted = 0;
-        const existingItemStmt = db.prepare("SELECT id FROM items WHERE feed_id = ? AND guid = ?");
+        const existingItemStmt = db.prepare("SELECT id, title, link, original_url, published_at FROM items WHERE feed_id = ? AND guid = ?");
         const existingLinkRowsStmt = db.prepare(`
-          SELECT id, link
+          SELECT id, title, link, original_url, published_at
           FROM items
           WHERE feed_id = ?
-            AND link IS NOT NULL
-            AND TRIM(link) <> ''
+            AND (
+              (link IS NOT NULL AND TRIM(link) <> '')
+              OR (original_url IS NOT NULL AND TRIM(original_url) <> '')
+            )
           ORDER BY id DESC
         `);
+        const listSourceUserItemStatesStmt = db.prepare(`
+          SELECT
+            source.user_id,
+            source.is_read,
+            source.is_favorited,
+            source.last_opened_at,
+            source.favorited_at,
+            source.translated_title,
+            source.translated_text,
+            source.translated_language
+          FROM user_item_states source
+          JOIN user_feeds uf ON uf.user_id = source.user_id AND uf.feed_id = @feedId
+          WHERE source.item_id = @sourceItemId
+        `);
+        const getUserItemStateStmt = db.prepare(`
+          SELECT *
+          FROM user_item_states
+          WHERE user_id = ? AND item_id = ?
+        `);
+        const upsertMergedUserItemStateStmt = db.prepare(`
+          INSERT INTO user_item_states (
+            user_id, item_id, is_read, is_favorited, last_opened_at, favorited_at,
+            translated_title, translated_text, translated_language
+          ) VALUES (
+            @userId, @itemId, @isRead, @isFavorited, @lastOpenedAt, @favoritedAt,
+            @translatedTitle, @translatedText, @translatedLanguage
+          )
+          ON CONFLICT(user_id, item_id) DO UPDATE SET
+            is_read = excluded.is_read,
+            is_favorited = excluded.is_favorited,
+            last_opened_at = excluded.last_opened_at,
+            favorited_at = excluded.favorited_at,
+            translated_title = excluded.translated_title,
+            translated_text = excluded.translated_text,
+            translated_language = excluded.translated_language,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        const hasMeaningfulUserItemState = (stateRow) =>
+          Boolean(
+            Number(stateRow?.is_read || 0) ||
+              Number(stateRow?.is_favorited || 0) ||
+              stateRow?.last_opened_at ||
+              stateRow?.favorited_at ||
+              stateRow?.translated_title ||
+              stateRow?.translated_text ||
+              stateRow?.translated_language
+          );
+
+        const mergeUserItemStates = (sourceItemId, targetItemId) => {
+          const normalizedSourceItemId = Number(sourceItemId || 0);
+          const normalizedTargetItemId = Number(targetItemId || 0);
+          if (!normalizedSourceItemId || !normalizedTargetItemId || normalizedSourceItemId === normalizedTargetItemId) {
+            return 0;
+          }
+
+          let changed = 0;
+          for (const sourceState of listSourceUserItemStatesStmt.all({
+            feedId,
+            sourceItemId: normalizedSourceItemId
+          })) {
+            if (!hasMeaningfulUserItemState(sourceState)) continue;
+            const targetState = getUserItemStateStmt.get(sourceState.user_id, normalizedTargetItemId);
+            const sourceRead = Number(sourceState.is_read || 0) ? 1 : 0;
+            const targetRead = Number(targetState?.is_read || 0) ? 1 : 0;
+            const adoptRead = Boolean(sourceRead && (!targetState || (!targetRead && !targetState.last_opened_at)));
+            const nextState = {
+              userId: sourceState.user_id,
+              itemId: normalizedTargetItemId,
+              isRead: adoptRead ? 1 : targetState ? targetRead : sourceRead,
+              isFavorited: Number(targetState?.is_favorited || sourceState.is_favorited || 0) ? 1 : 0,
+              lastOpenedAt: targetState?.last_opened_at || sourceState.last_opened_at || null,
+              favoritedAt: targetState?.favorited_at || sourceState.favorited_at || null,
+              translatedTitle: targetState?.translated_title || sourceState.translated_title || null,
+              translatedText: targetState?.translated_text || sourceState.translated_text || null,
+              translatedLanguage: targetState?.translated_language || sourceState.translated_language || null
+            };
+
+            if (
+              targetState &&
+              Number(targetState.is_read || 0) === nextState.isRead &&
+              Number(targetState.is_favorited || 0) === nextState.isFavorited &&
+              (targetState.last_opened_at || null) === nextState.lastOpenedAt &&
+              (targetState.favorited_at || null) === nextState.favoritedAt &&
+              (targetState.translated_title || null) === nextState.translatedTitle &&
+              (targetState.translated_text || null) === nextState.translatedText &&
+              (targetState.translated_language || null) === nextState.translatedLanguage
+            ) {
+              continue;
+            }
+
+            upsertMergedUserItemStateStmt.run(nextState);
+            markUserItemStatsDirtyStmt.run(sourceState.user_id);
+            changed += 1;
+          }
+          return changed;
+        };
+
         const linkIndex = new Map();
+        const originalUrlIndex = new Map();
         for (const row of existingLinkRowsStmt.all(feedId)) {
-          const normalized = normalizeItemLink(row.link);
-          if (normalized && !linkIndex.has(normalized)) {
-            linkIndex.set(normalized, row.id);
+          const normalizedLink = normalizeItemLink(row.link);
+          if (normalizedLink && !linkIndex.has(normalizedLink)) {
+            linkIndex.set(normalizedLink, row);
+          }
+          const normalizedOriginalUrl = normalizeItemLink(row.original_url);
+          if (normalizedOriginalUrl && !originalUrlIndex.has(normalizedOriginalUrl)) {
+            originalUrlIndex.set(normalizedOriginalUrl, row);
           }
         }
         for (const item of records) {
@@ -1009,19 +1130,40 @@ export function createStore(db) {
             continue;
           }
           const normalizedLink = normalizeItemLink(item.link);
-          const linkMatchedItemId = !existed && normalizedLink ? linkIndex.get(normalizedLink) : null;
-          if (linkMatchedItemId) {
+          const directLinkMatchedItem = !existed && normalizedLink ? linkIndex.get(normalizedLink) : null;
+          const originalUrlMatchedItem = !directLinkMatchedItem && !existed && normalizedLink
+            ? originalUrlIndex.get(normalizedLink)
+            : null;
+          const linkMatchedItem = directLinkMatchedItem ||
+            (originalUrlMatchedItem && arePotentialSameFeedItem(originalUrlMatchedItem, item)
+              ? originalUrlMatchedItem
+              : null);
+          if (linkMatchedItem) {
             updateItemByIdFromFeedEntryStmt.run({
               ...baseParams,
-              id: linkMatchedItemId
+              id: linkMatchedItem.id
             });
             continue;
           }
           upsertItemStmt.run(baseParams);
+          if (existed) {
+            const sourceDuplicate = normalizedLink ? originalUrlIndex.get(normalizedLink) : null;
+            if (sourceDuplicate && Number(sourceDuplicate.id) !== Number(existed.id) && arePotentialSameFeedItem(sourceDuplicate, item)) {
+              mergeUserItemStates(sourceDuplicate.id, existed.id);
+            }
+          }
           if (!existed) inserted += 1;
           if (normalizedLink) {
             const row = existingItemStmt.get(feedId, item.guid);
-            if (row?.id) linkIndex.set(normalizedLink, row.id);
+            if (row?.id) {
+              linkIndex.set(normalizedLink, {
+                id: row.id,
+                title: item.title,
+                link: item.link,
+                original_url: null,
+                published_at: publishedAt
+              });
+            }
           }
         }
         return inserted;

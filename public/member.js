@@ -53,6 +53,7 @@ const els = {
   aiFormHint: document.querySelector("#member-ai-form-hint"),
   aiBaseUrl: document.querySelector("#member-ai-base-url"),
   aiApiKey: document.querySelector("#member-ai-api-key"),
+  aiApiKeyRevealBtn: document.querySelector("#member-ai-api-key-reveal-btn"),
   aiModel: document.querySelector("#member-ai-model"),
   aiTranslatePrompt: document.querySelector("#member-ai-translate-prompt"),
   aiSummaryPrompt: document.querySelector("#member-ai-summary-prompt"),
@@ -90,11 +91,14 @@ const els = {
   translationDeepLxConfig: document.querySelector("#member-translation-deeplx-config"),
   translationGoogleBaseUrl: document.querySelector("#member-translation-google-base-url"),
   translationGoogleApiKey: document.querySelector("#member-translation-google-api-key"),
+  translationGoogleApiKeyRevealBtn: document.querySelector("#member-translation-google-api-key-reveal-btn"),
   translationBingBaseUrl: document.querySelector("#member-translation-bing-base-url"),
   translationBingApiKey: document.querySelector("#member-translation-bing-api-key"),
+  translationBingApiKeyRevealBtn: document.querySelector("#member-translation-bing-api-key-reveal-btn"),
   translationBingRegion: document.querySelector("#member-translation-bing-region"),
   translationDeepLxBaseUrl: document.querySelector("#member-translation-deeplx-base-url"),
   translationDeepLxApiKey: document.querySelector("#member-translation-deeplx-api-key"),
+  translationDeepLxApiKeyRevealBtn: document.querySelector("#member-translation-deeplx-api-key-reveal-btn"),
   securityForm: document.querySelector("#member-security-form"),
   securityHint: document.querySelector("#member-security-hint"),
   currentPassword: document.querySelector("#member-current-password"),
@@ -115,6 +119,30 @@ const els = {
   backupScheduleEnabled: document.querySelector("#member-backup-schedule-enabled"),
   backupScheduleHint: document.querySelector("#member-backup-schedule-hint"),
   backupScheduleTestBtn: document.querySelector("#member-backup-schedule-test-btn")
+}
+
+if (els.aiApiKeyRevealBtn) els.aiApiKeyRevealBtn.dataset.secretLabel = "API Key"
+if (els.translationGoogleApiKeyRevealBtn) els.translationGoogleApiKeyRevealBtn.dataset.secretLabel = "Google API Key"
+if (els.translationBingApiKeyRevealBtn) els.translationBingApiKeyRevealBtn.dataset.secretLabel = "Bing API Key"
+if (els.translationDeepLxApiKeyRevealBtn) els.translationDeepLxApiKeyRevealBtn.dataset.secretLabel = "DeepLX API Key"
+
+function setSecretInputVisible(input, button, visible) {
+  if (!input || !button) return
+  input.type = visible ? "text" : "password"
+  const label = button.dataset.secretLabel || "密钥"
+  button.textContent = ""
+  button.classList.toggle("is-visible", visible)
+  button.setAttribute("aria-label", visible ? `隐藏${label}` : `显示${label}`)
+  button.title = visible ? `隐藏${label}` : `显示${label}`
+  button.dataset.visible = visible ? "1" : "0"
+}
+
+function syncSecretRevealButton(input, button, canReveal) {
+  if (!button) return
+  button.disabled = !canReveal
+  if (!canReveal) {
+    setSecretInputVisible(input, button, false)
+  }
 }
 
 function getProviderSourceLabel(source) {
@@ -513,12 +541,14 @@ function applyPreferences(preferences) {
   if (els.aiBaseUrl) els.aiBaseUrl.value = ai.base_url || ""
   if (els.aiApiKey) {
     els.aiApiKey.value = ""
+    els.aiApiKey.type = "password"
     els.aiApiKey.placeholder = ai.api_key_unavailable
       ? "旧密钥不可用，请重新保存"
       : ai.api_key_configured
         ? "已配置，留空表示保留原值"
         : ""
   }
+  syncSecretRevealButton(els.aiApiKey, els.aiApiKeyRevealBtn, Boolean(ai.api_key_configured))
   if (els.aiModel) els.aiModel.value = ai.model || ""
   if (els.aiTranslatePrompt) els.aiTranslatePrompt.value = ai.translate_prompt || ""
   if (els.aiSummaryPrompt) els.aiSummaryPrompt.value = ai.summary_prompt || ""
@@ -530,31 +560,37 @@ function applyPreferences(preferences) {
   if (els.translationGoogleBaseUrl) els.translationGoogleBaseUrl.value = google.base_url || ""
   if (els.translationGoogleApiKey) {
     els.translationGoogleApiKey.value = ""
+    els.translationGoogleApiKey.type = "password"
     els.translationGoogleApiKey.placeholder = google.api_key_unavailable
       ? "旧密钥不可用，请重新保存"
       : google.api_key_configured
         ? "已配置会员 Key，留空表示保留原值"
         : "留空则使用 Google 免 Key 模式"
   }
+  syncSecretRevealButton(els.translationGoogleApiKey, els.translationGoogleApiKeyRevealBtn, Boolean(google.api_key_configured))
   if (els.translationBingBaseUrl) els.translationBingBaseUrl.value = bing.base_url || ""
   if (els.translationBingApiKey) {
     els.translationBingApiKey.value = ""
+    els.translationBingApiKey.type = "password"
     els.translationBingApiKey.placeholder = bing.api_key_unavailable
       ? "旧密钥不可用，请重新保存"
       : bing.api_key_configured
         ? "已配置会员密钥，留空表示保留原值"
         : ""
   }
+  syncSecretRevealButton(els.translationBingApiKey, els.translationBingApiKeyRevealBtn, Boolean(bing.api_key_configured))
   if (els.translationBingRegion) els.translationBingRegion.value = bing.region || ""
   if (els.translationDeepLxBaseUrl) els.translationDeepLxBaseUrl.value = deeplx.base_url || ""
   if (els.translationDeepLxApiKey) {
     els.translationDeepLxApiKey.value = ""
+    els.translationDeepLxApiKey.type = "password"
     els.translationDeepLxApiKey.placeholder = deeplx.api_key_unavailable
       ? "旧密钥不可用，请重新保存"
       : deeplx.api_key_configured
         ? "已配置，留空表示保留原值"
         : ""
   }
+  syncSecretRevealButton(els.translationDeepLxApiKey, els.translationDeepLxApiKeyRevealBtn, Boolean(deeplx.api_key_configured))
   renderAiFormState()
   renderTranslationFormState()
   renderTranslationCredentialState()
@@ -721,6 +757,7 @@ function renderAiFormState() {
   ;[
     els.aiBaseUrl,
     els.aiApiKey,
+    els.aiApiKeyRevealBtn,
     els.aiModel,
     els.aiTranslatePrompt,
     els.aiSummaryPrompt,
@@ -732,14 +769,17 @@ function renderAiFormState() {
 
   if (!loggedIn) {
     safeSet(els.aiFormHint, "textContent", "请先登录，再查看当前 AI 配置来源和编辑权限。")
+    syncSecretRevealButton(els.aiApiKey, els.aiApiKeyRevealBtn, false)
     return
   }
 
   if (!canCustomize) {
     safeSet(els.aiFormHint, "textContent", "当前套餐不支持自定义 AI 接口，请升级到付费套餐后再编辑。")
+    syncSecretRevealButton(els.aiApiKey, els.aiApiKeyRevealBtn, false)
     return
   }
 
+  syncSecretRevealButton(els.aiApiKey, els.aiApiKeyRevealBtn, Boolean(state.preferences?.ai?.api_key_configured))
   const sourceText = state.me.account.ai.source === "user" ? "当前正在使用会员自定义配置。" : "当前正在使用系统默认配置。"
   const providerText = state.me.account.ai.hasConfiguredProvider ? "已经存在可用 AI 服务。" : "尚未配置可用 AI 服务。"
   safeSet(els.aiFormHint, "textContent", `${sourceText}${providerText}`)
@@ -797,18 +837,27 @@ function renderTranslationCredentialState() {
   const loggedIn = Boolean(state.me?.user)
   const selectedProvider = getSelectedTranslationProvider()
   const canEdit = loggedIn
+  const google = state.preferences?.translation_google || {}
+  const bing = state.preferences?.translation_bing || {}
+  const deeplx = state.preferences?.translation_deeplx || {}
   ;[
     els.translationGoogleBaseUrl,
     els.translationGoogleApiKey,
+    els.translationGoogleApiKeyRevealBtn,
     els.translationBingBaseUrl,
     els.translationBingApiKey,
+    els.translationBingApiKeyRevealBtn,
     els.translationBingRegion,
     els.translationDeepLxBaseUrl,
     els.translationDeepLxApiKey,
+    els.translationDeepLxApiKeyRevealBtn,
     els.translationResetBtn
   ].forEach((element) => {
     if (element) element.disabled = !canEdit
   })
+  syncSecretRevealButton(els.translationGoogleApiKey, els.translationGoogleApiKeyRevealBtn, canEdit && Boolean(google.api_key_configured))
+  syncSecretRevealButton(els.translationBingApiKey, els.translationBingApiKeyRevealBtn, canEdit && Boolean(bing.api_key_configured))
+  syncSecretRevealButton(els.translationDeepLxApiKey, els.translationDeepLxApiKeyRevealBtn, canEdit && Boolean(deeplx.api_key_configured))
 
   if (els.translationGoogleConfig) els.translationGoogleConfig.classList.toggle("hidden", selectedProvider !== "google")
   if (els.translationBingConfig) els.translationBingConfig.classList.toggle("hidden", selectedProvider !== "bing")
@@ -1043,6 +1092,7 @@ registerMemberEvents({
     loadMe,
     loadPreferences,
     resetDigestForm,
+    setSecretInputVisible,
     setStatus
   },
   renderers: {

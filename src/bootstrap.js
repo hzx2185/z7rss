@@ -23,6 +23,8 @@ function migrateApiSecrets(store, secretBox) {
   for (const setting of store.listSettings()) {
     if (secretKeys.has(setting.key) && setting.value && !secretBox.isEncrypted(setting.value)) {
       store.setSetting(setting.category, setting.key, secretBox.encrypt(setting.value));
+    } else if (secretKeys.has(setting.key) && secretBox.needsRotation?.(setting.value)) {
+      store.setSetting(setting.category, setting.key, secretBox.encrypt(secretBox.decrypt(setting.value)));
     }
   }
 
@@ -30,6 +32,8 @@ function migrateApiSecrets(store, secretBox) {
     for (const setting of store.listUserSettings(user.id)) {
       if (secretKeys.has(setting.key) && setting.value && !secretBox.isEncrypted(setting.value)) {
         store.setUserSetting(user.id, setting.category, setting.key, secretBox.encrypt(setting.value));
+      } else if (secretKeys.has(setting.key) && secretBox.needsRotation?.(setting.value)) {
+        store.setUserSetting(user.id, setting.category, setting.key, secretBox.encrypt(secretBox.decrypt(setting.value)));
       }
     }
   }
@@ -77,7 +81,9 @@ export function createRuntime(env = process.env) {
   });
   const store = createStore(db);
   const ai = createAiClient();
-  const secretBox = createSecretBox(config.appSecret);
+  const secretBox = createSecretBox(config.appSecret, {
+    fallbackSecrets: config.legacyAppSecrets
+  });
   const translator = createTranslator({ ai });
 
   migrateApiSecrets(store, secretBox);

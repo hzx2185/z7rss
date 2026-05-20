@@ -66,6 +66,119 @@ test("upsertItems keeps read state when a feed changes guid for the same article
   assert.equal(store.countUserItems(user.id, feed.id, { readState: 0 }), 0);
 });
 
+test("upsertItems keeps read state when later feed entries use stored original url", () => {
+  const { store } = createTempStore();
+  const user = store.createUser({
+    email: "canonical@example.com",
+    passwordHash: "hash",
+    displayName: "Canonical Reader",
+    isAdmin: 0,
+    status: "active"
+  });
+  const feed = store.getOrCreateFeed({
+    title: "Feed",
+    url: "https://example.com/feed.xml",
+    siteUrl: "https://example.com",
+    description: ""
+  });
+  store.linkUserFeed(user.id, feed.id, "Feed");
+
+  assert.equal(store.upsertItems(feed.id, [
+    {
+      guid: "redirect-guid",
+      title: "Canonical article",
+      link: "https://example.com/redirect?id=42",
+      summary: "First",
+      contentHtml: "",
+      contentText: "",
+      publishedAt: "2026-05-13T00:00:00.000Z"
+    }
+  ]), 1);
+
+  const item = store.listUserItems(user.id, feed.id, 10)[0];
+  store.updateItemContent(item.id, "<p>Article</p>", "Article", "https://example.com/post-42");
+  store.setUserItemReadState(user.id, item.id, true, "2026-05-13T00:01:00.000Z");
+
+  assert.equal(store.upsertItems(feed.id, [
+    {
+      guid: "canonical-guid",
+      title: "Canonical article updated",
+      link: "https://example.com/post-42",
+      summary: "Updated",
+      contentHtml: "",
+      contentText: "",
+      publishedAt: "2026-05-13T00:00:00.000Z"
+    }
+  ]), 0);
+
+  const items = store.listUserItems(user.id, feed.id, 10);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, item.id);
+  assert.equal(items[0].is_read, 1);
+  assert.equal(store.countUserItems(user.id, feed.id, { readState: 0 }), 0);
+});
+
+test("upsertItems migrates read state from an existing duplicate with stored original url", () => {
+  const { store } = createTempStore();
+  const user = store.createUser({
+    email: "duplicate@example.com",
+    passwordHash: "hash",
+    displayName: "Duplicate Reader",
+    isAdmin: 0,
+    status: "active"
+  });
+  const feed = store.getOrCreateFeed({
+    title: "Feed",
+    url: "https://example.com/duplicates.xml",
+    siteUrl: "https://example.com",
+    description: ""
+  });
+  store.linkUserFeed(user.id, feed.id, "Feed");
+
+  assert.equal(store.upsertItems(feed.id, [
+    {
+      guid: "old-redirect-guid",
+      title: "Migrated article",
+      link: "https://example.com/redirect?id=88",
+      summary: "",
+      contentHtml: "",
+      contentText: "",
+      publishedAt: "2026-05-13T00:00:00.000Z"
+    },
+    {
+      guid: "new-canonical-guid",
+      title: "Migrated article",
+      link: "https://example.com/post-88",
+      summary: "",
+      contentHtml: "",
+      contentText: "",
+      publishedAt: "2026-05-13T00:00:00.000Z"
+    }
+  ]), 2);
+
+  const initialItems = store.listUserItems(user.id, feed.id, 10);
+  const oldItem = initialItems.find((item) => item.link === "https://example.com/redirect?id=88");
+  const newItem = initialItems.find((item) => item.link === "https://example.com/post-88");
+  store.updateItemContent(oldItem.id, "<p>Article</p>", "Article", "https://example.com/post-88");
+  store.setUserItemReadState(user.id, oldItem.id, true, "2026-05-13T00:01:00.000Z");
+
+  assert.equal(store.upsertItems(feed.id, [
+    {
+      guid: "new-canonical-guid",
+      title: "Migrated article",
+      link: "https://example.com/post-88",
+      summary: "Updated",
+      contentHtml: "",
+      contentText: "",
+      publishedAt: "2026-05-13T00:00:00.000Z"
+    }
+  ]), 0);
+
+  const migrated = store.getUserItem(user.id, newItem.id);
+  assert.equal(migrated.is_read, 1);
+  assert.equal(store.countUserItems(user.id, feed.id, { readState: 0 }), 0);
+});
+
 test("bulk read state returns only items whose read state changed", () => {
   const { store } = createTempStore();
   const user = store.createUser({

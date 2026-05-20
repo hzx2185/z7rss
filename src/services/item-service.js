@@ -313,6 +313,7 @@ export function createItemService({ feedService, translator, accountService, sto
         : storedTranslation.title
           ? getTranslationExcerpt(storedTranslation.title)
           : "",
+      translated_body_available: storedTranslation.text ? 1 : 0,
       has_translation: storedTranslation.title || storedTranslation.text ? 1 : 0,
       feed_translated_title: storedFeedTranslation.title,
       feed_translated_language: storedFeedTranslation.language,
@@ -330,6 +331,7 @@ export function createItemService({ feedService, translator, accountService, sto
     if (!item) return item;
     const {
       translated_text: _translatedText,
+      translated_body_available: _translatedBodyAvailable,
       content_text: _contentText,
       content_html: _contentHtml,
       page_text: _pageText,
@@ -342,6 +344,7 @@ export function createItemService({ feedService, translator, accountService, sto
       ...rest,
       summary: trimListText(rest.summary, 320),
       content_excerpt: trimListText(rest.content_excerpt, 240),
+      translated_body_available: item.translated_body_available ? 1 : 0,
       translated_excerpt: trimListText(rest.translated_excerpt, 180)
     };
   }
@@ -704,7 +707,12 @@ export function createItemService({ feedService, translator, accountService, sto
 
       const user = rawItems.length ? store.getUserById(userId) : null;
       const account = user ? accountService.getAccount(user) : null;
-      const displayItems = rawItems;
+      const displayItems = user && account && !options.skipImmediateTranslations
+        ? await ensureImmediateListTranslations(user, rawItems, account, {
+            useAutomaticTitleOnly: false,
+            retryAttempts: 1
+          })
+        : rawItems;
       const items = displayItems.map((item) => compactItemForListPayload(presentItemForUser(userId, item)));
 
       return {
@@ -758,9 +766,9 @@ export function createItemService({ feedService, translator, accountService, sto
       const preview = await feedService.getItemPreview(user.id, itemId);
       return presentItemForUser(user.id, preview);
     },
-    async getItemContent(user, itemId) {
+    async getItemContent(user, itemId, options = {}) {
       clearUserItemCountCache(user.id);
-      const item = await feedService.getItemContent(user.id, itemId);
+      const item = await feedService.getItemContent(user.id, itemId, options);
       return presentItemForUser(user.id, item);
     },
     async getItemPageContent(user, itemId) {

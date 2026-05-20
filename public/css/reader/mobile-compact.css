@@ -115,8 +115,6 @@
     grid-template-areas:
       "status site time"
       "title title title";
-    gap: 4px 8px;
-    padding: 10px 12px;
   }
 
   .reader-item-main.table-view .cell-status {
