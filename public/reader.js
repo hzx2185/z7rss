@@ -1,5 +1,5 @@
-import { createReaderApi } from "./reader-api.js?v=30"
-import { createReaderController } from "./reader-controller.js?v=30"
+import { createReaderApi } from "./reader-api.js?v=33"
+import { createReaderController } from "./reader-controller.js?v=33"
 import {
   buildTranslatedExcerpt,
   createReaderTemplates,
@@ -20,7 +20,7 @@ import {
   renderPlainText,
   renderRichFallback,
   safeUrl
-} from "./reader-view.js?v=30"
+} from "./reader-view.js?v=33"
 import {
   COLUMN_WIDTHS_KEY,
   DEFAULT_COLUMN_WIDTHS,
@@ -45,22 +45,22 @@ import {
   normalizeFeedVisibilityFilter,
   normalizeItemFilter,
   state
-} from "./reader-state.js?v=30"
-import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=30"
-import { createReaderArticleDetail } from "./reader-article-detail.js?v=30"
-import { createReaderDerivedData } from "./reader-derived-data.js?v=30"
-import { createReaderFeedControls } from "./reader-feed-controls.js?v=30"
-import { createReaderFeedSettings } from "./reader-feed-settings.js?v=30"
-import { createReaderItemTools } from "./reader-item-tools.js?v=30"
-import { createReaderVirtualList } from "./reader-virtual-list.js?v=30"
-import { getReaderElements } from "./reader-elements.js?v=30"
-import { createReaderDetailSections } from "./reader-detail-sections.js?v=30"
-import { registerReaderEvents } from "./reader-events.js?v=30"
-import { createReaderUiState } from "./reader-ui-state.js?v=30"
-import { createReaderListRenderer } from "./reader-list-renderer.js?v=30"
-import { createReaderMenus } from "./reader-menus.js?v=30"
-import { createReaderFeedActions } from "./reader-feed-actions.js?v=30"
-import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=30"
+} from "./reader-state.js?v=33"
+import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=33"
+import { createReaderArticleDetail } from "./reader-article-detail.js?v=33"
+import { createReaderDerivedData } from "./reader-derived-data.js?v=33"
+import { createReaderFeedControls } from "./reader-feed-controls.js?v=33"
+import { createReaderFeedSettings } from "./reader-feed-settings.js?v=33"
+import { createReaderItemTools } from "./reader-item-tools.js?v=33"
+import { createReaderVirtualList } from "./reader-virtual-list.js?v=33"
+import { getReaderElements } from "./reader-elements.js?v=33"
+import { createReaderDetailSections } from "./reader-detail-sections.js?v=33"
+import { registerReaderEvents } from "./reader-events.js?v=33"
+import { createReaderUiState } from "./reader-ui-state.js?v=33"
+import { createReaderListRenderer } from "./reader-list-renderer.js?v=33"
+import { createReaderMenus } from "./reader-menus.js?v=33"
+import { createReaderFeedActions } from "./reader-feed-actions.js?v=33"
+import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=33"
 const compactMedia = window.matchMedia("(max-width: 900px)")
 const coarsePointerMedia = window.matchMedia("(hover: none) and (pointer: coarse)")
 const LOAD_MORE_EDGE_OFFSET = 280

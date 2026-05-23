@@ -374,7 +374,7 @@ export function createReaderListRenderer(deps) {
               const domainTitle = typeof getFeedDomainTitle === "function" ? getFeedDomainTitle(feed) : ""
               const titleLabel = [fullTitle, domainTitle].filter(Boolean).join(" · ")
               return `
-              <article class="reader-feed-row ${state.selectedFeedId === feed.feed_id ? "is-active" : ""} ${state.feedBulkMode ? "is-bulk" : ""} ${state.selectedFeedIds.includes(Number(feed.feed_id)) ? "is-checked" : ""}">
+              <article class="reader-feed-row ${Number(state.selectedFeedId || 0) === Number(feed.feed_id || 0) ? "is-active" : ""} ${state.feedBulkMode ? "is-bulk" : ""} ${state.selectedFeedIds.includes(Number(feed.feed_id)) ? "is-checked" : ""}">
                 ${
                   state.feedBulkMode
                     ? `
@@ -415,6 +415,7 @@ export function createReaderListRenderer(deps) {
 
   function refreshRenderedFeedRows(feedIds = []) {
     if (!els.feedList) return
+    syncRenderedFeedSelection()
     const normalizedIds = [...new Set((feedIds || []).map((value) => Number(value)).filter((value) => value > 0))]
     if (!normalizedIds.length) return
 
@@ -457,6 +458,17 @@ export function createReaderListRenderer(deps) {
         domain.setAttribute("title", domainTitle || domainLabel)
       }
     }
+    syncRenderedFeedSelection()
+  }
+
+  function syncRenderedFeedSelection() {
+    if (!els.feedList) return
+    const activeFeedId = Number(state.selectedFeedId || 0)
+    els.feedList.querySelectorAll("[data-feed-select]").forEach((button) => {
+      const feedId = Number(button?.dataset?.feedSelect || 0)
+      const row = button.closest(".reader-feed-row")
+      row?.classList.toggle("is-active", activeFeedId > 0 && feedId === activeFeedId)
+    })
   }
 
   function renderItems() {

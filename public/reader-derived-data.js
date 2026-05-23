@@ -23,6 +23,7 @@ export function createReaderDerivedData({
     filteredFeeds: [],
     visibleItemsSource: null,
     visibleItemsFilter: "",
+    visibleItemsFeedId: 0,
     visibleItemsDeferredSource: null,
     visibleItems: [],
     filteredItemsVisibleSource: null,
@@ -240,26 +241,32 @@ export function createReaderDerivedData({
 
   function getVisibleItems() {
     const state = getState()
+    const selectedFeedId = Number(state.selectedFeedId || 0)
     if (
       cache.visibleItemsSource === state.items &&
       cache.visibleItemsFilter === state.itemFilter &&
+      cache.visibleItemsFeedId === selectedFeedId &&
       cache.visibleItemsDeferredSource === state.deferredReadItemIds
     ) {
       return cache.visibleItems
     }
 
     const deferredReadIds = new Set(state.deferredReadItemIds.map((value) => Number(value)))
+    const scopedItems = selectedFeedId > 0
+      ? state.items.filter((item) => Number(item?.feed_id || 0) === selectedFeedId)
+      : state.items
     const visibleItems =
       state.itemFilter === "read"
-        ? state.items.filter((item) => item.is_read)
+        ? scopedItems.filter((item) => item.is_read)
         : state.itemFilter === "unread"
-          ? state.items.filter((item) => !item.is_read || deferredReadIds.has(Number(item.id)))
+          ? scopedItems.filter((item) => !item.is_read || deferredReadIds.has(Number(item.id)))
           : state.itemFilter === "favorite"
-            ? state.items.filter((item) => item.is_favorited)
-            : state.items
+            ? scopedItems.filter((item) => item.is_favorited)
+            : scopedItems
 
     cache.visibleItemsSource = state.items
     cache.visibleItemsFilter = state.itemFilter
+    cache.visibleItemsFeedId = selectedFeedId
     cache.visibleItemsDeferredSource = state.deferredReadItemIds
     cache.visibleItems = visibleItems
     return visibleItems
@@ -275,6 +282,11 @@ export function createReaderDerivedData({
 
     const selectedItem = getItemById(selectedId) || state.selectedItem
     if (!selectedItem) return items
+
+    const selectedFeedId = Number(state.selectedFeedId || 0)
+    if (selectedFeedId > 0 && Number(selectedItem?.feed_id || 0) !== selectedFeedId) {
+      return items
+    }
 
     const sourceItems = state.items.length ? state.items : [selectedItem]
     const selectedIndex = sourceItems.findIndex((item) => Number(item.id) === selectedId)

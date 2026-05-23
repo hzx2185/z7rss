@@ -56,8 +56,8 @@ export function createReaderFeedControls({
   function renderScopeButtons() {
     const isAllScope = state.selectedFeedId === null && state.itemFilter === "all" && !state.publishedSince
     const isTodayScope = state.selectedFeedId === null && state.itemFilter === "all" && Boolean(state.publishedSince)
-    const isFavoriteScope = state.selectedFeedId === null && state.itemFilter === "favorite" && !state.publishedSince
-    const isUnreadScope = state.selectedFeedId === null && state.itemFilter === "unread" && !state.publishedSince
+    const isFavoriteScope = state.itemFilter === "favorite" && !state.publishedSince
+    const isUnreadScope = state.itemFilter === "unread" && !state.publishedSince
 
     els.openAllBtn?.classList.toggle("active", isAllScope)
     els.openTodayBtn?.classList.toggle("active", isTodayScope)
