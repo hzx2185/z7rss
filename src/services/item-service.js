@@ -704,15 +704,19 @@ export function createItemService({ feedService, translator, accountService, sto
       });
       const hasMore = includeTotal ? page < pageCount : rawPageItems.length > pageSize;
       const rawItems = includeTotal ? rawPageItems : rawPageItems.slice(0, pageSize);
+      const normalizedFeedId = Number(feedId || 0);
+      const scopedRawItems = normalizedFeedId > 0
+        ? rawItems.filter((item) => Number(item?.feed_id || 0) === normalizedFeedId)
+        : rawItems;
 
-      const user = rawItems.length ? store.getUserById(userId) : null;
+      const user = scopedRawItems.length ? store.getUserById(userId) : null;
       const account = user ? accountService.getAccount(user) : null;
       const displayItems = user && account && !options.skipImmediateTranslations
-        ? await ensureImmediateListTranslations(user, rawItems, account, {
+        ? await ensureImmediateListTranslations(user, scopedRawItems, account, {
             useAutomaticTitleOnly: false,
             retryAttempts: 1
           })
-        : rawItems;
+        : scopedRawItems;
       const items = displayItems.map((item) => compactItemForListPayload(presentItemForUser(userId, item)));
 
       return {

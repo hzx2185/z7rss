@@ -51,6 +51,19 @@ export function createReaderItemController(deps) {
   let deferredScopeCountsTimer = null
   const pendingItemPageRequests = new Map()
 
+  function normalizeRequestFeedId(feedId = state.selectedFeedId) {
+    const normalized = Number(feedId || 0)
+    return Number.isInteger(normalized) && normalized > 0 ? normalized : null
+  }
+
+  function getItemsScopeKey(feedId = state.selectedFeedId, options = {}) {
+    return [
+      normalizeRequestFeedId(feedId) || "all",
+      state.itemFilter,
+      state.publishedSince || ""
+    ].join(":")
+  }
+
   function invalidatePreviewRequest() {
     previewRequestToken += 1
   }
@@ -241,7 +254,7 @@ export function createReaderItemController(deps) {
 
   async function fetchItemsPage(feedId = state.selectedFeedId, page = 1, options = {}) {
     return readerApi.listItems({
-      feedId,
+      feedId: normalizeRequestFeedId(feedId),
       limit: state.itemLimit,
       page,
       filter: state.itemFilter,
@@ -255,7 +268,7 @@ export function createReaderItemController(deps) {
 
   function getItemsPageCacheKey(feedId = state.selectedFeedId, page = state.itemPage || 1, options = {}) {
     return [
-      Number(feedId || 0),
+      normalizeRequestFeedId(feedId) || 0,
       Number(page || 1),
       state.itemLimit,
       state.itemFilter,
@@ -319,16 +332,22 @@ export function createReaderItemController(deps) {
 
   function getItemsForFeedResult(result, feedId = state.selectedFeedId) {
     const items = Array.isArray(result?.items) ? result.items : []
-    const normalizedFeedId = Number(feedId || 0)
+    const normalizedFeedId = normalizeRequestFeedId(feedId)
     if (!normalizedFeedId) return items
     return items.filter((item) => Number(item?.feed_id || 0) === normalizedFeedId)
   }
 
-  function isItemRequestStillCurrent(feedId, options = {}) {
+  function isItemRequestStillCurrent(feedId, requestScopeKey, options = {}) {
     if (options.ignoreFeedSelectionGuard) return true
-    const requestedFeedId = Number(feedId || 0)
-    const currentFeedId = Number(state.selectedFeedId || 0)
-    return requestedFeedId === currentFeedId
+    return getItemsScopeKey(state.selectedFeedId, options) === requestScopeKey
+  }
+
+  function countItemsInScope(result, feedId = state.selectedFeedId) {
+    const normalizedFeedId = normalizeRequestFeedId(feedId)
+    if (!normalizedFeedId) return Number(result?.total || 0)
+    const rawTotal = Number(result?.total || 0)
+    const scopedCount = Number(result?.feedTotal ?? result?.feed_total ?? rawTotal)
+    return Math.min(rawTotal || scopedCount, scopedCount)
   }
 
   async function prefetchItemsPage(feedId = state.selectedFeedId, page = 1, options = {}) {
@@ -375,6 +394,8 @@ export function createReaderItemController(deps) {
 
     const targetPage = Math.max(1, Number(options.targetPage || state.itemPage || 1))
     const append = Boolean(options.append && targetPage > 1)
+    const requestFeedId = normalizeRequestFeedId(feedId)
+    const requestScopeKey = getItemsScopeKey(requestFeedId, options)
     const requestToken = ++itemsRequestToken
     if (!append) {
       invalidatePreviewRequest()
@@ -396,7 +417,7 @@ export function createReaderItemController(deps) {
 
     try {
       if (options.force) {
-        forgetItemsPage(feedId, targetPage, options)
+        forgetItemsPage(requestFeedId, targetPage, options)
       }
       const pageOptions = {
         fresh: Boolean(options.force),
@@ -404,23 +425,23 @@ export function createReaderItemController(deps) {
         includeTotal: options.includeTotal !== false,
         signal: requestController?.signal || null
       }
-      const pendingResult = append || options.force ? null : getPendingItemsPage(feedId, targetPage, pageOptions)
-      const cachedResult = append || options.force || pendingResult ? null : getCachedItemsPage(feedId, targetPage, pageOptions)
-      const result = cachedResult || pendingResult || await fetchItemsPageOnce(feedId, targetPage, pageOptions)
-      rememberItemsPage(feedId, targetPage, result, pageOptions)
+      const pendingResult = append || options.force ? null : getPendingItemsPage(requestFeedId, targetPage, pageOptions)
+      const cachedResult = append || options.force || pendingResult ? null : getCachedItemsPage(requestFeedId, targetPage, pageOptions)
+      const result = cachedResult || pendingResult || await fetchItemsPageOnce(requestFeedId, targetPage, pageOptions)
+      rememberItemsPage(requestFeedId, targetPage, result, pageOptions)
       if (requestToken !== itemsRequestToken) return
-      if (!isItemRequestStillCurrent(feedId, options)) return
+      if (!isItemRequestStillCurrent(requestFeedId, requestScopeKey, options)) return
 
-      const nextItems = getItemsForFeedResult(result, feedId)
+      const nextItems = getItemsForFeedResult(result, requestFeedId)
       const patchedNextItems = applyRememberedListPatches(nextItems)
       const total = result.total === null || result.total === undefined
         ? Number(state.itemTotal || 0)
-        : Number(result.total || 0)
+        : countItemsInScope(result, requestFeedId)
       const nextPage = Math.max(1, Number(result.page || targetPage))
       const pageCount = Math.max(1, Number(result.pageCount || 1))
 
       if (requestToken !== itemsRequestToken) return
-      if (!isItemRequestStillCurrent(feedId, options)) return
+      if (!isItemRequestStillCurrent(requestFeedId, requestScopeKey, options)) return
 
       const selectedId = state.selectedItem?.id || 0
       const preserveSelection = Boolean(options.preserveSelection && selectedId)
@@ -509,10 +530,11 @@ export function createReaderItemController(deps) {
 
   async function selectFeedSmooth(feedId = null, options = {}) {
     const previousFeedId = Number(state.selectedFeedId || 0)
+    const requestFeedId = normalizeRequestFeedId(feedId)
     const requestToken = ++itemsRequestToken
     invalidatePreviewRequest()
     abortActiveItemsRequest()
-    state.selectedFeedId = feedId
+    state.selectedFeedId = requestFeedId
     state.publishedSince = null
     state.selectedItem = null
     state.expandedItemId = null
@@ -540,14 +562,17 @@ export function createReaderItemController(deps) {
       }
       const pageOptions = {
         skipImmediateTranslations: options.skipImmediateTranslations !== false,
+        includeTotal: true,
         signal: requestController?.signal || null
       }
-      const cachedResult = getCachedItemsPage(feedId, 1, pageOptions)
-      const result = cachedResult || await fetchItemsPageOnce(feedId, 1, pageOptions)
+      const requestScopeKey = getItemsScopeKey(requestFeedId, pageOptions)
+      const cachedResult = getCachedItemsPage(requestFeedId, 1, pageOptions)
+      const result = cachedResult || await fetchItemsPageOnce(requestFeedId, 1, pageOptions)
       if (requestToken !== itemsRequestToken) return
+      if (!isItemRequestStillCurrent(requestFeedId, requestScopeKey, pageOptions)) return
 
-      state.items = applyRememberedListPatches(getItemsForFeedResult(result, feedId))
-      state.itemTotal = Number(result.total || 0)
+      state.items = applyRememberedListPatches(getItemsForFeedResult(result, requestFeedId))
+      state.itemTotal = countItemsInScope(result, requestFeedId)
       state.itemPage = Math.max(1, Number(result.page || 1))
       state.itemPageCount = Math.max(1, Number(result.pageCount || 1))
 
@@ -559,7 +584,7 @@ export function createReaderItemController(deps) {
       renderItems()
       renderArticle()
       resetContentPaneScroll()
-      schedulePrefetchNextUnreadFeed(feedId)
+      schedulePrefetchNextUnreadFeed(requestFeedId)
     } catch (error) {
       if (error?.name === "AbortError") return
       if (requestToken === itemsRequestToken) {
@@ -587,7 +612,8 @@ export function createReaderItemController(deps) {
     }
 
     const previousFeedId = Number(state.selectedFeedId || 0)
-    state.selectedFeedId = feedId
+    const requestFeedId = normalizeRequestFeedId(feedId)
+    state.selectedFeedId = requestFeedId
     state.publishedSince = null
     state.selectedItem = null
     state.expandedItemId = null
@@ -601,8 +627,8 @@ export function createReaderItemController(deps) {
     renderFeedNavigation?.()
     refreshRenderedFeedRows?.([previousFeedId, feedId])
     renderArticle()
-    await loadItems(feedId, { skipImmediateTranslations: options.skipImmediateTranslations !== false })
-    schedulePrefetchNextUnreadFeed(feedId)
+    await loadItems(requestFeedId, { skipImmediateTranslations: options.skipImmediateTranslations !== false })
+    schedulePrefetchNextUnreadFeed(requestFeedId)
   }
 
   async function toggleItem(itemId) {

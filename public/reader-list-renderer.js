@@ -31,6 +31,9 @@ export function createReaderListRenderer(deps) {
     renderMagazineRow,
     renderTableRow
   } = deps
+  const shouldVirtualizeItems = typeof deps.shouldVirtualizeItems === "function"
+    ? deps.shouldVirtualizeItems
+    : () => true
   const renderCache = {
     feedListHtml: "",
     itemListHtml: ""
@@ -484,6 +487,13 @@ export function createReaderListRenderer(deps) {
     }
 
     updateListHeadVisibility(true)
+    if (!shouldVirtualizeItems()) {
+      virtualItems.clearShell()
+      setHtmlWhenChanged(els.itemList, "itemListHtml", filteredItems.map((item) => buildItemRowMarkup(item)).join(""))
+      scheduleMaybeLoadNextPage()
+      return
+    }
+
     clearHtmlCache("itemListHtml")
     virtualItems.render(filteredItems, { force: true })
     scheduleMaybeLoadNextPage()

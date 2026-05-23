@@ -32,14 +32,9 @@ function formatBytes(value) {
   return `${size.toFixed(precision)} ${units[unitIndex]}`
 }
 
-function formatShortHash(value = "") {
-  const raw = String(value || "").trim()
-  return raw ? raw.slice(0, 12) : "-"
-}
-
-function renderVersionDetail(label, value) {
+function renderProfileVersionDetail(label, value) {
   return `
-    <article class="metric-box admin-version-detail">
+    <article class="admin-profile-version-item">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value || "-")}</strong>
     </article>
@@ -72,11 +67,15 @@ export function createAdminDashboard({
 
   function renderVersionInfo() {
     const system = state.admin?.system || {}
-    const docker = system.docker || {}
-    const check = state.dockerUpdateCheck || docker.update || null
-    const imageLabel = docker.image
-      ? `${docker.image}:${docker.tag || "latest"}`
-      : "-"
+    const check = state.dockerUpdateCheck || system.docker?.update || null
+    const latestVersion = check?.latestVersion
+      ? `v${check.latestVersion}`
+      : check?.latestVersionTag
+        ? check.latestVersionTag
+        : state.dockerUpdateChecking
+          ? "检查中"
+          : "未检查"
+    const publishedAt = check?.latestVersionPublishedAt || check?.remoteUpdatedAt || system.buildTime || ""
     const status = (() => {
       if (state.dockerUpdateChecking) return { tone: "accent", label: "检查中" }
       if (check?.error) return { tone: "warning", label: check.error }
@@ -85,36 +84,16 @@ export function createAdminDashboard({
       if (check.updateAvailable === false) return { tone: "success", label: "当前构建不早于 latest" }
       return { tone: "accent", label: "已获取镜像信息" }
     })()
-    const detailItems = [
-      renderVersionDetail("当前版本", `v${system.appVersion || "0.0.0"}`),
-      renderVersionDetail("镜像", imageLabel),
-      renderVersionDetail("构建提交", formatShortHash(system.buildCommit)),
-      renderVersionDetail("构建时间", system.buildTime ? formatDate(system.buildTime) : "-")
-    ].join("")
-    const remoteLines = check && !check.error
-      ? [
-          check.remoteUpdatedAt ? `镜像更新时间：${formatDate(check.remoteUpdatedAt)}` : "",
-          check.remoteDigest ? `摘要：${formatShortHash(check.remoteDigest)}` : "",
-          check.remoteSizeBytes ? `大小：${formatBytes(check.remoteSizeBytes)}` : "",
-          check.checkedAt ? `检查时间：${formatDate(check.checkedAt)}` : ""
-        ].filter(Boolean)
-      : [check?.error || "点击检查按钮获取 Docker Hub latest 标签信息"]
+    safeHtml(els.adminProfileVersionInfo, [
+      renderProfileVersionDetail("当前版本", `v${system.appVersion || "0.0.0"}`),
+      renderProfileVersionDetail("最新版本", latestVersion),
+      renderProfileVersionDetail("发布时间", publishedAt ? formatDate(publishedAt) : "未记录")
+    ].join(""))
 
-    safeHtml(els.adminVersionInfo, `
-      <div class="admin-version-summary">
-        <div class="metrics-grid admin-version-metrics">${detailItems}</div>
-        <div class="admin-version-status">
-          <span class="pill ${status.tone}">${escapeHtml(status.label)}</span>
-          ${check?.sourceUrl ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(check.sourceUrl))}" target="_blank" rel="noreferrer">Docker Hub</a>` : ""}
-        </div>
-      </div>
-      <div class="compact-list admin-version-remote">
-        ${remoteLines.map((line) => `<span class="muted">${escapeHtml(line)}</span>`).join("")}
-      </div>
-    `)
     if (els.adminDockerUpdateBtn) {
       els.adminDockerUpdateBtn.disabled = Boolean(state.dockerUpdateChecking)
-      els.adminDockerUpdateBtn.textContent = state.dockerUpdateChecking ? "检查中" : "检查镜像更新"
+      els.adminDockerUpdateBtn.textContent = state.dockerUpdateChecking ? "检查中" : "检查更新"
+      els.adminDockerUpdateBtn.title = check?.error || status.label
       els.adminDockerUpdateBtn.onclick = () => actions.checkDockerImageUpdate()
     }
   }
@@ -325,7 +304,7 @@ export function createAdminDashboard({
       safeHtml(els.adminDatabaseMetrics, "")
       safeHtml(els.adminDatabaseFlags, "")
       safeHtml(els.adminDatabaseTables, "")
-      safeHtml(els.adminVersionInfo, "")
+      safeHtml(els.adminProfileVersionInfo, "")
       safeHtml(els.adminPlanSettings, "")
       safeHtml(els.adminRedeemList, "")
       safeHtml(els.adminPluginList, "")

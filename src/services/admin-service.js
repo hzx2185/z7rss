@@ -58,6 +58,50 @@ function isRemoteNewer(localBuildTime, remoteUpdatedAt) {
   return remote.getTime() > local.getTime() + 1000;
 }
 
+function parseSemverTag(value = "") {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (!match) return null;
+  return {
+    raw,
+    version: `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] || ""
+  };
+}
+
+function compareSemverTags(left, right) {
+  if (!left && !right) return 0;
+  if (!left) return -1;
+  if (!right) return 1;
+  for (const key of ["major", "minor", "patch"]) {
+    if (left[key] !== right[key]) return left[key] - right[key];
+  }
+  if (!left.prerelease && right.prerelease) return 1;
+  if (left.prerelease && !right.prerelease) return -1;
+  return left.prerelease.localeCompare(right.prerelease);
+}
+
+function getLatestVersionTag(tags = []) {
+  return tags
+    .map((entry) => ({
+      name: String(entry?.name || "").trim(),
+      publishedAt: toIsoOrEmpty(entry?.tag_last_pushed || entry?.last_updated || ""),
+      semver: parseSemverTag(entry?.name)
+    }))
+    .filter((entry) => entry.name && entry.semver)
+    .sort((left, right) => compareSemverTags(right.semver, left.semver))[0] || null;
+}
+
+function isVersionNewer(currentVersion, latestVersion) {
+  const current = parseSemverTag(currentVersion);
+  const latest = parseSemverTag(latestVersion);
+  if (!current || !latest) return null;
+  return compareSemverTags(latest, current) > 0;
+}
+
 export function createAdminService({
   store,
   accountService,
@@ -580,6 +624,38 @@ export function createAdminService({
     }
   }
 
+  async function fetchDockerHubTags(imageRef) {
+    if (typeof dockerHubFetch !== "function") {
+      throw badRequest("当前运行环境不支持 Docker Hub 更新检查", { code: "docker_update_check_unavailable" });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.dockerUpdateCheckTimeoutMs || 8000);
+    const baseUrl = stripTrailingSlash(config.dockerHubApiBaseUrl || DOCKER_HUB_DEFAULT_API_BASE_URL);
+    const url = new URL(`${baseUrl}/namespaces/${encodeURIComponent(imageRef.namespace)}/repositories/${encodeURIComponent(imageRef.repository)}/tags`);
+    url.searchParams.set("page_size", "100");
+
+    try {
+      const response = await dockerHubFetch(url, {
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        throw badRequest(`Docker Hub 返回 ${response.status}`, { code: "docker_update_check_failed" });
+      }
+      const body = await response.json();
+      return Array.isArray(body?.results) ? body.results : [];
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw badRequest("Docker Hub 更新检查超时", { code: "docker_update_check_timeout" });
+      }
+      if (error?.code) throw error;
+      throw badRequest("Docker Hub 更新检查失败", { code: "docker_update_check_failed" });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   return {
     getDashboard() {
       return {
@@ -615,7 +691,17 @@ export function createAdminService({
     },
     async checkDockerImageUpdate() {
       const imageRef = parseDockerImageRef(config.dockerImage, config.dockerImageTag);
-      const tagData = await fetchDockerHubTag(imageRef);
+      const [tagResult, tagsResult] = await Promise.allSettled([
+        fetchDockerHubTag(imageRef),
+        fetchDockerHubTags(imageRef)
+      ]);
+      if (tagResult.status === "rejected") {
+        throw tagResult.reason;
+      }
+      const tagData = tagResult.value;
+      const latestVersionTag = tagsResult.status === "fulfilled"
+        ? getLatestVersionTag(tagsResult.value)
+        : null;
       const remoteUpdatedAt = toIsoOrEmpty(tagData.tag_last_pushed || tagData.last_updated || "");
       const remoteDigest = String(tagData.digest || "").trim();
       return {
@@ -627,10 +713,14 @@ export function createAdminService({
         appVersion: config.appVersion || "0.0.0",
         buildCommit: config.buildCommit || "",
         buildTime: config.buildTime || "",
+        latestVersion: latestVersionTag?.semver?.version || "",
+        latestVersionTag: latestVersionTag?.name || "",
+        latestVersionPublishedAt: latestVersionTag?.publishedAt || "",
         remoteUpdatedAt,
         remoteDigest,
         remoteStatus: String(tagData.tag_status || "").trim(),
         remoteSizeBytes: Number(tagData.full_size || 0) || 0,
+        versionUpdateAvailable: isVersionNewer(config.appVersion, latestVersionTag?.semver?.version || ""),
         updateAvailable: isRemoteNewer(config.buildTime, remoteUpdatedAt),
         sourceUrl: `https://hub.docker.com/r/${imageRef.namespace}/${imageRef.repository}/tags?name=${encodeURIComponent(imageRef.tag)}`
       };

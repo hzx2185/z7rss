@@ -13,10 +13,10 @@
     <link rel="stylesheet" href="/css/shared/data-surfaces.css" />
     <link rel="stylesheet" href="/css/admin/security-panel.css" />
     <link rel="stylesheet" href="/css/shared/compact-ui.css" />
-    <link rel="stylesheet" href="/css/admin/page.css" />
+    <link rel="stylesheet" href="/css/admin/page.css?v=3" />
     <link rel="stylesheet" href="/css/pages/admin.css?v=3" />
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
-    <link rel="stylesheet" href="/css/admin/shell.css" />
+    <link rel="stylesheet" href="/css/admin/shell.css?v=3" />
     <link rel="stylesheet" href="/css/admin/shell-extended.css" />
     <link rel="stylesheet" href="/css/shared/mobile-compact.css" />
     <link rel="stylesheet" href="/css/shared/top-navigation.css" />
@@ -100,7 +100,11 @@
                     <div>
                       <p class="eyebrow">管理员档案</p>
                       <h3 id="admin-user-name">访客</h3>
-                      <p class="admin-account-email status-text">登录后可查看系统状态与后台入口</p>
+                      <p class="admin-account-email status-text">登录后可查看系统状态与后台入口。</p>
+                      <div class="admin-profile-version-row">
+                        <div id="admin-profile-version-info" class="admin-profile-version-grid" aria-label="版本信息"></div>
+                        <button id="admin-docker-update-btn" class="secondary" type="button">检查更新</button>
+                      </div>
                     </div>
                     <span class="pill accent">后台</span>
                   </div>
@@ -116,15 +120,6 @@
                   </div>
                   <div id="admin-metrics" class="metrics-grid"></div>
                 </div>
-              </div>
-              <div class="card admin-version-card">
-                <div class="card-head">
-                  <h3>版本与镜像</h3>
-                  <div class="reader-actions toolbar-wrap">
-                    <button id="admin-docker-update-btn" class="secondary" type="button">检查镜像更新</button>
-                  </div>
-                </div>
-                <div id="admin-version-info" class="admin-version-grid"></div>
               </div>
               <div class="card">
                 <div class="card-head">
@@ -816,6 +811,6 @@
 
     <script type="module" src="/theme.js?v=2"></script>
     <script type="module" src="/shared-settings.js?v=2"></script>
-    <script type="module" src="/admin.js?v=4"></script>
+    <script type="module" src="/admin.js?v=6"></script>
   </body>
 </html>

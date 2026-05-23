@@ -10,7 +10,7 @@ export function getAdminElements() {
   loginForm: document.querySelector("#login-form"),
   logoutBtn: document.querySelector("#logout-btn"),
   adminSystemFlags: document.querySelector("#admin-system-flags"),
-  adminVersionInfo: document.querySelector("#admin-version-info"),
+  adminProfileVersionInfo: document.querySelector("#admin-profile-version-info"),
   adminDockerUpdateBtn: document.querySelector("#admin-docker-update-btn"),
   adminPlanSnapshot: document.querySelector("#admin-plan-snapshot"),
   adminPlanSettings: document.querySelector("#admin-plan-settings"),

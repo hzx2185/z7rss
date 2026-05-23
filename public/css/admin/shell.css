@@ -136,6 +136,10 @@ body.admin-page .admin-account-identity {
   gap: 10px;
 }
 
+body.admin-page .admin-account-identity > div {
+  min-width: 0;
+}
+
 body.admin-page .admin-account-identity .pill {
   flex-shrink: 0;
   align-self: flex-start;

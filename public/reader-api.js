@@ -89,7 +89,10 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
     },
     async listItems({ feedId, limit, page, filter, publishedSince, fresh = false, skipImmediateTranslations = false, includeTotal = true, signal = null }) {
       const params = new URLSearchParams()
-      if (feedId) params.set("feedId", String(feedId))
+      const normalizedFeedId = Number(feedId || 0)
+      if (Number.isInteger(normalizedFeedId) && normalizedFeedId > 0) {
+        params.set("feedId", String(normalizedFeedId))
+      }
       params.set("limit", String(limit))
       params.set("page", String(page))
       params.set("filter", filter)

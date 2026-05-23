@@ -1,5 +1,5 @@
-import { createReaderApi } from "./reader-api.js?v=29"
-import { createReaderController } from "./reader-controller.js?v=29"
+import { createReaderApi } from "./reader-api.js?v=30"
+import { createReaderController } from "./reader-controller.js?v=30"
 import {
   buildTranslatedExcerpt,
   createReaderTemplates,
@@ -20,7 +20,7 @@ import {
   renderPlainText,
   renderRichFallback,
   safeUrl
-} from "./reader-view.js?v=29"
+} from "./reader-view.js?v=30"
 import {
   COLUMN_WIDTHS_KEY,
   DEFAULT_COLUMN_WIDTHS,
@@ -45,23 +45,24 @@ import {
   normalizeFeedVisibilityFilter,
   normalizeItemFilter,
   state
-} from "./reader-state.js?v=29"
-import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=29"
-import { createReaderArticleDetail } from "./reader-article-detail.js?v=29"
-import { createReaderDerivedData } from "./reader-derived-data.js?v=29"
-import { createReaderFeedControls } from "./reader-feed-controls.js?v=29"
-import { createReaderFeedSettings } from "./reader-feed-settings.js?v=29"
-import { createReaderItemTools } from "./reader-item-tools.js?v=29"
-import { createReaderVirtualList } from "./reader-virtual-list.js?v=29"
-import { getReaderElements } from "./reader-elements.js?v=29"
-import { createReaderDetailSections } from "./reader-detail-sections.js?v=29"
-import { registerReaderEvents } from "./reader-events.js?v=29"
-import { createReaderUiState } from "./reader-ui-state.js?v=29"
-import { createReaderListRenderer } from "./reader-list-renderer.js?v=29"
-import { createReaderMenus } from "./reader-menus.js?v=29"
-import { createReaderFeedActions } from "./reader-feed-actions.js?v=29"
-import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=29"
+} from "./reader-state.js?v=30"
+import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=30"
+import { createReaderArticleDetail } from "./reader-article-detail.js?v=30"
+import { createReaderDerivedData } from "./reader-derived-data.js?v=30"
+import { createReaderFeedControls } from "./reader-feed-controls.js?v=30"
+import { createReaderFeedSettings } from "./reader-feed-settings.js?v=30"
+import { createReaderItemTools } from "./reader-item-tools.js?v=30"
+import { createReaderVirtualList } from "./reader-virtual-list.js?v=30"
+import { getReaderElements } from "./reader-elements.js?v=30"
+import { createReaderDetailSections } from "./reader-detail-sections.js?v=30"
+import { registerReaderEvents } from "./reader-events.js?v=30"
+import { createReaderUiState } from "./reader-ui-state.js?v=30"
+import { createReaderListRenderer } from "./reader-list-renderer.js?v=30"
+import { createReaderMenus } from "./reader-menus.js?v=30"
+import { createReaderFeedActions } from "./reader-feed-actions.js?v=30"
+import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=30"
 const compactMedia = window.matchMedia("(max-width: 900px)")
+const coarsePointerMedia = window.matchMedia("(hover: none) and (pointer: coarse)")
 const LOAD_MORE_EDGE_OFFSET = 280
 const ITEM_LIST_PATCH_TTL_MS = 35_000
 let loadMoreFrame = null
@@ -203,6 +204,7 @@ const virtualItems = createReaderVirtualList({
       state.itemQuery.trim().toLowerCase(),
       state.publishedSince || "",
       Number(state.selectedFeedId || 0),
+      shouldVirtualizeItems() ? "v" : "full",
       Number(state.selectedItem?.id || 0),
       Number(state.expandedItemId || 0),
       items.length,
@@ -219,6 +221,7 @@ const virtualItems = createReaderVirtualList({
       state.itemQuery.trim().toLowerCase(),
       state.publishedSince || "",
       Number(state.selectedFeedId || 0),
+      shouldVirtualizeItems() ? "v" : "full",
       Number(state.selectedItem?.id || 0),
       Number(state.expandedItemId || 0)
     ].join(":"),
@@ -402,6 +405,10 @@ function shouldInlineDetail() {
 
 function shouldUseFeedDrawer() {
   return compactMedia.matches
+}
+
+function shouldVirtualizeItems() {
+  return !compactMedia.matches && !coarsePointerMedia.matches
 }
 
 function setGlyphButton(button, glyph, label) {
@@ -755,7 +762,8 @@ listRenderer = createReaderListRenderer({
   renderExpandedBody,
   renderListRow,
   renderMagazineRow,
-  renderTableRow
+  renderTableRow,
+  shouldVirtualizeItems
 })
 
 const {
@@ -1220,6 +1228,12 @@ async function boot() {
   }
   renderOperationSummary()
 }
+
+coarsePointerMedia.addEventListener?.("change", () => {
+  virtualItems.reset({ clearHeights: true })
+  renderItems()
+  scheduleMaybeLoadNextPage()
+})
 
 registerReaderEvents({
   els,

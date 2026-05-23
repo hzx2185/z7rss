@@ -659,66 +659,70 @@ body.admin-page .admin-overview-layout {
   width: 100%;
 }
 
-body.admin-page .admin-version-card {
-  display: flex;
-  flex-direction: column;
+body.admin-page .admin-profile-version-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+  min-width: 0;
 }
 
-body.admin-page .admin-version-grid {
-  display: flex;
-  flex-direction: column;
+body.admin-page .admin-profile-version-row > button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+body.admin-page .admin-profile-version-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   min-width: 0;
 }
 
-body.admin-page .admin-version-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-}
-
-body.admin-page .admin-version-metrics {
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 8px;
-}
-
-body.admin-page .admin-version-detail strong {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body.admin-page .admin-version-status {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-body.admin-page .admin-version-remote {
+body.admin-page .admin-profile-version-item {
+  min-width: 0;
   padding: 9px 10px;
   border: 1px solid var(--surface-border);
   border-radius: 10px;
   background: var(--bg-sunken);
 }
 
+body.admin-page .admin-profile-version-item span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+body.admin-page .admin-profile-version-item strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 1180px) {
   body.admin-page .admin-overview-layout {
     grid-template-columns: 1fr;
   }
+}
 
-  body.admin-page .admin-version-summary {
+@media (max-width: 780px) {
+  body.admin-page .admin-profile-version-row {
     grid-template-columns: 1fr;
   }
 
-  body.admin-page .admin-version-status {
-    justify-content: flex-start;
+  body.admin-page .admin-profile-version-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body.admin-page .admin-profile-version-row > button {
+    justify-self: flex-start;
   }
 }
 

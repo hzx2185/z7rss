@@ -39,6 +39,21 @@ function createSystemHarness(options = {}) {
   return { db, adminService };
 }
 
+test("admin overview places version fields inside the admin profile card", () => {
+  const html = fs.readFileSync(path.join(process.cwd(), "public/admin.html"), "utf8");
+  const profileIndex = html.indexOf("管理员档案");
+  const profileCopyIndex = html.indexOf("登录后可查看系统状态与后台入口。", profileIndex);
+  const versionIndex = html.indexOf('id="admin-profile-version-info"', profileCopyIndex);
+  const updateButtonIndex = html.indexOf('id="admin-docker-update-btn"', versionIndex);
+
+  assert.ok(profileIndex > -1);
+  assert.ok(profileCopyIndex > profileIndex);
+  assert.ok(versionIndex > profileCopyIndex);
+  assert.ok(updateButtonIndex > versionIndex);
+  assert.equal(html.includes("镜像更新"), false);
+  assert.equal(html.includes('id="admin-version-info"'), false);
+});
+
 test("admin dashboard includes application version and image metadata", () => {
   const { db, adminService } = createSystemHarness();
 
@@ -56,6 +71,18 @@ test("admin dashboard includes application version and image metadata", () => {
 test("admin Docker update check reports latest image metadata", async () => {
   const { db, adminService } = createSystemHarness({
     dockerHubFetch: async (url) => {
+      if (String(url) === "https://hub.docker.com/v2/namespaces/hzx2185/repositories/z7rss/tags?page_size=100") {
+        return {
+          ok: true,
+          json: async () => ({
+            results: [
+              { name: "latest", tag_last_pushed: "2026-05-20T02:00:00.000Z" },
+              { name: "0.1.0", tag_last_pushed: "2026-05-18T02:00:00.000Z" },
+              { name: "1.2.4", tag_last_pushed: "2026-05-21T02:00:00.000Z" }
+            ]
+          })
+        };
+      }
       assert.equal(String(url), "https://hub.docker.com/v2/namespaces/hzx2185/repositories/z7rss/tags/latest");
       return {
         ok: true,
@@ -72,6 +99,10 @@ test("admin Docker update check reports latest image metadata", async () => {
   try {
     const result = await adminService.checkDockerImageUpdate();
     assert.equal(result.appVersion, "1.2.3");
+    assert.equal(result.latestVersion, "1.2.4");
+    assert.equal(result.latestVersionTag, "1.2.4");
+    assert.equal(result.latestVersionPublishedAt, "2026-05-21T02:00:00.000Z");
+    assert.equal(result.versionUpdateAvailable, true);
     assert.equal(result.remoteUpdatedAt, "2026-05-20T02:00:00.000Z");
     assert.equal(result.remoteDigest, "sha256:1234567890abcdef");
     assert.equal(result.remoteSizeBytes, 123456);
