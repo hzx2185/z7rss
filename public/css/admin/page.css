@@ -1110,3 +1110,27 @@ body.admin-page .admin-substatus {
     grid-template-columns: 1fr;
   }
 }
+
+/* 解决后台 RSSHub 版本和规则检查内容被压缩变窄看不清的问题 */
+body.admin-page #admin-rsshub-version-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+body.admin-page #admin-rsshub-version-info .admin-profile-version-item {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+body.admin-page #admin-rsshub-version-info .admin-profile-version-item strong {
+  white-space: normal;
+  text-overflow: clip;
+  overflow: visible;
+  word-break: break-all;
+  line-height: 1.4;
+}
