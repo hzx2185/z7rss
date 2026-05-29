@@ -73,6 +73,7 @@ export function normalizeItemFilter(value) {
 
 export const state = {
   me: null,
+  config: null,
   feeds: [],
   items: [],
   deferredReadItemIds: [],
@@ -114,6 +115,10 @@ export const state = {
   itemPageCache: new Map(),
   itemListPatches: new Map(),
   composeOpen: false,
+  specialRoutePreview: null,
+  specialRoutePreviewUrl: "",
+  specialRoutePreviewLoading: false,
+  specialRoutePreviewError: "",
   feedDrawerOpen: false,
   feedBulkMode: false,
   selectedFeedIds: [],

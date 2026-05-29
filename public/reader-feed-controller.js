@@ -151,6 +151,8 @@ export function createReaderFeedController(deps) {
         translationMode: els.feedSettingsMode.value || null,
         fetchRequestProfile: els.feedSettingsFetchProfile.value || "auto",
         fetchFeedFormat: els.feedSettingsFetchFormat.value || "auto",
+        fetchRequestMethod: els.feedSettingsFetchMethod.value || "GET",
+        fetchRequestBody: els.feedSettingsFetchRequestBody.value.trim() || null,
         fetchTimeoutMs: els.feedSettingsFetchTimeout.value.trim() ? Number.parseInt(els.feedSettingsFetchTimeout.value, 10) : null,
         fetchFeedUrl: els.feedSettingsFetchFeedUrl.value.trim() || null,
         fetchLoginUrl: els.feedSettingsFetchLoginUrl.value.trim() || null,
@@ -171,6 +173,12 @@ export function createReaderFeedController(deps) {
         fetchPageSelector: els.feedSettingsFetchPageSelector.value.trim() || null,
         fetchHtmlStart: els.feedSettingsFetchHtmlStart.value.trim() || null,
         fetchHtmlEnd: els.feedSettingsFetchHtmlEnd.value.trim() || null,
+        fetchHtmlItemsSelector: els.feedSettingsFetchHtmlItemsSelector.value.trim() || null,
+        fetchHtmlTitleSelector: els.feedSettingsFetchHtmlTitleSelector.value.trim() || null,
+        fetchHtmlLinkSelector: els.feedSettingsFetchHtmlLinkSelector.value.trim() || null,
+        fetchHtmlDateSelector: els.feedSettingsFetchHtmlDateSelector.value.trim() || null,
+        fetchHtmlSummarySelector: els.feedSettingsFetchHtmlSummarySelector.value.trim() || null,
+        fetchHtmlContentSelector: els.feedSettingsFetchHtmlContentSelector.value.trim() || null,
         fetchJsonItemsPath: els.feedSettingsFetchJsonItemsPath.value.trim() || null,
         fetchJsonTitlePath: els.feedSettingsFetchJsonTitlePath.value.trim() || null,
         fetchJsonLinkPath: els.feedSettingsFetchJsonLinkPath.value.trim() || null,
@@ -219,7 +227,15 @@ export function createReaderFeedController(deps) {
 
   async function addFeed() {
     const isPublic = els.feedPublic?.checked ?? true
-    const result = await readerApi.addFeed(els.feedUrl.value.trim(), { isPublic })
+    const selectedRssHubBase = String(els.feedRsshubBase?.value || "").trim()
+    const rssHubBaseUrls =
+      selectedRssHubBase && selectedRssHubBase !== "auto"
+        ? selectedRssHubBase === "none" ? "" : selectedRssHubBase
+        : undefined
+    const result = await readerApi.addFeed(els.feedUrl.value.trim(), {
+      isPublic,
+      rssHubBaseUrls
+    })
     state.lastOperation = { type: "addFeed", result }
     renderOperationSummary()
     els.feedUrl.value = ""

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const FALLBACK_APP_SECRET = "change-me-in-compose";
+const DEFAULT_RSSHUB_BASE_URLS = ["https://rsshub.app"];
 const DEFAULT_APP_SECRET_PLACEHOLDERS = new Set([
   FALLBACK_APP_SECRET,
   "change-me-before-production"
@@ -28,6 +29,37 @@ function parseBoolean(value, fallback = false) {
 function parseSqliteSynchronous(value, fallback = "FULL") {
   const normalized = String(value || "").trim().toUpperCase();
   return ["OFF", "NORMAL", "FULL", "EXTRA"].includes(normalized) ? normalized : fallback;
+}
+
+function parseUrlList(value) {
+  return String(value || "")
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseRssHubBaseUrls(value, defaultUrls = []) {
+  const raw = String(value || "").trim();
+  if (!raw) return [...defaultUrls];
+  if (["0", "false", "no", "none", "off", "disabled"].includes(raw.toLowerCase())) {
+    return [];
+  }
+
+  const seen = new Set();
+  const urls = [];
+  for (const entry of parseUrlList(raw)) {
+    try {
+      const url = new URL(entry);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      const normalized = url.toString().replace(/\/+$/, "");
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      urls.push(normalized);
+    } catch (_error) {
+      // Ignore invalid optional RSSHub bases.
+    }
+  }
+  return urls;
 }
 
 function readPackageVersion() {
@@ -110,6 +142,7 @@ export function createConfig(env) {
     userRefreshConcurrency: Math.max(1, Math.min(10, parseInteger(env.USER_REFRESH_CONCURRENCY, 4))),
     crawlTimeoutMs: parseInteger(env.CRAWL_TIMEOUT_MS, 15000),
     userAgent: env.USER_AGENT || "Z7RSSBot/0.1",
+    rssHubBaseUrls: parseRssHubBaseUrls(env.RSSHUB_BASE_URLS || env.RSSHUB_BASE_URL || "", DEFAULT_RSSHUB_BASE_URLS),
     sessionCookieName: env.SESSION_COOKIE_NAME || "z7rss_session",
     sessionTtlDays: parseInteger(env.SESSION_TTL_DAYS, 30),
     secureCookies,

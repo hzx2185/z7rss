@@ -463,6 +463,12 @@ function getSiteMonogram(url = "", fallback = "") {
   return escapeHtml(seed.slice(0, 1).toUpperCase() || "站")
 }
 
+function getItemSourceMonogram(item, fallback = "") {
+  const seed = normalizeDisplayText(getDisplayItemFeedTitle(item) || item?.feed_title || fallback)
+  if (seed) return escapeHtml(seed.slice(0, 1).toUpperCase() || "源")
+  return getSiteMonogram(item?.original_url || item?.link || "", fallback)
+}
+
 export function createReaderTemplates({
   buildDetailSections,
   getFeedCategory,
@@ -535,10 +541,10 @@ export function createReaderTemplates({
   function renderSiteChip(item) {
     const siteLabel = getItemSiteLabel(item)
     const domain = getDomain(item.link)
-    const siteTitle = domain && domain !== siteLabel ? `${siteLabel} · ${domain}` : siteLabel
+    const siteTitle = domain && domain !== siteLabel ? `${siteLabel} · 原文 ${domain}` : siteLabel
     return `
       <span class="reader-site-chip" title="${escapeAttribute(siteTitle)}">
-        <span class="reader-site-icon" aria-hidden="true">${getSiteMonogram(item.link, siteLabel)}</span>
+        <span class="reader-site-icon" aria-hidden="true">${getItemSourceMonogram(item, siteLabel)}</span>
         <span class="reader-site-name">${escapeHtml(siteLabel)}</span>
       </span>
     `

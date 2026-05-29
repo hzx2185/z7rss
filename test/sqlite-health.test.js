@@ -94,3 +94,23 @@ test("createDb seeds billing plan prices from injected options", () => {
     }
   }
 });
+
+test("createDb seeds special route entitlement for paid plans", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "z7rss-db-plan-routes-"));
+  const dbPath = path.join(dir, "rss.db");
+  const db = createDb(dbPath);
+
+  try {
+    const entitlements = Object.fromEntries(
+      db.prepare("SELECT code, special_routes_enabled FROM plans ORDER BY code ASC").all()
+        .map((row) => [row.code, row.special_routes_enabled])
+    );
+    assert.deepEqual(entitlements, {
+      free: 0,
+      pro: 1,
+      team: 1
+    });
+  } finally {
+    db.close();
+  }
+});

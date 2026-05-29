@@ -90,6 +90,7 @@ export function createStoreStatements(db) {
       ai_translation_enabled = COALESCE(@aiTranslationEnabled, ai_translation_enabled),
       ai_summary_enabled = COALESCE(@aiSummaryEnabled, ai_summary_enabled),
       custom_ai_enabled = COALESCE(@customAiEnabled, custom_ai_enabled),
+      special_routes_enabled = COALESCE(@specialRoutesEnabled, special_routes_enabled),
       ai_digest_enabled = COALESCE(@aiDigestEnabled, ai_digest_enabled),
       email_digest_enabled = COALESCE(@emailDigestEnabled, email_digest_enabled),
       max_digest_rules = COALESCE(@maxDigestRules, max_digest_rules)
@@ -117,6 +118,7 @@ export function createStoreStatements(db) {
       p.ai_translation_enabled,
       p.ai_summary_enabled,
       p.custom_ai_enabled,
+      p.special_routes_enabled,
       p.ai_digest_enabled,
       p.email_digest_enabled,
       p.max_digest_rules,
@@ -138,6 +140,7 @@ export function createStoreStatements(db) {
       p.ai_translation_enabled,
       p.ai_summary_enabled,
       p.custom_ai_enabled,
+      p.special_routes_enabled,
       p.ai_digest_enabled,
       p.email_digest_enabled,
       p.max_digest_rules,
@@ -159,6 +162,7 @@ export function createStoreStatements(db) {
       p.ai_translation_enabled,
       p.ai_summary_enabled,
       p.custom_ai_enabled,
+      p.special_routes_enabled,
       p.ai_digest_enabled,
       p.email_digest_enabled,
       p.max_digest_rules,
@@ -970,6 +974,20 @@ export function createStoreStatements(db) {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = @id
   `);
+  const listFeedItemsForContentCleanupStmt = db.prepare(`
+    SELECT id, summary, content_html, content_text
+    FROM items
+    WHERE feed_id = ?
+  `);
+  const clearItemSummaryAndContentStmt = db.prepare(`
+    UPDATE items
+    SET
+      summary = @summary,
+      content_html = '',
+      content_text = '',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = @id
+  `);
   const updateItemPageContentStmt = db.prepare(`
     UPDATE items
     SET
@@ -1405,6 +1423,8 @@ export function createStoreStatements(db) {
     upsertItemStmt,
     updateItemByIdFromFeedEntryStmt,
     updateItemContentStmt,
+    listFeedItemsForContentCleanupStmt,
+    clearItemSummaryAndContentStmt,
     updateItemPageContentStmt,
     updateTranslationStmt,
     updateSummaryStmt,

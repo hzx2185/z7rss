@@ -7,11 +7,32 @@ import {
   isLikelyUnrelatedArticleContent
 } from "./article-content.js";
 import { broadFeedCategories, cleanCategory, getDomainFromUrl, getFeedFreshness, inferFeedCategory } from "./feed-metadata.js";
+import {
+  getFeedAdapterTemplates,
+  normalizeFeedAdapterTemplate,
+  resolveFeedAdapterTemplate,
+  templateToFetchSettings,
+  templateToRuntimeOptions
+} from "./feed-adapter-templates.js";
+import {
+  buildRssHubCandidates,
+  inferRssHubBaseUrlsFromFeeds,
+  normalizeRssHubBaseUrls,
+  parseRssHubBaseUrlList,
+  resolveFeedInput
+} from "./feed-discovery.js";
 import { createFeedFetchSettings } from "./feed-fetch-settings.js";
 import { createFeedTitleTranslations } from "./feed-title-translations.js";
 
 let fetcherModulePromise = null;
 let feedImportExportModulePromise = null;
+const ZHIHU_HOT_BUILTIN_URL = "builtin://zhihu/hot";
+const ZHIHU_HOT_PAGE_URL = "https://www.zhihu.com/hot";
+const FEED_ADAPTER_TEMPLATE_TOKEN_PATTERN = /\{(?:rawUrl|url)\}|\$(?:\$|&|\d{1,2})/;
+
+function hasFeedAdapterTemplateTokens(value = "") {
+  return FEED_ADAPTER_TEMPLATE_TOKEN_PATTERN.test(String(value || ""));
+}
 
 function loadFetcherModule() {
   if (!fetcherModulePromise) {
@@ -224,6 +245,32 @@ export function createFeedService({ store, accountService, config, translator = 
     });
   }
 
+  function isBlockedFeedDomain(url = "") {
+    const domain = getDomainFromUrl(url);
+    if (!domain) return false;
+    return store
+      .listBlockedSites()
+      .some((entry) => entry.is_active && String(entry.domain || "").toLowerCase() === domain);
+  }
+
+  function getRssHubBaseUrlsForDiscovery() {
+    const configuredSetting = store.getSetting?.("rsshub", "base_urls")?.value ?? "";
+    if (/^none$/i.test(String(configuredSetting).trim())) return [];
+    const configured = String(configuredSetting || "").trim()
+      ? normalizeRssHubBaseUrls(parseRssHubBaseUrlList(configuredSetting))
+      : Array.isArray(config.rssHubBaseUrls) ? config.rssHubBaseUrls : [];
+    const existingFeeds = typeof store.listGlobalFeeds === "function" ? store.listGlobalFeeds() : [];
+    return [...configured, ...inferRssHubBaseUrlsFromFeeds(existingFeeds)];
+  }
+
+  function shouldCleanZhihuHotMetricOnlyContent(feed, fetchSettings = null) {
+    return (
+      String(feed?.url || "").trim() === ZHIHU_HOT_PAGE_URL ||
+      String(feed?.url || "").trim() === ZHIHU_HOT_BUILTIN_URL ||
+      String(fetchSettings?.feed_url || "").trim() === ZHIHU_HOT_BUILTIN_URL
+    );
+  }
+
   function hasStoredContent(item) {
     return hasUsableStoredArticleContent(item);
   }
@@ -404,6 +451,12 @@ export function createFeedService({ store, accountService, config, translator = 
       const filteredItems = filterItems(result.items);
       const insertedResult = store.upsertItems(feed.id, filteredItems);
       const inserted = Number.isFinite(Number(insertedResult)) ? Number(insertedResult) : filteredItems.length;
+      if (
+        shouldCleanZhihuHotMetricOnlyContent(feed, fetchSettings) &&
+        typeof store.clearMetricOnlyContentForFeed === "function"
+      ) {
+        store.clearMetricOnlyContentForFeed(feed.id);
+      }
       store.updateFeedAutoCategory(
         feed.id,
         inferFeedCategory(
@@ -748,15 +801,32 @@ export function createFeedService({ store, accountService, config, translator = 
     countItems(userId, feedId, options = {}) {
       return store.countUserItems(userId, feedId, options);
     },
-    async addFeed(userId, { title, url, isPublic }) {
+    previewSpecialRoutes(userId, inputUrl = "") {
+      const account = accountService.getAccount({ id: userId });
+      if (!account.features?.specialRoutes) {
+        return {
+          enabled: false,
+          inputUrl,
+          candidates: []
+        };
+      }
+      const candidates = buildRssHubCandidates(inputUrl, getRssHubBaseUrlsForDiscovery()).map((candidate) => ({
+        baseUrl: candidate.baseUrl || "",
+        feedUrl: candidate.url,
+        route: candidate.route || "",
+        title: candidate.title || candidate.route || candidate.url
+      }));
+      return {
+        enabled: true,
+        inputUrl,
+        candidates
+      };
+    },
+    async addFeed(userId, { title, url, isPublic, allowExisting = false, rssHubBaseUrls = null }) {
       if (!url) {
         throw badRequest("Feed URL is required", { code: "feed_url_required" });
       }
-      const domain = getDomainFromUrl(url);
-      const siteBlocked = store
-        .listBlockedSites()
-        .some((entry) => entry.is_active && String(entry.domain || "").toLowerCase() === domain);
-      if (siteBlocked) {
+      if (isBlockedFeedDomain(url)) {
         throw forbidden("该网站已被系统屏蔽", { code: "feed_site_blocked" });
       }
 
@@ -766,40 +836,121 @@ export function createFeedService({ store, accountService, config, translator = 
           code: "feed_limit_reached"
         });
       }
+      const canUseSpecialRoutes = Boolean(account.features?.specialRoutes);
+      const specialRouteBaseUrls = canUseSpecialRoutes
+        ? Array.isArray(rssHubBaseUrls)
+          ? rssHubBaseUrls
+          : getRssHubBaseUrlsForDiscovery()
+        : [];
+
+      const { fetchFeed, discoverFeedLinks, discoverJsonFeedMapping } = await loadFetcherModule();
+      const resolved = await resolveFeedInput(url, {
+        fetchFeed,
+        discoverFeedLinks,
+        discoverJsonFeedMapping,
+        timeoutMs: config.crawlTimeoutMs,
+        userAgent: config.userAgent,
+        rssHubBaseUrls: specialRouteBaseUrls,
+        feedAdapterTemplates: getFeedAdapterTemplates(store, secret)
+      });
+      if (isBlockedFeedDomain(resolved.feedUrl)) {
+        throw forbidden("该网站已被系统屏蔽", { code: "feed_site_blocked" });
+      }
+
+      const canonicalUrl = resolved.feedUrl || url;
+      const feedTitle =
+        title ||
+        resolved.meta?.title ||
+        resolved.candidateTitle ||
+        resolved.siteTitle ||
+        canonicalUrl;
+      const feedSiteUrl = resolved.meta?.siteUrl || (resolved.inputUrl !== canonicalUrl ? resolved.inputUrl : "");
+      const feedDescription = resolved.meta?.description || resolved.siteDescription || "";
 
       const canonicalFeed = store.getOrCreateFeed({
-        title: title || url,
-        url,
-        siteUrl: "",
-        description: ""
+        title: feedTitle,
+        url: canonicalUrl,
+        siteUrl: feedSiteUrl,
+        description: feedDescription
       });
       if (!String(canonicalFeed.auto_category || "").trim()) {
         store.updateFeedAutoCategory(canonicalFeed.id, inferFeedCategory(canonicalFeed));
       }
 
+      let alreadySubscribed = false;
       try {
         store.linkUserFeed(userId, canonicalFeed.id, title || "");
       } catch (error) {
         if (error.code === "SQLITE_CONSTRAINT_UNIQUE") {
-          throw conflict("你已经订阅过这个源", { code: "feed_already_subscribed" });
+          if (!resolved.fetchSettings && !allowExisting) {
+            throw conflict("你已经订阅过这个源", { code: "feed_already_subscribed" });
+          }
+          alreadySubscribed = true;
+        } else {
+          throw error;
         }
-        throw error;
       }
 
       if (isPublic !== undefined && isPublic !== null) {
         store.updateUserFeedPreferences(userId, canonicalFeed.id, { is_public: isPublic ? 1 : 0 });
       }
 
-      let warning = null;
-      try {
-        await refreshFeed(canonicalFeed.id);
-      } catch (error) {
-        warning = error.message;
+      let discoveredFetchSettings = null;
+      if (resolved.fetchSettings) {
+        discoveredFetchSettings = saveFeedFetchSettings(
+          userId,
+          canonicalFeed.id,
+          buildUpdatedFeedFetchSettings(getFeedFetchSettings(userId, canonicalFeed.id), resolved.fetchSettings)
+        );
       }
+
+      let warning = resolved.discoveryError || null;
+      try {
+        await refreshFeed(canonicalFeed.id, { userId });
+      } catch (error) {
+        const refreshMessage = error.message || "刷新失败";
+        warning = warning
+          ? warning.includes(refreshMessage)
+            ? warning
+            : `${warning}；${refreshMessage}`
+          : refreshMessage;
+      }
+
+      const discoverySourceLabels = {
+        html_link: "已自动发现网页中的 Feed",
+        common_path: "已自动匹配常见 Feed 地址",
+        known_native: "已自动转换为站点原生 Feed",
+        rsshub: "已自动转换为 RSSHub 订阅源",
+        builtin: "已自动使用内置适配器",
+        adapter_template: "已自动套用抓取模板，可在高级抓取中微调",
+        json_mapping: "已自动识别网页 JSON 列表，可在高级抓取中微调"
+      };
+      const discoveryNote = discoverySourceLabels[resolved.source] || "";
+      const alreadySubscribedNote = alreadySubscribed && resolved.fetchSettings ? "你已经订阅过这个源，已更新高级抓取配置" : "";
+      if (!warning && alreadySubscribedNote) {
+        warning = alreadySubscribedNote;
+      } else if (warning && alreadySubscribedNote) {
+        warning = `${alreadySubscribedNote}；${warning}`;
+      } else if (!warning && discoveryNote && (resolved.inputUrl !== canonicalUrl || resolved.fetchSettings)) {
+        warning = discoveryNote;
+      } else if (warning && discoveryNote && resolved.fetchSettings) {
+        warning = `${discoveryNote}，但首次抓取失败：${warning}`;
+      }
+      const discovered = resolved.inputUrl !== canonicalUrl || resolved.fetchSettings
+        ? {
+            inputUrl: resolved.inputUrl,
+            feedUrl: canonicalUrl,
+            source: resolved.source,
+            itemCount: resolved.itemCount || 0,
+            fetchSettings: discoveredFetchSettings ? maskFeedFetchSettings(discoveredFetchSettings) : null
+          }
+        : null;
 
       return {
         feed: serializeUserFeed(userId, store.getUserFeed(userId, canonicalFeed.id)),
-        warning
+        existing: alreadySubscribed,
+        warning,
+        discovered
       };
     },
     async importFeeds(userId, input) {
@@ -1061,6 +1212,61 @@ export function createFeedService({ store, accountService, config, translator = 
         } catch (error) {
           console.error(`Refresh failed for feed ${feed.id}:`, error.message);
         }
+      }
+    },
+    async testFetchAdapterTemplate(template = {}, inputUrl = "") {
+      const normalized = normalizeFeedAdapterTemplate(template);
+      const testInputUrl = String(inputUrl || "").trim();
+      const runtimeTemplate = testInputUrl
+        ? resolveFeedAdapterTemplate(testInputUrl, normalized) || normalized
+        : normalized;
+      const baseResult = {
+        feedUrl: runtimeTemplate.feedUrl,
+        fetchSettings: templateToFetchSettings(runtimeTemplate)
+      };
+      if (hasFeedAdapterTemplateTokens(runtimeTemplate.feedUrl)) {
+        return {
+          ...baseResult,
+          ok: false,
+          error: testInputUrl
+            ? "测试输入地址未匹配当前模板，无法展开抓取地址模板"
+            : "请先填写测试输入地址以展开抓取地址模板",
+          errorCode: testInputUrl
+            ? "feed_adapter_template_input_not_matched"
+            : "feed_adapter_template_input_required",
+          meta: {},
+          itemCount: 0,
+          items: []
+        };
+      }
+      const { fetchFeed } = await loadFetcherModule();
+      try {
+        const result = await fetchFeed(runtimeTemplate.feedUrl, templateToRuntimeOptions({
+          timeoutMs: config.crawlTimeoutMs,
+          userAgent: config.userAgent
+        }, runtimeTemplate));
+        return {
+          ...baseResult,
+          ok: true,
+          meta: result.meta || {},
+          itemCount: Array.isArray(result.items) ? result.items.length : 0,
+          items: (result.items || []).slice(0, 10).map((item) => ({
+            title: item.title || "",
+            link: item.link || "",
+            summary: item.summary || item.contentText || "",
+            publishedAt: item.publishedAt || null
+          }))
+        };
+      } catch (error) {
+        return {
+          ...baseResult,
+          ok: false,
+          error: error.message || "抓取模板测试失败",
+          errorCode: error.code || error.cause?.code || "feed_adapter_test_failed",
+          meta: {},
+          itemCount: 0,
+          items: []
+        };
       }
     }
   };

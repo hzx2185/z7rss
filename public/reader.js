@@ -1,5 +1,5 @@
-import { createReaderApi } from "./reader-api.js?v=33"
-import { createReaderController } from "./reader-controller.js?v=33"
+import { createReaderApi } from "./reader-api.js?v=37"
+import { createReaderController } from "./reader-controller.js?v=38"
 import {
   buildTranslatedExcerpt,
   createReaderTemplates,
@@ -20,7 +20,7 @@ import {
   renderPlainText,
   renderRichFallback,
   safeUrl
-} from "./reader-view.js?v=33"
+} from "./reader-view.js?v=35"
 import {
   COLUMN_WIDTHS_KEY,
   DEFAULT_COLUMN_WIDTHS,
@@ -45,22 +45,22 @@ import {
   normalizeFeedVisibilityFilter,
   normalizeItemFilter,
   state
-} from "./reader-state.js?v=33"
-import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=33"
-import { createReaderArticleDetail } from "./reader-article-detail.js?v=33"
-import { createReaderDerivedData } from "./reader-derived-data.js?v=33"
-import { createReaderFeedControls } from "./reader-feed-controls.js?v=33"
-import { createReaderFeedSettings } from "./reader-feed-settings.js?v=33"
-import { createReaderItemTools } from "./reader-item-tools.js?v=33"
-import { createReaderVirtualList } from "./reader-virtual-list.js?v=33"
-import { getReaderElements } from "./reader-elements.js?v=33"
-import { createReaderDetailSections } from "./reader-detail-sections.js?v=33"
-import { registerReaderEvents } from "./reader-events.js?v=33"
-import { createReaderUiState } from "./reader-ui-state.js?v=33"
-import { createReaderListRenderer } from "./reader-list-renderer.js?v=33"
-import { createReaderMenus } from "./reader-menus.js?v=33"
-import { createReaderFeedActions } from "./reader-feed-actions.js?v=33"
-import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=33"
+} from "./reader-state.js?v=36"
+import { createReaderCollapsibleBody } from "./reader-collapsible-body.js?v=34"
+import { createReaderArticleDetail } from "./reader-article-detail.js?v=34"
+import { createReaderDerivedData } from "./reader-derived-data.js?v=34"
+import { createReaderFeedControls } from "./reader-feed-controls.js?v=36"
+import { createReaderFeedSettings } from "./reader-feed-settings.js?v=36"
+import { createReaderItemTools } from "./reader-item-tools.js?v=34"
+import { createReaderVirtualList } from "./reader-virtual-list.js?v=34"
+import { getReaderElements } from "./reader-elements.js?v=38"
+import { createReaderDetailSections } from "./reader-detail-sections.js?v=34"
+import { registerReaderEvents } from "./reader-events.js?v=35"
+import { createReaderUiState } from "./reader-ui-state.js?v=34"
+import { createReaderListRenderer } from "./reader-list-renderer.js?v=34"
+import { createReaderMenus } from "./reader-menus.js?v=34"
+import { createReaderFeedActions } from "./reader-feed-actions.js?v=34"
+import { getProviderTargetCode, getTranslationProviderLabel } from "./translation-options.js?v=34"
 const compactMedia = window.matchMedia("(max-width: 900px)")
 const coarsePointerMedia = window.matchMedia("(hover: none) and (pointer: coarse)")
 const LOAD_MORE_EDGE_OFFSET = 280
@@ -825,10 +825,13 @@ function renderOperationSummary() {
     const fetchedPart = Number(result.fetched || 0) > Number(result.inserted || 0) ? ` · 拉取 ${Number(result.fetched || 0)}` : ""
     message = `${getDisplayFeedTitle(result.feed || {}) || "订阅已刷新"} · 新增 ${Number(result.inserted || 0)}${unreadPart}${fetchedPart} · 清理 ${result.removed || 0}`
   } else if (type === "addFeed") {
-    message = result.warning
-      ? `订阅已添加 · ${result.warning}`
+    const discoveryPart = result.discovered?.feedUrl ? ` · ${result.discovered.feedUrl}` : ""
+    message = result.existing
+      ? `${getDisplayFeedTitle(result.feed || {}) || result.feed?.url || "订阅源"} · 已在订阅列表中${result.warning ? ` · ${result.warning}` : ""}`
+      : result.warning
+      ? `订阅已添加 · ${result.warning}${discoveryPart}`
       : `${getDisplayFeedTitle(result.feed || {}) || result.feed?.url || "新订阅"} · 已添加`
-    tone = result.warning ? "warning" : "success"
+    tone = result.existing || result.warning ? "warning" : "success"
   }
 
   if (message) {
@@ -1201,6 +1204,7 @@ async function handleItemListClick(event) {
 async function boot() {
   window.localStorage.removeItem(COLUMN_WIDTHS_KEY)
   window.localStorage.removeItem(TABLE_COLUMNS_KEY)
+  state.config = await readerApi.getConfig()
   applyLayoutWidths()
   applyTableColumns()
   renderSearchState()
@@ -1264,6 +1268,7 @@ registerReaderEvents({
     deleteSelectedFeeds,
     ensureContentLoaded,
     exportFeeds,
+    getSpecialRoutes: (...args) => readerApi.getSpecialRoutes(...args),
     handleFeedListChange,
     handleFeedListClick,
     handleFeedListPointerOver,

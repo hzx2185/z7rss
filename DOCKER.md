@@ -61,6 +61,49 @@ docker compose down
 
 仓库源码里的 `docker-compose.yml` 使用 `build: .`，是开发者本地源码构建版，不是公开镜像部署模板。
 
+## 可选 RSSHub 特殊路由
+
+Z7 RSS 不强制依赖 RSSHub。默认会先尝试直接 Feed 发现、后台抓取模板和网页 JSON 自动识别；RSSHub 只是部分网站的兜底转换服务。需要内置 RSSHub 时，可使用下面的模板：
+
+```yaml
+services:
+  z7rss:
+    image: hzx2185/z7rss:latest
+    container_name: z7rss
+    restart: unless-stopped
+    ports:
+      - "39118:80"
+    environment:
+      RSSHUB_BASE_URLS: "http://rsshub:1200"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - rsshub
+
+  rsshub:
+    image: diygod/rsshub:chromium-bundled
+    container_name: z7rss-rsshub
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1200:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: redis
+      REDIS_URL: redis://rsshub-redis:6379/
+    depends_on:
+      - rsshub-redis
+
+  rsshub-redis:
+    image: redis:alpine
+    container_name: z7rss-rsshub-redis
+    restart: unless-stopped
+```
+
+- `http://rsshub:1200` 是 Z7 容器访问 RSSHub 的内部地址，不是浏览器访问地址。
+- `127.0.0.1:1200:1200` 只把 RSSHub 暴露给本机调试。确实需要外部访问时，把左侧改为 `0.0.0.0:1200:1200`，并自行做好访问控制。
+- 已有自建 RSSHub 时，不需要 sidecar，只要在管理后台“特殊路由基址”填写外部地址，或设置 `RSSHUB_BASE_URLS=https://rsshub.example.com`。
+- 多个基址用逗号或空格分隔；填 `none` 可以禁用特殊路由候选。
+
 ## 推荐生产配置
 
 默认无需 `.env`。生产域名和站点名称优先在管理后台保存；反向代理 HTTPS 场景会自动识别 `X-Forwarded-Proto` / `X-Forwarded-Host`，通常也不需要额外环境变量。需要预设管理员邮箱时，可以按需添加 `ADMIN_EMAILS`：
@@ -109,6 +152,7 @@ AI、SMTP、套餐权益和站点信息建议在管理后台维护。密钥、SM
 - 审计日志保留：默认 `30` 天、最多 `5000` 条
 - 刷新历史保留：默认 `14` 天、最多 `1000` 条
 - 抓取超时：默认 `15000ms`
+- 网页地址自动订阅：默认会发现网页里的 RSS/Atom/JSON Feed；如果页面只有内嵌 JSON 数据，会自动推断 JSON 列表、标题、链接、日期、摘要和正文路径，并写入该订阅的高级抓取配置，用户可再微调。RSSHub 特殊路由是可选兜底能力，配置方式见上方说明。
 - 会话 Cookie 名称：默认 `z7rss_session`
 - 会话有效期：默认 `30` 天
 - 认证、AI 和订阅写入接口限流：应用内置默认值

@@ -34,10 +34,10 @@ function formatBytes(value) {
 
 function renderProfileVersionDetail(label, value) {
   return `
-    <article class="admin-profile-version-item">
+    <span class="admin-profile-version-item">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value || "-")}</strong>
-    </article>
+    </span>
   `
 }
 
@@ -86,8 +86,8 @@ export function createAdminDashboard({
     })()
     safeHtml(els.adminProfileVersionInfo, [
       renderProfileVersionDetail("当前版本", `v${system.appVersion || "0.0.0"}`),
-      renderProfileVersionDetail("最新版本", latestVersion),
-      renderProfileVersionDetail("发布时间", publishedAt ? formatDate(publishedAt) : "未记录")
+      renderProfileVersionDetail("最新", latestVersion),
+      renderProfileVersionDetail("时间", publishedAt ? formatDate(publishedAt) : "未记录")
     ].join(""))
 
     if (els.adminDockerUpdateBtn) {
@@ -95,6 +95,34 @@ export function createAdminDashboard({
       els.adminDockerUpdateBtn.textContent = state.dockerUpdateChecking ? "检查中" : "检查更新"
       els.adminDockerUpdateBtn.title = check?.error || status.label
       els.adminDockerUpdateBtn.onclick = () => actions.checkDockerImageUpdate()
+    }
+
+    const rsshub = state.rssHubCheck || null
+    const rsshubFirst = Array.isArray(rsshub?.results) ? rsshub.results.find((entry) => entry.ok) || rsshub.results[0] : null
+    const rsshubStatus = (() => {
+      if (state.rssHubChecking) return "检查中"
+      if (rsshub?.error) return rsshub.error
+      if (rsshub?.enabled === false) return "已禁用"
+      if (!rsshubFirst) return "未检查"
+      if (rsshubFirst.ok) return "可用"
+      return rsshubFirst.error || `异常 ${rsshubFirst.status || ""}`.trim()
+    })()
+    const routeSummary = Array.isArray(rsshubFirst?.routes) && rsshubFirst.routes.length
+      ? rsshubFirst.routes.map((route) => `${route.path} ${route.ok ? "OK" : route.status || "失败"}`).join(" · ")
+      : ""
+    safeHtml(els.adminRsshubVersionInfo, [
+      renderProfileVersionDetail("状态", rsshubStatus),
+      renderProfileVersionDetail("规则", rsshubFirst?.gitHash || "-"),
+      renderProfileVersionDetail("时间", rsshubFirst?.gitDate ? formatDate(rsshubFirst.gitDate) : "-"),
+      routeSummary ? renderProfileVersionDetail("路由", routeSummary) : "",
+      rsshub?.updateCommand ? renderProfileVersionDetail("命令", rsshub.updateCommand) : ""
+    ].join(""))
+
+    if (els.adminRsshubCheckBtn) {
+      els.adminRsshubCheckBtn.disabled = Boolean(state.rssHubChecking)
+      els.adminRsshubCheckBtn.textContent = state.rssHubChecking ? "检查中" : "检查 RSSHub"
+      els.adminRsshubCheckBtn.title = rsshub?.updateCommand || "查看 RSSHub 状态、规则版本和关键路由"
+      els.adminRsshubCheckBtn.onclick = () => actions.checkRssHubStatus()
     }
   }
 
@@ -245,7 +273,7 @@ export function createAdminDashboard({
                   <strong>${escapeHtml(plan.name)}</strong>
                   <span class="muted">${escapeHtml(plan.code)} · ${plan.subscriber_count || 0} 位订阅者</span>
                   <span class="muted">订阅源上限 ${plan.max_feeds} · 总文章保留 ${plan.max_saved_items} 篇 · 收藏上限 ${plan.max_favorite_items} 篇</span>
-                  <span class="muted">翻译 ${plan.ai_translation_enabled ? "开" : "关"} · 总结 ${plan.ai_summary_enabled ? "开" : "关"} · 自定义 AI ${plan.custom_ai_enabled ? "开" : "关"}</span>
+                  <span class="muted">翻译 ${plan.ai_translation_enabled ? "开" : "关"} · 总结 ${plan.ai_summary_enabled ? "开" : "关"} · 自定义 AI ${plan.custom_ai_enabled ? "开" : "关"} · 特殊路由 ${plan.special_routes_enabled ? "开" : "关"}</span>
                 </div>
                 <span class="pill accent">${formatPrice(plan.price_monthly_cents)}</span>
               </article>
@@ -305,6 +333,7 @@ export function createAdminDashboard({
       safeHtml(els.adminDatabaseFlags, "")
       safeHtml(els.adminDatabaseTables, "")
       safeHtml(els.adminProfileVersionInfo, "")
+      safeHtml(els.adminRsshubVersionInfo, "")
       safeHtml(els.adminPlanSettings, "")
       safeHtml(els.adminRedeemList, "")
       safeHtml(els.adminPluginList, "")
@@ -382,6 +411,10 @@ export function createAdminDashboard({
                   <span>AI</span>
                 </label>
                 <label class="checkbox-row">
+                  <input type="checkbox" ${plan.special_routes_enabled ? "checked" : ""} data-plan-special-routes="${escapeHtml(plan.code)}" />
+                  <span>特殊路由</span>
+                </label>
+                <label class="checkbox-row">
                   <input type="checkbox" ${plan.ai_digest_enabled ? "checked" : ""} data-plan-digest="${escapeHtml(plan.code)}" />
                   <span>简报</span>
                 </label>
@@ -402,6 +435,7 @@ export function createAdminDashboard({
       .join(""))
 
     const general = state.admin.settings.general || {}
+    const rsshub = state.admin.settings.rsshub || {}
     const mail = state.admin.settings.mail || {}
     const ai = state.admin.settings.ai || {}
     const digest = state.admin.settings.digest || {}
@@ -448,6 +482,10 @@ export function createAdminDashboard({
     if (els.settingSiteDomain) {
       els.settingSiteDomain.value = general.site_domain || ""
       els.settingSiteDomain.placeholder = state.config?.siteUrl || state.config?.appUrl || "https://rss.example.com"
+    }
+    if (els.settingRsshubBaseUrls) {
+      els.settingRsshubBaseUrls.value = rsshub.base_urls || ""
+      els.settingRsshubBaseUrls.placeholder = "http://rsshub:1200"
     }
     if (els.settingMailFrom) els.settingMailFrom.value = mail.from || ""
     if (els.settingMailHost) els.settingMailHost.value = mail.host || ""
@@ -685,6 +723,35 @@ export function createAdminDashboard({
       )
       .join(""))
 
+    const feedAdapterTemplates = state.feedAdapterTemplateDraft || state.admin.feedAdapterTemplates || []
+    safeHtml(els.feedAdapterTemplateList, feedAdapterTemplates.length
+      ? feedAdapterTemplates
+          .map((entry) => {
+            const requestMethod = String(entry.requestMethod || "GET").toUpperCase()
+            const meta = [
+              entry.enabled === false ? "停用" : "启用",
+              String(entry.feedFormat || "json").toUpperCase(),
+              String(entry.requestProfile || "browser"),
+              requestMethod,
+              entry.cookieConfigured ? "Cookie 已配置" : ""
+            ].filter(Boolean).join(" · ")
+            return `
+              <article class="list-row admin-template-row">
+                <div class="list-main">
+                  <strong>${escapeHtml(entry.name || entry.id || "抓取模板")}</strong>
+                  <span class="muted">${escapeHtml(meta)}</span>
+                  <span class="muted">${escapeHtml(entry.match || "-")}</span>
+                </div>
+                <div class="reader-actions toolbar-wrap">
+                  <button class="secondary" type="button" data-feed-adapter-edit="${escapeHtml(entry.id)}">编辑</button>
+                  <button class="secondary" type="button" data-feed-adapter-delete="${escapeHtml(entry.id)}">删除</button>
+                </div>
+              </article>
+            `
+          })
+          .join("")
+      : `<article class="list-row"><div class="list-main"><strong>暂无抓取模板</strong><span class="muted">保存模板后，新增订阅会按匹配规则自动套用。</span></div></article>`)
+
     safeHtml(els.adminUserList, (state.admin.users || [])
       .map((user) => {
         const securityState = getUserSecurityState(user.id)
@@ -820,16 +887,17 @@ export function createAdminDashboard({
       .slice(0, 20)
       .map(
         (feed) => `
-          <article class="list-row">
+          <article class="list-row admin-content-row">
             <div class="list-main">
               <strong>${escapeHtml(feed.title)}</strong>
               <span class="muted">${feed.subscriber_count} 订阅者 · ${feed.item_count} 篇内容 · 最近抓取 ${formatDate(feed.last_fetched_at)}</span>
-              <span class="muted">分类：${escapeHtml(feed.auto_category || "未分类")}</span>
-              <span class="muted">${escapeHtml(feed.url)}</span>
+              <span class="muted">${escapeHtml(feed.auto_category || "未分类")} · ${escapeHtml(feed.url)}</span>
               ${feed.last_error ? `<span class="muted">最近错误：${escapeHtml(feed.last_error)}</span>` : ""}
             </div>
-            <button class="secondary" type="button" data-feed-reclassify="${escapeHtml(feed.id)}">AI 分类</button>
-            ${safeUrl(feed.site_url) ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(feed.site_url))}" target="_blank" rel="noreferrer">站点</a>` : ""}
+            <div class="reader-actions toolbar-wrap">
+              <button class="secondary" type="button" data-feed-reclassify="${escapeHtml(feed.id)}">AI 分类</button>
+              ${safeUrl(feed.site_url) ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(feed.site_url))}" target="_blank" rel="noreferrer">站点</a>` : ""}
+            </div>
           </article>
         `
       )
@@ -839,13 +907,13 @@ export function createAdminDashboard({
       .slice(0, 20)
       .map(
         (item) => `
-          <article class="list-row">
+          <article class="list-row admin-content-row">
             <div class="list-main">
               <strong>${escapeHtml(item.title)}</strong>
               <span class="muted">${escapeHtml(item.feed_title)} · ${formatDate(item.published_at)}</span>
-              ${item.summary ? `<span class="muted">${escapeHtml(item.summary)}</span>` : ""}
+              ${item.summary ? `<span class="muted admin-content-summary">${escapeHtml(item.summary)}</span>` : ""}
             </div>
-            ${safeUrl(item.link) ? `<a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(item.link))}" target="_blank" rel="noreferrer">原文</a>` : ""}
+            ${safeUrl(item.link) ? `<div class="reader-actions toolbar-wrap"><a class="secondary nav-link-btn" href="${escapeHtml(safeUrl(item.link))}" target="_blank" rel="noreferrer">原文</a></div>` : ""}
           </article>
         `
       )
@@ -899,6 +967,15 @@ export function createAdminDashboard({
     })
     document.querySelectorAll("[data-feed-reclassify]").forEach((button) => {
       button.addEventListener("click", () => actions.reclassifyFeed(Number(button.dataset.feedReclassify)))
+    })
+    document.querySelectorAll("[data-feed-adapter-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const template = (state.feedAdapterTemplateDraft || []).find((entry) => entry.id === button.dataset.feedAdapterEdit)
+        if (template) actions.editFeedAdapterTemplate(template)
+      })
+    })
+    document.querySelectorAll("[data-feed-adapter-delete]").forEach((button) => {
+      button.addEventListener("click", () => actions.deleteFeedAdapterTemplate(button.dataset.feedAdapterDelete))
     })
     document.querySelectorAll("[data-redeem-save]").forEach((button) => {
       button.addEventListener("click", () => actions.saveRedeemCode(Number(button.dataset.redeemSave)))

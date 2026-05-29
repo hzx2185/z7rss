@@ -3,7 +3,8 @@ export function createFeedFetchSettings({ store, secret }) {
   const MAX_FEED_FETCH_TIMEOUT_MS = 120000;
   const feedFetchSecretKeys = new Set(["password", "cookie"]);
   const supportedFetchRequestProfiles = new Set(["auto", "browser", "bot"]);
-  const supportedFeedFetchFormats = new Set(["auto", "rss", "atom", "json"]);
+  const supportedFeedFetchFormats = new Set(["auto", "rss", "atom", "json", "html"]);
+  const supportedFetchRequestMethods = new Set(["GET", "POST"]);
 
   function getFeedFetchCategory(feedId) {
     return `${FEED_FETCH_CATEGORY_PREFIX}${Number(feedId || 0)}`;
@@ -17,6 +18,11 @@ export function createFeedFetchSettings({ store, secret }) {
   function normalizeFeedFetchFormat(value, fallback = "auto") {
     const candidate = String(value || "").trim().toLowerCase();
     return supportedFeedFetchFormats.has(candidate) ? candidate : fallback;
+  }
+
+  function normalizeFetchRequestMethod(value, fallback = "GET") {
+    const candidate = String(value || "").trim().toUpperCase();
+    return supportedFetchRequestMethods.has(candidate) ? candidate : fallback;
   }
 
   function normalizeFeedFetchTimeout(value, fallback = null) {
@@ -45,6 +51,8 @@ export function createFeedFetchSettings({ store, secret }) {
     return {
       request_profile: normalizeFetchRequestProfile(raw.request_profile, "auto"),
       feed_format: normalizeFeedFetchFormat(raw.feed_format, "auto"),
+      request_method: normalizeFetchRequestMethod(raw.request_method, "GET"),
+      request_body: normalizeFetchSettingText(raw.request_body),
       timeout_ms: normalizeFeedFetchTimeout(raw.timeout_ms, null),
       feed_url: normalizeFetchSettingText(raw.feed_url),
       login_url: normalizeFetchSettingText(raw.login_url),
@@ -57,6 +65,12 @@ export function createFeedFetchSettings({ store, secret }) {
       page_selector: normalizeFetchSettingText(raw.page_selector),
       html_start: normalizeFetchSettingText(raw.html_start),
       html_end: normalizeFetchSettingText(raw.html_end),
+      html_items_selector: normalizeFetchSettingText(raw.html_items_selector),
+      html_title_selector: normalizeFetchSettingText(raw.html_title_selector),
+      html_link_selector: normalizeFetchSettingText(raw.html_link_selector),
+      html_date_selector: normalizeFetchSettingText(raw.html_date_selector),
+      html_summary_selector: normalizeFetchSettingText(raw.html_summary_selector),
+      html_content_selector: normalizeFetchSettingText(raw.html_content_selector),
       json_items_path: normalizeFetchSettingText(raw.json_items_path),
       json_title_path: normalizeFetchSettingText(raw.json_title_path),
       json_link_path: normalizeFetchSettingText(raw.json_link_path),
@@ -71,6 +85,8 @@ export function createFeedFetchSettings({ store, secret }) {
     return Boolean(
         normalized.request_profile !== "auto" ||
         normalized.feed_format !== "auto" ||
+        normalized.request_method !== "GET" ||
+        normalized.request_body ||
         normalized.timeout_ms !== null ||
         normalized.feed_url ||
         normalized.login_url ||
@@ -81,6 +97,12 @@ export function createFeedFetchSettings({ store, secret }) {
         normalized.page_selector ||
         normalized.html_start ||
         normalized.html_end ||
+        normalized.html_items_selector ||
+        normalized.html_title_selector ||
+        normalized.html_link_selector ||
+        normalized.html_date_selector ||
+        normalized.html_summary_selector ||
+        normalized.html_content_selector ||
         normalized.json_items_path ||
         normalized.json_title_path ||
         normalized.json_link_path ||
@@ -136,12 +158,20 @@ export function createFeedFetchSettings({ store, secret }) {
     return normalizeFeedFetchSettings({
       request_profile: normalized.request_profile,
       feed_format: normalized.feed_format,
+      request_method: normalized.request_method,
+      request_body: normalized.request_body,
       timeout_ms: normalized.timeout_ms,
       feed_url: normalized.feed_url,
       article_selector: normalized.article_selector,
       page_selector: normalized.page_selector,
       html_start: normalized.html_start,
       html_end: normalized.html_end,
+      html_items_selector: normalized.html_items_selector,
+      html_title_selector: normalized.html_title_selector,
+      html_link_selector: normalized.html_link_selector,
+      html_date_selector: normalized.html_date_selector,
+      html_summary_selector: normalized.html_summary_selector,
+      html_content_selector: normalized.html_content_selector,
       json_items_path: normalized.json_items_path,
       json_title_path: normalized.json_title_path,
       json_link_path: normalized.json_link_path,
@@ -198,6 +228,8 @@ export function createFeedFetchSettings({ store, secret }) {
     return {
       requestProfile: normalized.request_profile,
       feedFormat: normalized.feed_format,
+      requestMethod: normalized.request_method,
+      requestBody: normalized.request_body,
       ...(normalized.timeout_ms ? { timeoutMs: normalized.timeout_ms } : {}),
       feedUrl: normalized.feed_url,
       loginUrl: normalized.login_url,
@@ -210,6 +242,12 @@ export function createFeedFetchSettings({ store, secret }) {
       pageSelector: normalized.page_selector,
       htmlStart: normalized.html_start,
       htmlEnd: normalized.html_end,
+      htmlItemsSelector: normalized.html_items_selector,
+      htmlTitleSelector: normalized.html_title_selector,
+      htmlLinkSelector: normalized.html_link_selector,
+      htmlDateSelector: normalized.html_date_selector,
+      htmlSummarySelector: normalized.html_summary_selector,
+      htmlContentSelector: normalized.html_content_selector,
       jsonItemsPath: normalized.json_items_path,
       jsonTitlePath: normalized.json_title_path,
       jsonLinkPath: normalized.json_link_path,
@@ -237,6 +275,8 @@ export function createFeedFetchSettings({ store, secret }) {
     const fields = [
       ["request_profile", ["fetchRequestProfile", "fetch_request_profile", "requestProfile"]],
       ["feed_format", ["fetchFeedFormat", "fetch_feed_format", "feedFormat"]],
+      ["request_method", ["fetchRequestMethod", "fetch_request_method", "requestMethod"]],
+      ["request_body", ["fetchRequestBody", "fetch_request_body", "requestBody"]],
       ["timeout_ms", ["fetchTimeoutMs", "fetch_timeout_ms", "timeoutMs"]],
       ["feed_url", ["fetchFeedUrl", "fetch_feed_url", "feedUrl"]],
       ["login_url", ["fetchLoginUrl", "fetch_login_url", "loginUrl"]],
@@ -249,6 +289,12 @@ export function createFeedFetchSettings({ store, secret }) {
       ["page_selector", ["fetchPageSelector", "fetch_page_selector", "pageSelector"]],
       ["html_start", ["fetchHtmlStart", "fetch_html_start", "htmlStart"]],
       ["html_end", ["fetchHtmlEnd", "fetch_html_end", "htmlEnd"]],
+      ["html_items_selector", ["fetchHtmlItemsSelector", "fetch_html_items_selector", "htmlItemsSelector"]],
+      ["html_title_selector", ["fetchHtmlTitleSelector", "fetch_html_title_selector", "htmlTitleSelector"]],
+      ["html_link_selector", ["fetchHtmlLinkSelector", "fetch_html_link_selector", "htmlLinkSelector"]],
+      ["html_date_selector", ["fetchHtmlDateSelector", "fetch_html_date_selector", "htmlDateSelector"]],
+      ["html_summary_selector", ["fetchHtmlSummarySelector", "fetch_html_summary_selector", "htmlSummarySelector"]],
+      ["html_content_selector", ["fetchHtmlContentSelector", "fetch_html_content_selector", "htmlContentSelector"]],
       ["json_items_path", ["fetchJsonItemsPath", "fetch_json_items_path", "jsonItemsPath"]],
       ["json_title_path", ["fetchJsonTitlePath", "fetch_json_title_path", "jsonTitlePath"]],
       ["json_link_path", ["fetchJsonLinkPath", "fetch_json_link_path", "jsonLinkPath"]],

@@ -204,6 +204,51 @@ export function createReaderFeedControls({
   function renderComposeState() {
     els.feedCompose.classList.toggle("hidden", !state.composeOpen)
     els.composeToggleBtn.classList.toggle("active", state.composeOpen)
+    if (els.feedRsshubBase) {
+      const current = els.feedRsshubBase.value
+      const hasFeature = Boolean(state.me?.account?.features?.specialRoutes)
+      const candidates = Array.isArray(state.specialRoutePreview?.candidates) ? state.specialRoutePreview.candidates : []
+      const showSpecialRoutes = hasFeature && (state.specialRoutePreviewLoading || candidates.length > 0 || Boolean(state.specialRoutePreviewError))
+      const options = []
+      if (state.specialRoutePreviewLoading) {
+        options.push(`<option value="auto">检查可用路由中</option>`)
+      } else if (candidates.length) {
+        options.push(`<option value="auto">自动选择可用路由</option>`)
+        options.push(`<option value="none">不使用特殊路由</option>`)
+        candidates.forEach((candidate) => {
+          const baseUrl = candidate.baseUrl || candidate.feedUrl || ""
+          const routeLabel = candidate.title || candidate.route || "RSSHub"
+          const baseLabel = baseUrl
+            ? (() => {
+                try {
+                  return new URL(baseUrl).host
+                } catch (_error) {
+                  return baseUrl
+                }
+              })()
+            : "RSSHub"
+          options.push(
+            `<option value="${escapeAttribute(baseUrl)}">${escapeHtml(routeLabel)} · ${escapeHtml(baseLabel)}</option>`
+          )
+        })
+      } else {
+        options.push(`<option value="auto">自动</option>`)
+      }
+      els.feedRsshubBase.innerHTML = options.join("")
+      if ([...els.feedRsshubBase.options].some((option) => option.value === current)) {
+        els.feedRsshubBase.value = current
+      }
+      els.feedRsshubBase.disabled = !hasFeature || state.specialRoutePreviewLoading || candidates.length === 0
+      els.feedRsshubWrap?.classList.toggle("hidden", !showSpecialRoutes)
+      if (els.feedRsshubWrap) {
+        const title = state.specialRoutePreviewError
+          ? `特殊路由检查失败：${state.specialRoutePreviewError}`
+          : candidates.length
+            ? "当前网址有可用 RSSHub 特殊路由"
+            : ""
+        if (els.feedRsshubWrap.title !== title) els.feedRsshubWrap.title = title
+      }
+    }
   }
 
   function resetImportComposer() {

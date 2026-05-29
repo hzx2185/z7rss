@@ -70,7 +70,7 @@
             <div class="help-faq-list">
               <div class="help-faq-item">
                 <h3 class="help-faq-q">如何添加订阅源？</h3>
-                <p class="help-faq-a">在阅读中心点击「添加订阅」，粘贴 RSS / Atom 链接即可。支持批量导入，也可以通过 OPML、JSON、TXT 文件批量导入订阅源。</p>
+                <p class="help-faq-a">在阅读中心点击「添加订阅」，粘贴 RSS / Atom / JSON Feed 或普通网页地址。系统会先自动发现页面里的订阅源；如果网页只有内嵌 JSON 数据，会尝试识别列表、标题、链接、日期、摘要和正文路径，并写入该订阅的高级抓取配置。支持批量导入，也可以通过 OPML、JSON、TXT 文件批量导入订阅源。</p>
               </div>
               <div class="help-faq-item">
                 <h3 class="help-faq-q">文章正文抓取失败怎么办？</h3>
@@ -87,6 +87,36 @@
               <div class="help-faq-item">
                 <h3 class="help-faq-q">如何公开分享订阅源？</h3>
                 <p class="help-faq-a">在阅读中心打开订阅源设置，将分享状态设为公开。公开后该订阅源会出现在订阅广场；私有订阅不会进入广场展示。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h2 class="help-section-title">网页订阅与特殊路由</h2>
+            <div class="help-faq-list">
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">普通网页也能订阅吗？</h3>
+                <p class="help-faq-a">可以先直接添加网页地址。Z7 RSS 会按顺序尝试 RSS/Atom/JSON 发现、后台抓取模板、网页内嵌 JSON 自动识别，以及符合套餐权益的特殊路由。能识别时会自动保存可微调的抓取配置；不能识别时会提示原因。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">什么是特殊路由？</h3>
+                <p class="help-faq-a">特殊路由是通过 RSSHub 等路由服务把不提供 RSS 的网站转换为订阅源。添加订阅时如果当前网址有可用路由，并且你的套餐支持，会在「特殊路由」下拉框中显示候选；可选自动、指定某个基址，或不使用特殊路由。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">前台高级抓取设置什么时候用？</h3>
+                <p class="help-faq-a">当系统已经创建了订阅源，但标题、链接、摘要或正文不准确时，打开订阅源设置里的高级抓取。可以调整请求模式、备用 Feed 地址、请求方法、Cookie、HTML 选择器、JSON 路径、正文范围和登录表单。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">后台抓取模板有什么用？</h3>
+                <p class="help-faq-a">管理员可以在后台内容管理里维护抓取模板。模板按输入网址的正则自动匹配，适合一个站点或一类页面反复使用。添加和编辑都在弹窗中完成，列表页只展示模板名称、启用状态、格式、请求方式和匹配规则。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">AI 生成抓取模板怎么用？</h3>
+                <p class="help-faq-a">后台配置可用 AI 后，在抓取模板弹窗里输入待分析的网址，点击「AI 生成草稿」。系统会抓取网页样本并让 AI 生成 HTML 或 JSON 规则；生成后请先测试模板，确认首条标题、链接和正文正确再保存。</p>
+              </div>
+              <div class="help-faq-item">
+                <h3 class="help-faq-q">需要 Cookie 的网站怎么处理？</h3>
+                <p class="help-faq-a">单个订阅源可以在高级抓取中填写 Cookie。后台抓取模板也支持共享 Cookie，适合管理员统一维护登录态；共享 Cookie 只在服务端加密保存，不会在前台回显给普通用户。</p>
               </div>
             </div>
           </div>

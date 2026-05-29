@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/shared/top-navigation.css" />
 
-    <link rel="modulepreload" href="/reader.js?v=33" />
+    <link rel="modulepreload" href="/reader.js?v=38" />
   </head>
   <body class="reader-page">
     <div class="site-shell">
@@ -180,13 +180,21 @@
 
               <section id="reader-feed-compose" class="reader-compose hidden">
                 <form id="reader-feed-form" class="stack compact-form">
-                  <input id="reader-feed-url" type="url" autocomplete="url" placeholder="https://..." required />
-                  <div class="reader-compose-option-row">
+                  <div class="reader-compose-url-row">
+                    <input id="reader-feed-url" type="url" autocomplete="url" placeholder="https://..." required />
+                  </div>
+                  <div class="reader-compose-option-row reader-compose-meta-row">
                     <label class="reader-compose-option">
                       <input id="reader-feed-public" type="checkbox" checked />
                       <span>公开分享</span>
                     </label>
                     <button type="submit">添加</button>
+                    <label id="reader-feed-rsshub-wrap" class="reader-compose-option reader-special-route-option hidden">
+                      <span>特殊路由</span>
+                      <select id="reader-feed-rsshub-base">
+                        <option value="auto">自动</option>
+                      </select>
+                    </label>
                   </div>
                 </form>
                 <form id="reader-feed-import-form" class="stack compact-form reader-import-form">
@@ -274,7 +282,7 @@
             <div class="reader-list-shell">
               <div id="reader-list-head" class="reader-list-head">
                 <span class="reader-list-col" title="状态">读</span>
-                <span class="reader-list-col" title="网站">站</span>
+                <span class="reader-list-col" title="来源">源</span>
                 <span class="reader-list-col">标题</span>
                 <span class="reader-list-col" title="日期">日</span>
               </div>
@@ -476,9 +484,20 @@
                     <option value="rss">RSS / XML</option>
                     <option value="atom">Atom</option>
                     <option value="json">JSON</option>
+                    <option value="html">HTML</option>
                   </select>
                 </label>
 
+                <label>
+                  <span>请求方法</span>
+                  <select id="reader-feed-settings-fetch-method">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="reader-feed-settings-switches">
                 <label>
                   <span>超时毫秒</span>
                   <input id="reader-feed-settings-fetch-timeout" type="number" min="1000" max="120000" step="1000" placeholder="留空跟随默认" />
@@ -488,6 +507,11 @@
               <label>
                 <span>备用 Feed 地址</span>
                 <input id="reader-feed-settings-fetch-feed-url" type="text" autocomplete="url" placeholder="https://rsshub.example.com/route" />
+              </label>
+
+              <label>
+                <span>请求体 JSON</span>
+                <textarea id="reader-feed-settings-fetch-request-body" rows="4" autocomplete="off" placeholder="{&quot;cursor&quot;:&quot;0&quot;,&quot;limit&quot;:20}"></textarea>
               </label>
 
               <label>
@@ -550,6 +574,42 @@
 
               <div class="reader-feed-settings-switches">
                 <label>
+                  <span>HTML 列表</span>
+                  <input id="reader-feed-settings-fetch-html-items-selector" type="text" autocomplete="off" placeholder=".HotItem" />
+                </label>
+
+                <label>
+                  <span>HTML 标题</span>
+                  <input id="reader-feed-settings-fetch-html-title-selector" type="text" autocomplete="off" placeholder=".HotItem-title" />
+                </label>
+              </div>
+
+              <div class="reader-feed-settings-switches">
+                <label>
+                  <span>HTML 链接</span>
+                  <input id="reader-feed-settings-fetch-html-link-selector" type="text" autocomplete="off" placeholder="a.HotItem-img, a[href]" />
+                </label>
+
+                <label>
+                  <span>HTML 日期</span>
+                  <input id="reader-feed-settings-fetch-html-date-selector" type="text" autocomplete="off" placeholder="time" />
+                </label>
+              </div>
+
+              <div class="reader-feed-settings-switches">
+                <label>
+                  <span>HTML 摘要</span>
+                  <input id="reader-feed-settings-fetch-html-summary-selector" type="text" autocomplete="off" placeholder=".HotItem-excerpt" />
+                </label>
+
+                <label>
+                  <span>HTML 正文</span>
+                  <input id="reader-feed-settings-fetch-html-content-selector" type="text" autocomplete="off" placeholder=".RichText.ztext" />
+                </label>
+              </div>
+
+              <div class="reader-feed-settings-switches">
+                <label>
                   <span>JSON 列表</span>
                   <input id="reader-feed-settings-fetch-json-items-path" type="text" autocomplete="off" placeholder="data.items" />
                 </label>
@@ -597,6 +657,6 @@
     </div>
 
     <script type="module" src="/theme.js"></script>
-    <script type="module" src="/reader.js?v=33"></script>
+    <script type="module" src="/reader.js?v=38"></script>
   </body>
 </html>

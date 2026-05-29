@@ -1,4 +1,5 @@
 import express from "express";
+import { normalizeRssHubBaseUrls, parseRssHubBaseUrlList } from "../services/feed-discovery.js";
 
 function getGeneralSettings(store) {
   return (store?.listSettings?.() || [])
@@ -12,6 +13,15 @@ function getGeneralSettings(store) {
 function getTranslationProviderSettings(store, category) {
   return (store?.listSettings?.() || [])
     .filter((entry) => entry.category === category)
+    .reduce((acc, row) => {
+      acc[row.key] = String(row.value || "").trim();
+      return acc;
+    }, {});
+}
+
+function getRssHubSettings(store) {
+  return (store?.listSettings?.() || [])
+    .filter((entry) => entry.category === "rsshub")
     .reduce((acc, row) => {
       acc[row.key] = String(row.value || "").trim();
       return acc;
@@ -69,6 +79,13 @@ export function createSystemRouter({ config, billingService, store, feedService 
     const general = getGeneralSettings(store);
     const siteUrl = normalizePublicSiteUrl(general.site_domain, config.appUrl);
     const deeplxSettings = getTranslationProviderSettings(store, "translation_deeplx");
+    const rsshubSettings = getRssHubSettings(store);
+    const configuredRssHubRaw = rsshubSettings.base_urls || "";
+    const rssHubBaseUrls = /^none$/i.test(configuredRssHubRaw)
+      ? []
+      : configuredRssHubRaw
+        ? normalizeRssHubBaseUrls(parseRssHubBaseUrlList(configuredRssHubRaw))
+        : normalizeRssHubBaseUrls(config.rssHubBaseUrls || []);
     res.json({
       appName: config.appName,
       appUrl: config.appUrl,
@@ -81,6 +98,7 @@ export function createSystemRouter({ config, billingService, store, feedService 
       refreshIntervalMinutes: config.refreshMinutes,
       billingProvider: config.billingProvider,
       stripeEnabled: Boolean(config.stripeSecretKey),
+      rssHubBaseUrls,
       plans: billingService.listPlans()
     });
   });

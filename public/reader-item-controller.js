@@ -162,13 +162,11 @@ export function createReaderItemController(deps) {
     const container = els.itemList
     if (!anchor || !container) return false
     if (anchor.top === null || anchor.itemId <= 0) {
-      setScrollTop(anchor.scrollParent, anchor.scrollTop)
       return false
     }
 
     const nextRow = container.querySelector(`[data-item-row="${anchor.itemId}"]`)
     if (!nextRow) {
-      setScrollTop(anchor.scrollParent, anchor.scrollTop)
       return false
     }
 
@@ -184,12 +182,13 @@ export function createReaderItemController(deps) {
   function preserveInlineItemPosition(_itemId, render) {
     const inlineMode = shouldInlineDetail()
     const container = els.itemList
-    if (!inlineMode || !container) {
+    const normalizedItemId = Number(_itemId || 0)
+    if (!inlineMode || !container || normalizedItemId <= 0) {
       render()
       return
     }
 
-    const anchor = captureInlineAnchor(_itemId)
+    const anchor = captureInlineAnchor(normalizedItemId)
     render()
     restoreInlineAnchor(anchor)
 
@@ -446,7 +445,7 @@ export function createReaderItemController(deps) {
       const selectedId = state.selectedItem?.id || 0
       const preserveSelection = Boolean(options.preserveSelection && selectedId)
       const readingScrollSnapshot = preserveSelection ? captureReadingPaneScroll(selectedId) : null
-      preserveInlineItemPosition(selectedId, () => {
+      const runRender = () => {
         if (append) {
           const seen = new Set(state.items.map((item) => Number(item.id)))
           state.items = state.items.concat(patchedNextItems.filter((item) => !seen.has(Number(item.id))))
@@ -471,7 +470,13 @@ export function createReaderItemController(deps) {
         renderItems()
         renderArticle()
         restoreReadingPaneScroll(readingScrollSnapshot)
-      })
+      }
+
+      if (selectedId > 0 && !append) {
+        preserveInlineItemPosition(selectedId, runRender)
+      } else {
+        runRender()
+      }
     } catch (error) {
       if (error?.name === "AbortError") return
       if (requestToken === itemsRequestToken) {

@@ -49,6 +49,28 @@
         <div class="changelog-timeline">
           <article class="changelog-entry">
             <div class="changelog-meta">
+              <span class="changelog-date">2026-05-29</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-new">新增</span>
+                <span class="changelog-tag changelog-tag-improve">优化</span>
+                <span class="changelog-tag changelog-tag-fix">修复</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">网页自动订阅、抓取模板和内置特殊路由</h2>
+            <p class="changelog-entry-body">增强普通网页添加能力，支持自动发现 RSS/Atom/JSON、识别网页内嵌 JSON、套用后台抓取模板，并在套餐允许时尝试 RSSHub 特殊路由。后台内容页同步重新排版，抓取模板改为列表展示，添加和编辑统一进入弹窗。</p>
+            <ul class="changelog-changes">
+              <li>添加网页地址时会保存匹配到的 HTML / JSON 抓取规则，订阅源设置中可继续微调</li>
+              <li>后台新增可编辑抓取模板列表，支持 HTML 选择器、JSON 路径、POST 请求体、共享 Cookie 和测试</li>
+              <li>后台支持 AI 生成抓取模板草稿，并为掘金、知乎热榜等常见页面补充本地兜底规则</li>
+              <li>Compose 开发环境内置 RSSHub 和 Redis，支持后台配置多个特殊路由基址和检查规则版本</li>
+              <li>会员套餐增加特殊路由权益，前台添加订阅时会显示可用 RSSHub 候选</li>
+              <li>修复直接 RSS 地址去重过宽的问题，同一站点不同 RSS 地址可分别添加</li>
+              <li>优化后台内容管理、版本检查和前台添加订阅布局，修复长 URL、正则和摘要导致的横向溢出</li>
+            </ul>
+          </article>
+
+          <article class="changelog-entry">
+            <div class="changelog-meta">
               <span class="changelog-date">2026-05-01</span>
               <div class="changelog-tags">
                 <span class="changelog-tag changelog-tag-improve">优化</span>

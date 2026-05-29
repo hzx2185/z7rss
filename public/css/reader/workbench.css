@@ -44,6 +44,15 @@
   gap: 8px;
 }
 
+.reader-compose-url-row {
+  display: block;
+}
+
+.reader-compose-url-row input {
+  width: 100%;
+  min-width: 0;
+}
+
 .reader-compose-option {
   display: flex;
   flex-direction: row;
@@ -70,20 +79,31 @@
 .reader-compose-option-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 
 .reader-compose-option-row .reader-compose-option {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
 }
 
 .reader-compose-option-row button {
-  flex: 1 1 auto;
-  min-width: 60px;
+  flex: 0 0 auto;
+  min-width: 64px;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 12px;
   white-space: nowrap;
+}
+
+.reader-special-route-option {
+  max-width: 100%;
+}
+
+.reader-special-route-option select {
+  max-width: min(100%, 220px);
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 
 .reader-feed-panel > input[type="search"],

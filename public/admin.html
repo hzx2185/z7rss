@@ -13,8 +13,8 @@
     <link rel="stylesheet" href="/css/shared/data-surfaces.css" />
     <link rel="stylesheet" href="/css/admin/security-panel.css" />
     <link rel="stylesheet" href="/css/shared/compact-ui.css" />
-    <link rel="stylesheet" href="/css/admin/page.css?v=3" />
-    <link rel="stylesheet" href="/css/pages/admin.css?v=3" />
+    <link rel="stylesheet" href="/css/admin/page.css?v=4" />
+    <link rel="stylesheet" href="/css/pages/admin.css?v=4" />
     <link rel="stylesheet" href="/css/themes/dark-overrides.css" />
     <link rel="stylesheet" href="/css/admin/shell.css?v=3" />
     <link rel="stylesheet" href="/css/admin/shell-extended.css" />
@@ -105,6 +105,10 @@
                         <div id="admin-profile-version-info" class="admin-profile-version-grid" aria-label="版本信息"></div>
                         <button id="admin-docker-update-btn" class="secondary" type="button">检查更新</button>
                       </div>
+                      <div class="admin-profile-version-row">
+                        <div id="admin-rsshub-version-info" class="admin-profile-version-grid" aria-label="RSSHub 信息"></div>
+                        <button id="admin-rsshub-check-btn" class="secondary" type="button">检查 RSSHub</button>
+                      </div>
                     </div>
                     <span class="pill accent">后台</span>
                   </div>
@@ -152,6 +156,11 @@
                       <label class="field-label admin-span-2">
                         <span>站点域名</span>
                         <input id="setting-site-domain" type="text" autocomplete="url" placeholder="rss.example.com 或 https://rss.example.com" />
+                      </label>
+                      <label class="field-label admin-span-2">
+                        <span>特殊路由基址</span>
+                        <input id="setting-rsshub-base-urls" type="text" autocomplete="url" placeholder="http://rsshub:1200 或 https://rsshub.example.com" />
+                        <span class="field-hint">多个地址用逗号分隔；填 none 可禁用特殊路由候选。端口开放由 Compose/.env 控制。</span>
                       </label>
                       <label class="field-label">
                         <span>邮件发件人</span>
@@ -599,6 +608,7 @@
                 <div class="card-head">
                   <h3>内容过滤</h3>
                 </div>
+                <p class="status-text">内容过滤只会丢弃已抓到的文章，不会改变抓取方式。规则类型选择 title、summary 或 link，匹配内容填要屏蔽的关键词或域名片段。</p>
                 <form id="rule-form" class="stack">
                   <div class="admin-form-grid">
                     <label class="field-label">
@@ -663,27 +673,182 @@
             <section id="tab-content" class="admin-section hidden">
               <div class="admin-section-head">
                 <h2>内容管理</h2>
+                <button id="feed-adapter-template-open-btn" type="button">添加抓取模板</button>
               </div>
 
-              <div class="card">
-                <div class="card-head">
-                  <h3>内容管理</h3>
-                </div>
-                <div class="admin-split-stack">
-                  <section class="admin-mini-panel">
-                    <strong>订阅源</strong>
-                    <div id="admin-feed-list" class="compact-list"></div>
-                  </section>
-                  <section class="admin-mini-panel">
-                    <strong>文章</strong>
-                    <div id="admin-item-list" class="compact-list"></div>
-                  </section>
-                </div>
+              <div class="admin-content-layout">
+                <section class="card admin-content-card admin-content-card-templates">
+                  <div class="card-head">
+                    <div>
+                      <h3>抓取模板</h3>
+                      <p class="admin-card-subtitle">按匹配规则把普通网页、JSON 接口或特殊页面转成可订阅内容。</p>
+                    </div>
+                  </div>
+                  <div id="feed-adapter-template-list" class="compact-list"></div>
+                </section>
+
+                <section class="card admin-content-card">
+                  <div class="card-head">
+                    <div>
+                      <h3>订阅源</h3>
+                      <p class="admin-card-subtitle">查看订阅源状态，必要时重新分类。</p>
+                    </div>
+                  </div>
+                  <div id="admin-feed-list" class="compact-list"></div>
+                </section>
+
+                <section class="card admin-content-card">
+                  <div class="card-head">
+                    <div>
+                      <h3>抓取记录</h3>
+                      <p class="admin-card-subtitle">最近入库内容和抓取结果。</p>
+                    </div>
+                  </div>
+                  <div id="admin-item-list" class="compact-list"></div>
+                </section>
               </div>
             </section>
           </div>
         </div>
       </main>
+    </div>
+
+    <div id="feed-adapter-template-modal" class="admin-modal hidden" aria-hidden="true">
+      <button id="feed-adapter-template-backdrop" class="admin-modal-backdrop" type="button" aria-label="关闭抓取模板"></button>
+      <section class="admin-modal-card admin-feed-adapter-modal-card" role="dialog" aria-modal="true" aria-labelledby="feed-adapter-template-modal-title">
+        <div class="admin-modal-head">
+          <div class="admin-modal-copy">
+            <h2 id="feed-adapter-template-modal-title">抓取模板</h2>
+          </div>
+          <button id="feed-adapter-template-close-btn" class="secondary icon-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <div id="feed-adapter-template-modal-body" class="admin-feed-adapter-modal-body">
+          <div class="admin-help-box">
+            <strong>填写规则</strong>
+            <p>匹配规则是输入网址的正则；抓取地址模板通常填 <code>{rawUrl}</code>，也可填固定 API 地址或 <code>builtin://...</code>；格式选 HTML 时填写 CSS 选择器，选 JSON 时填写路径。</p>
+            <p>HTML：列表是每条文章的容器，标题/链接/摘要/正文都相对列表项查找。JSON：列表路径指数组位置，标题/链接等路径相对每个数组元素。共享 Cookie 只在服务端保存，适合需要登录态的网站。</p>
+          </div>
+          <div class="admin-ai-template-row">
+            <label class="field-label">
+              <span>AI 分析网址</span>
+              <input id="feed-adapter-template-ai-url" type="url" autocomplete="off" placeholder="https://example.com/news" />
+            </label>
+            <button id="feed-adapter-template-ai-btn" class="secondary" type="button">AI 生成草稿</button>
+          </div>
+          <p id="feed-adapter-template-ai-status" class="status-text hidden"></p>
+          <form id="feed-adapter-template-form" class="stack compact-form">
+            <div class="admin-form-grid admin-form-grid-2">
+              <label class="field-label">
+                <span>名称</span>
+                <input id="feed-adapter-template-name" type="text" autocomplete="off" placeholder="知乎热榜 JSON" />
+              </label>
+              <label class="field-label">
+                <span>匹配规则</span>
+                <input id="feed-adapter-template-match" type="text" autocomplete="off" placeholder="^https://www\\.zhihu\\.com/hot/?$" />
+              </label>
+              <label class="field-label">
+                <span>格式</span>
+                <select id="feed-adapter-template-feed-format">
+                  <option value="html">HTML</option>
+                  <option value="json">JSON</option>
+                  <option value="auto">自动</option>
+                  <option value="rss">RSS</option>
+                  <option value="atom">Atom</option>
+                </select>
+              </label>
+              <label class="field-label">
+                <span>请求模式</span>
+                <select id="feed-adapter-template-request-profile">
+                  <option value="browser">浏览器</option>
+                  <option value="auto">自动</option>
+                  <option value="bot">普通请求</option>
+                </select>
+              </label>
+              <label class="field-label">
+                <span>请求方法</span>
+                <select id="feed-adapter-template-request-method">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                </select>
+              </label>
+              <label class="field-label admin-span-2">
+                <span>抓取地址模板</span>
+                <input id="feed-adapter-template-feed-url" type="text" autocomplete="off" placeholder="{rawUrl} 或 https://example.com/api/list" />
+              </label>
+              <label class="field-label admin-span-2">
+                <span>请求体 JSON</span>
+                <textarea id="feed-adapter-template-request-body" rows="4" autocomplete="off" placeholder="{&quot;cursor&quot;:&quot;0&quot;,&quot;limit&quot;:20}"></textarea>
+              </label>
+              <label class="field-label admin-span-2">
+                <span>测试输入地址</span>
+                <input id="feed-adapter-template-input-url" type="url" autocomplete="off" placeholder="https://www.zhihu.com/hot" />
+              </label>
+              <label class="field-label admin-span-2">
+                <span>共享 Cookie</span>
+                <textarea id="feed-adapter-template-cookie" rows="3" autocomplete="off" placeholder="name=value; session=..."></textarea>
+              </label>
+              <label class="checkbox-row admin-span-2">
+                <input id="feed-adapter-template-enabled" type="checkbox" checked />
+                <span>启用此模板</span>
+              </label>
+              <label class="field-label">
+                <span>HTML 列表</span>
+                <input id="feed-adapter-template-html-items" type="text" autocomplete="off" placeholder=".HotItem" />
+              </label>
+              <label class="field-label">
+                <span>HTML 标题</span>
+                <input id="feed-adapter-template-html-title" type="text" autocomplete="off" placeholder=".HotItem-title" />
+              </label>
+              <label class="field-label">
+                <span>HTML 链接</span>
+                <input id="feed-adapter-template-html-link" type="text" autocomplete="off" placeholder="a.HotItem-img" />
+              </label>
+              <label class="field-label">
+                <span>HTML 日期</span>
+                <input id="feed-adapter-template-html-date" type="text" autocomplete="off" placeholder="time" />
+              </label>
+              <label class="field-label">
+                <span>HTML 摘要</span>
+                <input id="feed-adapter-template-html-summary" type="text" autocomplete="off" placeholder=".HotItem-excerpt" />
+              </label>
+              <label class="field-label">
+                <span>HTML 正文</span>
+                <input id="feed-adapter-template-html-content" type="text" autocomplete="off" placeholder=".RichText.ztext" />
+              </label>
+              <label class="field-label">
+                <span>JSON 列表</span>
+                <input id="feed-adapter-template-json-items" type="text" autocomplete="off" placeholder="data.items" />
+              </label>
+              <label class="field-label">
+                <span>JSON 标题</span>
+                <input id="feed-adapter-template-json-title" type="text" autocomplete="off" placeholder="title" />
+              </label>
+              <label class="field-label">
+                <span>JSON 链接</span>
+                <input id="feed-adapter-template-json-link" type="text" autocomplete="off" placeholder="url" />
+              </label>
+              <label class="field-label">
+                <span>JSON 日期</span>
+                <input id="feed-adapter-template-json-date" type="text" autocomplete="off" placeholder="created_at" />
+              </label>
+              <label class="field-label">
+                <span>JSON 摘要</span>
+                <input id="feed-adapter-template-json-summary" type="text" autocomplete="off" placeholder="excerpt" />
+              </label>
+              <label class="field-label">
+                <span>JSON 正文</span>
+                <input id="feed-adapter-template-json-content" type="text" autocomplete="off" placeholder="content" />
+              </label>
+            </div>
+            <div class="admin-line-actions">
+              <button id="feed-adapter-template-add-btn" type="button">保存模板</button>
+              <button id="feed-adapter-template-test-btn" class="secondary" type="button">测试模板</button>
+              <button id="feed-adapter-template-reset-btn" class="secondary" type="button">清空</button>
+            </div>
+            <p id="feed-adapter-template-test-status" class="status-text hidden"></p>
+          </form>
+        </div>
+      </section>
     </div>
 
     <div id="admin-translation-pool-modal" class="admin-modal hidden" aria-hidden="true">
@@ -811,6 +976,6 @@
 
     <script type="module" src="/theme.js?v=2"></script>
     <script type="module" src="/shared-settings.js?v=2"></script>
-    <script type="module" src="/admin.js?v=6"></script>
+    <script type="module" src="/admin.js?v=12"></script>
   </body>
 </html>

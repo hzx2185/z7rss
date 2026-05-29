@@ -44,6 +44,19 @@ test("createConfig accepts release metadata overrides", () => {
   assert.equal(config.dockerImageTag, "v9.9.9");
 });
 
+test("createConfig parses RSSHub base URLs", () => {
+  const config = createConfig({
+    RSSHUB_BASE_URLS: "https://rsshub.example.com, https://worker.example.com/rsshub/ invalid ftp://bad.example.com"
+  });
+
+  assert.deepEqual(config.rssHubBaseUrls, ["https://rsshub.example.com", "https://worker.example.com/rsshub"]);
+});
+
+test("createConfig enables a default public RSSHub and allows disabling it", () => {
+  assert.deepEqual(createConfig({}).rssHubBaseUrls, ["https://rsshub.app"]);
+  assert.deepEqual(createConfig({ RSSHUB_BASE_URLS: "none" }).rssHubBaseUrls, []);
+});
+
 test("createConfig creates and reuses APP_SECRET_FILE in production", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "z7rss-secret-"));
   const secretFile = path.join(dir, "app-secret");

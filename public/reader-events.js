@@ -15,6 +15,55 @@ export function registerReaderEvents(deps) {
     element?.addEventListener(eventName, handler, options)
   }
 
+  function normalizeInputUrl(value = "") {
+    const raw = String(value || "").trim()
+    if (!raw) return ""
+    try {
+      return new URL(raw).toString()
+    } catch (_error) {
+      return ""
+    }
+  }
+
+  let specialRouteTimer = null
+  let specialRouteRequestId = 0
+  async function updateSpecialRoutePreview() {
+    window.clearTimeout(specialRouteTimer)
+    const url = normalizeInputUrl(els.feedUrl?.value || "")
+    if (!url || !state.me?.account?.features?.specialRoutes) {
+      specialRouteRequestId += 1
+      state.specialRoutePreview = null
+      state.specialRoutePreviewUrl = ""
+      state.specialRoutePreviewLoading = false
+      state.specialRoutePreviewError = ""
+      renderers.renderComposeState()
+      return
+    }
+
+    const requestId = ++specialRouteRequestId
+    specialRouteTimer = window.setTimeout(async () => {
+      state.specialRoutePreviewLoading = true
+      state.specialRoutePreviewError = ""
+      state.specialRoutePreviewUrl = url
+      renderers.renderComposeState()
+      try {
+        const result = await actions.getSpecialRoutes(url, true)
+        if (requestId !== specialRouteRequestId || normalizeInputUrl(els.feedUrl?.value || "") !== url) return
+        state.specialRoutePreview = result
+        state.specialRoutePreviewError = ""
+      } catch (error) {
+        if (requestId !== specialRouteRequestId || normalizeInputUrl(els.feedUrl?.value || "") !== url) return
+        state.specialRoutePreview = null
+        state.specialRoutePreviewError = error.message || "检查失败"
+      } finally {
+        if (requestId === specialRouteRequestId && normalizeInputUrl(els.feedUrl?.value || "") === url) {
+          state.specialRoutePreviewLoading = false
+          renderers.renderComposeState()
+        }
+      }
+    }, 300)
+  }
+
   function handleBodyToggleClick(event, container) {
     if (!(event.target instanceof Element)) return false
     const bodyToggleButton = event.target.closest("[data-item-body-toggle]")
@@ -49,6 +98,8 @@ export function registerReaderEvents(deps) {
       actions.setStatus(error.message, "error")
     }
   })
+  on(els.feedUrl, "input", updateSpecialRoutePreview)
+  on(els.feedUrl, "change", updateSpecialRoutePreview)
 
   on(els.importForm, "submit", async (event) => {
     event.preventDefault()

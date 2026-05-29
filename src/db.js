@@ -25,6 +25,7 @@ function seedPlans(db, options = {}) {
       aiTranslationEnabled: 0,
       aiSummaryEnabled: 0,
       customAiEnabled: 0,
+      specialRoutesEnabled: 0,
       aiDigestEnabled: 0,
       emailDigestEnabled: 0,
       maxDigestRules: 0,
@@ -41,6 +42,7 @@ function seedPlans(db, options = {}) {
       aiTranslationEnabled: 1,
       aiSummaryEnabled: 1,
       customAiEnabled: 1,
+      specialRoutesEnabled: 1,
       aiDigestEnabled: 1,
       emailDigestEnabled: 1,
       maxDigestRules: 3,
@@ -57,6 +59,7 @@ function seedPlans(db, options = {}) {
       aiTranslationEnabled: 1,
       aiSummaryEnabled: 1,
       customAiEnabled: 1,
+      specialRoutesEnabled: 1,
       aiDigestEnabled: 1,
       emailDigestEnabled: 1,
       maxDigestRules: 20,
@@ -67,11 +70,11 @@ function seedPlans(db, options = {}) {
   const stmt = db.prepare(`
     INSERT INTO plans (
       code, name, description, price_monthly_cents, max_feeds, max_saved_items, max_favorite_items,
-      ai_translation_enabled, ai_summary_enabled, custom_ai_enabled, ai_digest_enabled,
+      ai_translation_enabled, ai_summary_enabled, custom_ai_enabled, special_routes_enabled, ai_digest_enabled,
       email_digest_enabled, max_digest_rules, stripe_price_id
     ) VALUES (
       @code, @name, @description, @priceMonthlyCents, @maxFeeds, @maxSavedItems, @maxFavoriteItems,
-      @aiTranslationEnabled, @aiSummaryEnabled, @customAiEnabled, @aiDigestEnabled,
+      @aiTranslationEnabled, @aiSummaryEnabled, @customAiEnabled, @specialRoutesEnabled, @aiDigestEnabled,
       @emailDigestEnabled, @maxDigestRules, @stripePriceId
     )
     ON CONFLICT(code) DO UPDATE SET
@@ -133,6 +136,7 @@ function migrate(db, options = {}) {
       ai_translation_enabled INTEGER NOT NULL DEFAULT 0,
       ai_summary_enabled INTEGER NOT NULL DEFAULT 0,
       custom_ai_enabled INTEGER NOT NULL DEFAULT 0,
+      special_routes_enabled INTEGER NOT NULL DEFAULT 0,
       ai_digest_enabled INTEGER NOT NULL DEFAULT 0,
       email_digest_enabled INTEGER NOT NULL DEFAULT 0,
       max_digest_rules INTEGER NOT NULL DEFAULT 0,
@@ -497,6 +501,10 @@ function migrate(db, options = {}) {
         ELSE 0
       END
     `);
+  }
+  if (!hasColumn(db, "plans", "special_routes_enabled")) {
+    db.exec(`ALTER TABLE plans ADD COLUMN special_routes_enabled INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`UPDATE plans SET special_routes_enabled = CASE WHEN code IN ('pro', 'team') THEN 1 ELSE 0 END`);
   }
   if (!hasColumn(db, "plans", "ai_digest_enabled")) {
     db.exec(`ALTER TABLE plans ADD COLUMN ai_digest_enabled INTEGER NOT NULL DEFAULT 0`);

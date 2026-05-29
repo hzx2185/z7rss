@@ -105,6 +105,7 @@ export function createRuntime(env = process.env) {
     config,
     secretBox,
     feedService,
+    ai,
     refreshService,
     maintenanceService
   });

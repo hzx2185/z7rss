@@ -39,6 +39,11 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
     res.json(await adminService.checkDockerImageUpdate());
   }));
 
+  router.post("/system/rsshub-check", route(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await adminService.checkRssHubStatus(getAuditContext(req)));
+  }));
+
   router.post("/secrets/:pool/:id/reveal", route((req, res) => {
     const pool = parseTrimmedString(req.params.pool, "API 类型", { required: true, maxLength: 32 });
     const id = parseTrimmedString(req.params.id, "API ID", { required: true, maxLength: 100 });
@@ -218,6 +223,12 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
       }, getAuditContext(req)));
       return;
     }
+    if (category === "rsshub") {
+      res.json(adminService.setSettings(category, {
+        base_urls: parseTrimmedString(body.base_urls ?? body.baseUrls, "特殊路由基址", { maxLength: 2000 })
+      }, getAuditContext(req)));
+      return;
+    }
     if (category === "database_backup") {
       res.json(adminService.setSettings(category, {
         enabled: parseTrimmedString(body.enabled, "自动备份开关", { maxLength: 8 }),
@@ -290,8 +301,27 @@ export function createAdminRouter({ adminService, aiConfigService, config }) {
       }, getAuditContext(req)));
       return;
     }
+    if (category === "feed_adapter_templates") {
+      const templates = Array.isArray(body.templates) ? body.templates : [];
+      res.json(adminService.setFeedAdapterTemplates(templates, getAuditContext(req)));
+      return;
+    }
 
     res.json(adminService.setSettings(category, body, getAuditContext(req)));
+  }));
+
+  router.post("/feed-adapter-templates/test", route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    res.json(await adminService.testFeedAdapterTemplate(body.template || body, body.inputUrl || body.input_url || ""));
+  }));
+
+  router.post("/feed-adapter-templates/suggest", aiLimiter, route(async (req, res) => {
+    const body = expectObject(req.body || {});
+    res.json(await adminService.suggestFeedAdapterTemplate({
+      url: parseTrimmedString(body.url || body.inputUrl || body.input_url, "网址", { required: true, maxLength: 2000 }),
+      template: body.template && typeof body.template === "object" ? body.template : {},
+      cookie: parseTrimmedString(body.cookie, "Cookie", { maxLength: 20000 })
+    }, getAuditContext(req)));
   }));
 
   router.post("/redeem-codes", route(async (req, res) => {

@@ -173,6 +173,8 @@ export function createStore(db) {
     upsertItemStmt,
     updateItemByIdFromFeedEntryStmt,
     updateItemContentStmt,
+    listFeedItemsForContentCleanupStmt,
+    clearItemSummaryAndContentStmt,
     updateItemPageContentStmt,
     updateTranslationStmt,
     updateSummaryStmt,
@@ -518,6 +520,7 @@ export function createStore(db) {
         aiTranslationEnabled: settings?.aiTranslationEnabled ?? null,
         aiSummaryEnabled: settings?.aiSummaryEnabled ?? null,
         customAiEnabled: settings?.customAiEnabled ?? null,
+        specialRoutesEnabled: settings?.specialRoutesEnabled ?? null,
         aiDigestEnabled: settings?.aiDigestEnabled ?? null,
         emailDigestEnabled: settings?.emailDigestEnabled ?? null,
         maxDigestRules: settings?.maxDigestRules ?? null
@@ -1176,6 +1179,32 @@ export function createStore(db) {
     },
     updateItemContent(id, contentHtml, contentText, originalUrl = null, originalTitle = null) {
       updateItemContentStmt.run({ id, contentHtml, contentText, originalUrl, originalTitle });
+    },
+    clearMetricOnlyContentForFeed(feedId) {
+      const metricOnlyPattern = /^[0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?\s*热度$/;
+      const stripSimpleHtml = (value = "") => String(value || "")
+        .replace(/<\/?(?:p|div|span)[^>]*>/gi, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      let changed = 0;
+      const tx = db.transaction((rows) => {
+        for (const row of rows) {
+          const contentText = String(row.content_text || "").trim();
+          const contentHtmlText = stripSimpleHtml(row.content_html || "");
+          if (!metricOnlyPattern.test(contentText) && !metricOnlyPattern.test(contentHtmlText)) {
+            continue;
+          }
+          const summary = metricOnlyPattern.test(String(row.summary || "").trim()) ? "" : String(row.summary || "");
+          clearItemSummaryAndContentStmt.run({ id: row.id, summary });
+          changed += 1;
+        }
+      });
+      tx(listFeedItemsForContentCleanupStmt.all(feedId));
+      if (changed > 0) {
+        markFeedSubscribersItemStatsDirty(feedId);
+      }
+      return changed;
     },
     updateItemPageContent(id, pageHtml, pageText, originalUrl = null, originalTitle = null) {
       updateItemPageContentStmt.run({ id, pageHtml, pageText, originalUrl, originalTitle });

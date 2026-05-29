@@ -12,9 +12,9 @@ import {
   formatRefreshTrigger
 } from "./admin-formatters.js?v=2"
 import { getAdminUserSecurityState } from "./admin-user-security.js?v=2"
-import { getAdminElements } from "./admin-elements.js?v=6"
+import { getAdminElements } from "./admin-elements.js?v=12"
 import { createAdminRefreshPanel } from "./admin-refresh-panel.js?v=2"
-import { createAdminDashboard } from "./admin-dashboard.js?v=6"
+import { createAdminDashboard } from "./admin-dashboard.js?v=12"
 import {
   getRedeemBatchId,
   getRedeemBatches,
@@ -22,17 +22,51 @@ import {
   getRedeemCodeStatus
 } from "./admin-redeem-utils.js?v=2"
 
+const FEED_ADAPTER_TEMPLATE_FIELDS = [
+  "feedAdapterTemplateName",
+  "feedAdapterTemplateMatch",
+  "feedAdapterTemplateFeedUrl",
+  "feedAdapterTemplateFeedFormat",
+  "feedAdapterTemplateRequestProfile",
+  "feedAdapterTemplateRequestMethod",
+  "feedAdapterTemplateRequestBody",
+  "feedAdapterTemplateHtmlItems",
+  "feedAdapterTemplateHtmlTitle",
+  "feedAdapterTemplateHtmlLink",
+  "feedAdapterTemplateHtmlDate",
+  "feedAdapterTemplateHtmlSummary",
+  "feedAdapterTemplateHtmlContent",
+  "feedAdapterTemplateJsonItems",
+  "feedAdapterTemplateJsonTitle",
+  "feedAdapterTemplateJsonLink",
+  "feedAdapterTemplateJsonDate",
+  "feedAdapterTemplateJsonSummary",
+  "feedAdapterTemplateJsonContent"
+]
+
 const state = {
   me: null,
   admin: null,
   config: null,
   dockerUpdateCheck: null,
   dockerUpdateChecking: false,
+  rssHubCheck: null,
+  rssHubChecking: false,
   translationProviderPoolDraft: [],
   aiProviderPoolDraft: [],
+  feedAdapterTemplateDraft: [],
+  editingFeedAdapterTemplateId: "",
   expandedUserSecurityId: null,
   expandedRedeemBatchIds: [],
   userSecurity: {}
+}
+
+function slugifyTemplateId(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || `template-${Date.now().toString(36)}`
 }
 
 const els = getAdminElements()
@@ -46,6 +80,23 @@ function setStatus(message = "", tone = "info") {
   els.statusText.textContent = String(message || "")
   els.statusBox.dataset.tone = tone
   els.statusBox.classList.toggle("hidden", !message)
+}
+
+function openFeedAdapterTemplateModal(template = null) {
+  setFeedAdapterTemplateForm(template)
+  els.feedAdapterTemplateModal?.classList.remove("hidden")
+  els.feedAdapterTemplateModal?.setAttribute("aria-hidden", "false")
+  document.body.classList.add("admin-modal-open")
+  els.feedAdapterTemplateName?.focus?.({ preventScroll: true })
+}
+
+function closeFeedAdapterTemplateModal() {
+  if (els.feedAdapterTemplateModal?.contains(document.activeElement)) {
+    document.activeElement.blur()
+  }
+  els.feedAdapterTemplateModal?.classList.add("hidden")
+  els.feedAdapterTemplateModal?.setAttribute("aria-hidden", "true")
+  document.body.classList.remove("admin-modal-open")
 }
 
 function setSecretInputVisible(input, button, visible) {
@@ -142,6 +193,7 @@ const dashboard = createAdminDashboard({
     deleteRedeemCode: (...args) => deleteRedeemCode(...args),
     downloadBackupFile: (...args) => downloadBackupFile(...args),
     checkDockerImageUpdate: (...args) => checkDockerImageUpdate(...args),
+    checkRssHubStatus: (...args) => checkRssHubStatus(...args),
     exportRedeemBatch: (...args) => exportRedeemBatch(...args),
     reclassifyFeed: (...args) => reclassifyFeed(...args),
     saveRedeemCode: (...args) => saveRedeemCode(...args),
@@ -154,6 +206,8 @@ const dashboard = createAdminDashboard({
     removeTranslationProviderPoolEntry: (...args) => removeTranslationProviderPoolEntry(...args),
     editAiPoolEntry: (...args) => editAiPoolEntry(...args),
     removeAiPoolEntry: (...args) => removeAiPoolEntry(...args),
+    editFeedAdapterTemplate: (...args) => openFeedAdapterTemplateModal(...args),
+    deleteFeedAdapterTemplate: (...args) => deleteFeedAdapterTemplate(...args),
     toggleUserSecurity: (...args) => toggleUserSecurity(...args),
     updateUser: (...args) => updateUser(...args),
     updateUserSubscription: (...args) => updateUserSubscription(...args)
@@ -191,6 +245,8 @@ async function loadAdmin() {
     state.userSecurity = {}
     state.dockerUpdateCheck = null
     state.dockerUpdateChecking = false
+    state.rssHubCheck = null
+    state.rssHubChecking = false
     renderAdminDashboard()
     return
   }
@@ -199,6 +255,7 @@ async function loadAdmin() {
   state.expandedRedeemBatchIds = (state.expandedRedeemBatchIds || []).filter((id) => redeemBatchIds.has(id))
   state.translationProviderPoolDraft = getTranslationProviderPoolFromSettings()
   state.aiProviderPoolDraft = getAiProviderPoolFromSettings()
+  state.feedAdapterTemplateDraft = Array.isArray(state.admin.feedAdapterTemplates) ? [...state.admin.feedAdapterTemplates] : []
   renderAdminDashboard()
 }
 
@@ -220,6 +277,28 @@ async function checkDockerImageUpdate() {
     setStatus(error.message, "error")
   } finally {
     state.dockerUpdateChecking = false
+    renderAdminDashboard()
+  }
+}
+
+async function checkRssHubStatus() {
+  if (state.rssHubChecking) return
+  try {
+    state.rssHubChecking = true
+    renderAdminDashboard()
+    state.rssHubCheck = await api("/api/admin/system/rsshub-check", {
+      method: "POST",
+      body: JSON.stringify({})
+    })
+    setStatus("RSSHub 状态检查完成", "success")
+  } catch (error) {
+    state.rssHubCheck = {
+      checkedAt: new Date().toISOString(),
+      error: error.message || "RSSHub 状态检查失败"
+    }
+    setStatus(error.message, "error")
+  } finally {
+    state.rssHubChecking = false
     renderAdminDashboard()
   }
 }
@@ -968,12 +1047,13 @@ async function savePlanSettings(planCode) {
     const aiTranslationEnabled = Boolean(document.querySelector(`[data-plan-translation="${planCode}"]`)?.checked)
     const aiSummaryEnabled = Boolean(document.querySelector(`[data-plan-summary="${planCode}"]`)?.checked)
     const customAiEnabled = Boolean(document.querySelector(`[data-plan-custom-ai="${planCode}"]`)?.checked)
+    const specialRoutesEnabled = Boolean(document.querySelector(`[data-plan-special-routes="${planCode}"]`)?.checked)
     const aiDigestEnabled = Boolean(document.querySelector(`[data-plan-digest="${planCode}"]`)?.checked)
     const emailDigestEnabled = Boolean(document.querySelector(`[data-plan-email-digest="${planCode}"]`)?.checked)
     const maxDigestRules = Number(document.querySelector(`[data-plan-digest-rules="${planCode}"]`)?.value || 0)
     await api(`/api/admin/plans/${planCode}`, {
       method: "POST",
-      body: JSON.stringify({ maxFeeds, maxSavedItems, maxFavoriteItems, aiTranslationEnabled, aiSummaryEnabled, customAiEnabled, aiDigestEnabled, emailDigestEnabled, maxDigestRules })
+      body: JSON.stringify({ maxFeeds, maxSavedItems, maxFavoriteItems, aiTranslationEnabled, aiSummaryEnabled, customAiEnabled, specialRoutesEnabled, aiDigestEnabled, emailDigestEnabled, maxDigestRules })
     })
     await loadAdmin()
     setStatus("套餐设置已更新")
@@ -1156,6 +1236,217 @@ async function toggleRule(ruleId, isActive) {
   }
 }
 
+function getFeedAdapterTemplateFormValue() {
+  const name = String(els.feedAdapterTemplateName?.value || "").trim()
+  return {
+    id: state.editingFeedAdapterTemplateId || slugifyTemplateId(name || els.feedAdapterTemplateMatch?.value || "template"),
+    name,
+    enabled: els.feedAdapterTemplateEnabled ? Boolean(els.feedAdapterTemplateEnabled.checked) : true,
+    match: String(els.feedAdapterTemplateMatch?.value || "").trim(),
+    feedUrl: String(els.feedAdapterTemplateFeedUrl?.value || "").trim(),
+    feedFormat: String(els.feedAdapterTemplateFeedFormat?.value || "json").trim() || "json",
+    requestProfile: String(els.feedAdapterTemplateRequestProfile?.value || "browser").trim() || "browser",
+    requestMethod: String(els.feedAdapterTemplateRequestMethod?.value || "GET").trim().toUpperCase() || "GET",
+    requestBody: String(els.feedAdapterTemplateRequestBody?.value || "").trim(),
+    cookie: String(els.feedAdapterTemplateCookie?.value || "").trim(),
+    htmlItemsSelector: String(els.feedAdapterTemplateHtmlItems?.value || "").trim(),
+    htmlTitleSelector: String(els.feedAdapterTemplateHtmlTitle?.value || "").trim(),
+    htmlLinkSelector: String(els.feedAdapterTemplateHtmlLink?.value || "").trim(),
+    htmlDateSelector: String(els.feedAdapterTemplateHtmlDate?.value || "").trim(),
+    htmlSummarySelector: String(els.feedAdapterTemplateHtmlSummary?.value || "").trim(),
+    htmlContentSelector: String(els.feedAdapterTemplateHtmlContent?.value || "").trim(),
+    jsonItemsPath: String(els.feedAdapterTemplateJsonItems?.value || "").trim(),
+    jsonTitlePath: String(els.feedAdapterTemplateJsonTitle?.value || "").trim(),
+    jsonLinkPath: String(els.feedAdapterTemplateJsonLink?.value || "").trim(),
+    jsonDatePath: String(els.feedAdapterTemplateJsonDate?.value || "").trim(),
+    jsonSummaryPath: String(els.feedAdapterTemplateJsonSummary?.value || "").trim(),
+    jsonContentPath: String(els.feedAdapterTemplateJsonContent?.value || "").trim()
+  }
+}
+
+function setFeedAdapterTemplateForm(template = null) {
+  state.editingFeedAdapterTemplateId = template?.id || ""
+  if (els.feedAdapterTemplateName) els.feedAdapterTemplateName.value = template?.name || ""
+  if (els.feedAdapterTemplateMatch) els.feedAdapterTemplateMatch.value = template?.match || ""
+  if (els.feedAdapterTemplateFeedUrl) els.feedAdapterTemplateFeedUrl.value = template?.feedUrl || ""
+  if (els.feedAdapterTemplateInputUrl) els.feedAdapterTemplateInputUrl.value = template?.exampleUrl || template?.inputUrl || ""
+  if (els.feedAdapterTemplateCookie) {
+    els.feedAdapterTemplateCookie.value = template?.cookie || ""
+    els.feedAdapterTemplateCookie.placeholder = template?.cookieConfigured ? "已配置，留空保留当前共享 Cookie" : "name=value; session=..."
+  }
+  if (els.feedAdapterTemplateFeedFormat) els.feedAdapterTemplateFeedFormat.value = template?.feedFormat || "json"
+  if (els.feedAdapterTemplateRequestProfile) els.feedAdapterTemplateRequestProfile.value = template?.requestProfile || "browser"
+  if (els.feedAdapterTemplateRequestMethod) els.feedAdapterTemplateRequestMethod.value = template?.requestMethod || "GET"
+  if (els.feedAdapterTemplateRequestBody) els.feedAdapterTemplateRequestBody.value = template?.requestBody || ""
+  if (els.feedAdapterTemplateEnabled) els.feedAdapterTemplateEnabled.checked = template?.enabled !== false
+  if (els.feedAdapterTemplateHtmlItems) els.feedAdapterTemplateHtmlItems.value = template?.htmlItemsSelector || ""
+  if (els.feedAdapterTemplateHtmlTitle) els.feedAdapterTemplateHtmlTitle.value = template?.htmlTitleSelector || ""
+  if (els.feedAdapterTemplateHtmlLink) els.feedAdapterTemplateHtmlLink.value = template?.htmlLinkSelector || ""
+  if (els.feedAdapterTemplateHtmlDate) els.feedAdapterTemplateHtmlDate.value = template?.htmlDateSelector || ""
+  if (els.feedAdapterTemplateHtmlSummary) els.feedAdapterTemplateHtmlSummary.value = template?.htmlSummarySelector || ""
+  if (els.feedAdapterTemplateHtmlContent) els.feedAdapterTemplateHtmlContent.value = template?.htmlContentSelector || ""
+  if (els.feedAdapterTemplateJsonItems) els.feedAdapterTemplateJsonItems.value = template?.jsonItemsPath || ""
+  if (els.feedAdapterTemplateJsonTitle) els.feedAdapterTemplateJsonTitle.value = template?.jsonTitlePath || ""
+  if (els.feedAdapterTemplateJsonLink) els.feedAdapterTemplateJsonLink.value = template?.jsonLinkPath || ""
+  if (els.feedAdapterTemplateJsonDate) els.feedAdapterTemplateJsonDate.value = template?.jsonDatePath || ""
+  if (els.feedAdapterTemplateJsonSummary) els.feedAdapterTemplateJsonSummary.value = template?.jsonSummaryPath || ""
+  if (els.feedAdapterTemplateJsonContent) els.feedAdapterTemplateJsonContent.value = template?.jsonContentPath || ""
+  if (els.feedAdapterTemplateTestStatus) {
+    els.feedAdapterTemplateTestStatus.textContent = ""
+    els.feedAdapterTemplateTestStatus.className = "status-text hidden"
+  }
+  if (els.feedAdapterTemplateAddBtn) els.feedAdapterTemplateAddBtn.textContent = template?.id ? "更新模板" : "保存模板"
+}
+
+function setFeedAdapterTemplateAiStatus(message = "", tone = "muted") {
+  if (!els.feedAdapterTemplateAiStatus) return
+  els.feedAdapterTemplateAiStatus.textContent = String(message || "")
+  els.feedAdapterTemplateAiStatus.className = message
+    ? `status-text ${tone === "error" ? "error-text" : tone === "success" ? "success-text" : "muted"}`
+    : "status-text hidden"
+}
+
+async function suggestFeedAdapterTemplate() {
+  const inputUrl = String(els.feedAdapterTemplateAiUrl?.value || els.feedAdapterTemplateInputUrl?.value || "").trim()
+  if (!inputUrl) {
+    setFeedAdapterTemplateAiStatus("请先输入要分析的网址", "error")
+    return
+  }
+  const beforeValues = Object.fromEntries(
+    FEED_ADAPTER_TEMPLATE_FIELDS.map((key) => [key, els[key]?.value ?? ""])
+  )
+  const previousDisabled = els.feedAdapterTemplateAiBtn?.disabled
+  if (els.feedAdapterTemplateAiBtn) els.feedAdapterTemplateAiBtn.disabled = true
+  setFeedAdapterTemplateAiStatus("正在抓取网页并请求 AI 生成模板草稿...")
+  try {
+    const result = await api("/api/admin/feed-adapter-templates/suggest", {
+      method: "POST",
+      body: JSON.stringify({
+        url: inputUrl,
+        template: getFeedAdapterTemplateFormValue(),
+        cookie: String(els.feedAdapterTemplateCookie?.value || "").trim()
+      })
+    })
+    setFeedAdapterTemplateForm(result.template || null)
+    if (els.feedAdapterTemplateInputUrl) els.feedAdapterTemplateInputUrl.value = inputUrl
+    if (els.feedAdapterTemplateAiUrl) els.feedAdapterTemplateAiUrl.value = inputUrl
+    const changedCount = FEED_ADAPTER_TEMPLATE_FIELDS.reduce((count, key) => {
+      return count + ((els[key]?.value ?? "") !== beforeValues[key] ? 1 : 0)
+    }, 0)
+    const notes = result.notes ? ` · ${result.notes}` : ""
+    const sample = result.sample?.chars ? ` · 样本 ${result.sample.chars} 字符` : ""
+    const provider = result.provider ? ` · ${result.provider}` : ""
+    setFeedAdapterTemplateAiStatus(
+      changedCount > 0
+        ? `已生成草稿，已回填 ${changedCount} 个字段，请测试后保存${provider}${sample}${notes}`
+        : `AI 返回了草稿，但没有可回填字段，请检查后台 AI 输出或网页样本${provider}${sample}${notes}`,
+      changedCount > 0 ? "success" : "error"
+    )
+  } catch (error) {
+    setFeedAdapterTemplateAiStatus(error.message, "error")
+  } finally {
+    if (els.feedAdapterTemplateAiBtn) els.feedAdapterTemplateAiBtn.disabled = Boolean(previousDisabled)
+  }
+}
+
+async function saveFeedAdapterTemplate() {
+  try {
+    const template = getFeedAdapterTemplateFormValue()
+    const existingIndex = state.feedAdapterTemplateDraft.findIndex((entry) => entry.id === template.id)
+    const next = [...state.feedAdapterTemplateDraft]
+    if (existingIndex >= 0) next[existingIndex] = template
+    else next.push(template)
+    const result = await api("/api/admin/settings/feed_adapter_templates", {
+      method: "POST",
+      body: JSON.stringify({ templates: next })
+    })
+    state.feedAdapterTemplateDraft = result.templates || next
+    setFeedAdapterTemplateForm(null)
+    closeFeedAdapterTemplateModal()
+    await loadAdmin()
+    setStatus("抓取模板已保存", "success")
+  } catch (error) {
+    setStatus(error.message, "error")
+  }
+}
+
+async function testFeedAdapterTemplate() {
+  try {
+    const template = getFeedAdapterTemplateFormValue()
+    if (els.feedAdapterTemplateTestStatus) {
+      els.feedAdapterTemplateTestStatus.className = "status-text muted"
+      els.feedAdapterTemplateTestStatus.textContent = "正在测试模板..."
+    }
+    const result = await api("/api/admin/feed-adapter-templates/test", {
+      method: "POST",
+      body: JSON.stringify({
+        template,
+        inputUrl: String(els.feedAdapterTemplateInputUrl?.value || "").trim()
+      })
+    })
+    const first = result.items?.[0]
+    if (els.feedAdapterTemplateTestStatus) {
+      els.feedAdapterTemplateTestStatus.className = result.ok === false ? "status-text error-text" : "status-text success-text"
+      els.feedAdapterTemplateTestStatus.textContent = result.ok === false
+        ? `${result.errorCode === "feed_adapter_template_input_required" ? "" : "模板已匹配，但当前抓取失败："}${result.error || "读取失败"}${result.feedUrl ? `，抓取 ${result.feedUrl}` : ""}`
+        : `识别 ${result.itemCount || 0} 条${first?.title ? `，首条：${first.title}` : ""}${result.feedUrl ? `，抓取 ${result.feedUrl}` : ""}`
+    }
+  } catch (error) {
+    if (els.feedAdapterTemplateTestStatus) {
+      els.feedAdapterTemplateTestStatus.className = "status-text error-text"
+      els.feedAdapterTemplateTestStatus.textContent = error.message
+    }
+  }
+}
+
+async function deleteFeedAdapterTemplate(id) {
+  if (!window.confirm("确认删除这个抓取模板吗？")) return
+  try {
+    const next = state.feedAdapterTemplateDraft.filter((entry) => entry.id !== id)
+    await api("/api/admin/settings/feed_adapter_templates", {
+      method: "POST",
+      body: JSON.stringify({ templates: next })
+    })
+    setFeedAdapterTemplateForm(null)
+    await loadAdmin()
+    setStatus("抓取模板已删除", "success")
+  } catch (error) {
+    setStatus(error.message, "error")
+  }
+}
+
+els.feedAdapterTemplateForm?.addEventListener("submit", (event) => {
+  event.preventDefault()
+  saveFeedAdapterTemplate()
+})
+
+els.feedAdapterTemplateAddBtn?.addEventListener("click", () => {
+  saveFeedAdapterTemplate()
+})
+
+els.feedAdapterTemplateTestBtn?.addEventListener("click", () => {
+  testFeedAdapterTemplate()
+})
+
+els.feedAdapterTemplateAiBtn?.addEventListener("click", () => {
+  suggestFeedAdapterTemplate()
+})
+
+els.feedAdapterTemplateResetBtn?.addEventListener("click", () => {
+  setFeedAdapterTemplateForm(null)
+  if (els.feedAdapterTemplateAiUrl) els.feedAdapterTemplateAiUrl.value = ""
+  setFeedAdapterTemplateAiStatus("")
+})
+
+els.feedAdapterTemplateOpenBtn?.addEventListener("click", () => {
+  if (els.feedAdapterTemplateAiUrl) els.feedAdapterTemplateAiUrl.value = ""
+  setFeedAdapterTemplateAiStatus("")
+  openFeedAdapterTemplateModal(null)
+})
+
+els.feedAdapterTemplateBackdrop?.addEventListener("click", closeFeedAdapterTemplateModal)
+els.feedAdapterTemplateCloseBtn?.addEventListener("click", closeFeedAdapterTemplateModal)
+
 async function boot() {
   initTabSwitch()
   await loadConfig()
@@ -1280,6 +1571,12 @@ els.settingsForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         site_name: els.settingSiteName.value,
         site_domain: els.settingSiteDomain.value
+      })
+    })
+    await api("/api/admin/settings/rsshub", {
+      method: "POST",
+      body: JSON.stringify({
+        base_urls: els.settingRsshubBaseUrls?.value || ""
       })
     })
     await api("/api/admin/settings/mail", {

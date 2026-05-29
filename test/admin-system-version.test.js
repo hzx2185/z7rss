@@ -36,7 +36,7 @@ function createSystemHarness(options = {}) {
     dockerHubFetch: options.dockerHubFetch
   });
 
-  return { db, adminService };
+  return { db, adminService, store, accountService };
 }
 
 test("admin overview places version fields inside the admin profile card", () => {
@@ -107,6 +107,74 @@ test("admin Docker update check reports latest image metadata", async () => {
     assert.equal(result.remoteDigest, "sha256:1234567890abcdef");
     assert.equal(result.remoteSizeBytes, 123456);
     assert.equal(result.updateAvailable, true);
+  } finally {
+    db.close();
+  }
+});
+
+test("admin can check configured RSSHub status and route health", async () => {
+  const { db, adminService, store } = createSystemHarness();
+  store.setSetting("rsshub", "base_urls", "http://rsshub:1200");
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url) === "http://rsshub:1200/") {
+      return new Response(`
+        <html><body>
+          <span>Git Hash: </span><span>9446e707</span>
+          <span>Git Date: </span><span>Tue, 26 May 2026 23:09:21 GMT</span>
+          <span>Health: </span><span>100%</span>
+        </body></html>
+      `, {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      });
+    }
+    return new Response("<rss></rss>", {
+      status: 200,
+      headers: {
+        "content-type": "application/xml",
+        "x-rsshub-route": String(url).includes("/zhihu/hot") ? "/zhihu/hot/:category?" : "/gelonghui/hot-article/:type?"
+      }
+    });
+  };
+
+  try {
+    const result = await adminService.checkRssHubStatus();
+
+    assert.equal(result.enabled, true);
+    assert.deepEqual(result.bases, ["http://rsshub:1200"]);
+    assert.equal(result.results[0].ok, true);
+    assert.equal(result.results[0].gitHash, "9446e707");
+    assert.equal(result.results[0].routes.every((entry) => entry.ok), true);
+    assert.ok(calls.includes("http://rsshub:1200/zhihu/hot"));
+    assert.ok(calls.includes("http://rsshub:1200/gelonghui/hot-article"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("admin can update special route entitlement on plans", () => {
+  const { db, adminService, store, accountService } = createSystemHarness();
+  const user = store.createUser({
+    email: `plan-${Date.now()}@example.com`,
+    passwordHash: "hash",
+    displayName: "Plan User",
+    isAdmin: 0,
+    status: "active"
+  });
+
+  try {
+    const before = store.getPlanByCode("free");
+    assert.equal(before.special_routes_enabled, 0);
+    assert.equal(accountService.getAccount(user).features.specialRoutes, false);
+
+    const nextPlan = adminService.updatePlanSettings("free", { specialRoutesEnabled: true });
+    assert.equal(nextPlan.special_routes_enabled, 1);
+
+    assert.equal(accountService.getAccount(user).features.specialRoutes, true);
   } finally {
     db.close();
   }

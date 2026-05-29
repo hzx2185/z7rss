@@ -308,6 +308,11 @@ function renderCapabilityOverview() {
     if (account.features.customAi) {
       flags.push({ tone: account.ai.hasConfiguredProvider ? "success" : "warning", label: "自定义 AI" })
     }
+
+    flags.push({
+      tone: account.features.specialRoutes ? "success" : "muted",
+      label: `特殊路由：${account.features.specialRoutes ? "已开通" : "未开通"}`
+    })
   }
 
   safeHtml(els.capabilityFlags, flags.length
@@ -363,6 +368,7 @@ function renderPlans() {
             <div class="list-row"><div class="list-main"><strong>翻译功能</strong><span class="muted">${plan.ai_translation_enabled ? "支持" : "不支持"}</span></div></div>
             <div class="list-row"><div class="list-main"><strong>AI 总结</strong><span class="muted">${plan.ai_summary_enabled ? "支持" : "不支持"}</span></div></div>
             <div class="list-row"><div class="list-main"><strong>自定义 AI</strong><span class="muted">${plan.custom_ai_enabled ? "支持" : "不支持"}</span></div></div>
+            <div class="list-row"><div class="list-main"><strong>特殊路由</strong><span class="muted">${plan.special_routes_enabled ? "支持" : "不支持"}</span></div></div>
             <div class="list-row"><div class="list-main"><strong>AI 邮件简报</strong><span class="muted">${plan.email_digest_enabled ? `${plan.max_digest_rules || 0} 条规则` : "不支持"}</span></div></div>
           </div>
           <div class="link-row">

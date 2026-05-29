@@ -4,8 +4,30 @@ services:
     container_name: z7rss
     ports:
       - "39118:80"
+    environment:
+      RSSHUB_BASE_URLS: ${RSSHUB_BASE_URLS:-http://rsshub:1200}
     volumes:
       - ./data:/app/data
+    depends_on:
+      - rsshub
     restart: unless-stopped
     init: true
     stop_grace_period: 90s
+
+  rsshub:
+    image: diygod/rsshub:chromium-bundled
+    container_name: z7rss-rsshub
+    ports:
+      - "${RSSHUB_HOST_BIND:-127.0.0.1}:${RSSHUB_HOST_PORT:-1200}:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: redis
+      REDIS_URL: redis://rsshub-redis:6379/
+    depends_on:
+      - rsshub-redis
+    restart: unless-stopped
+
+  rsshub-redis:
+    image: redis:alpine
+    container_name: z7rss-rsshub-redis
+    restart: unless-stopped

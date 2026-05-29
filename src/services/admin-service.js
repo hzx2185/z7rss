@@ -1,12 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import net from "node:net";
+import * as cheerio from "cheerio";
 import { normalizeIp } from "../lib/request.js";
 import { hashPassword } from "../lib/security.js";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
+import { describeFetchError } from "../lib/http.js";
+import { getFeedAdapterTemplates, normalizeFeedAdapterTemplate, setFeedAdapterTemplates } from "./feed-adapter-templates.js";
+import { normalizeRssHubBaseUrls, parseRssHubBaseUrlList } from "./feed-discovery.js";
 
 const REDEEM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const DOCKER_HUB_DEFAULT_API_BASE_URL = "https://hub.docker.com/v2";
+const RSSHUB_HEALTH_ROUTES = ["/zhihu/hot", "/gelonghui/hot-article"];
 
 function parseJsonSafe(value, fallback) {
   try {
@@ -18,6 +24,13 @@ function parseJsonSafe(value, fallback) {
 
 function stripTrailingSlash(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeRssHubCheckBases(value, fallback = []) {
+  const raw = String(value || "").trim();
+  if (/^none$/i.test(raw)) return [];
+  if (raw) return normalizeRssHubBaseUrls(parseRssHubBaseUrlList(raw));
+  return normalizeRssHubBaseUrls(fallback);
 }
 
 function normalizeDockerImageName(value = "") {
@@ -108,6 +121,7 @@ export function createAdminService({
   config,
   secretBox,
   feedService,
+  ai = null,
   refreshService = null,
   maintenanceService = null,
   dockerHubFetch = globalThis.fetch
@@ -126,6 +140,400 @@ export function createAdminService({
       throw badRequest("到期时间格式无效", { code: "invalid_period_end" });
     }
     return date.toISOString();
+  }
+
+  function isPrivateHost(hostname = "") {
+    const host = String(hostname || "").trim().toLowerCase();
+    if (!host) return true;
+    if (host === "localhost" || host.endsWith(".localhost")) return true;
+    const ipVersion = net.isIP(host.replace(/^\[|\]$/g, ""));
+    if (!ipVersion) return false;
+    if (ipVersion === 6) {
+      return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
+    }
+    const [a, b] = host.split(".").map((part) => Number(part));
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+
+  function parsePublicHttpUrl(value = "") {
+    let url;
+    try {
+      url = new URL(String(value || "").trim());
+    } catch (_error) {
+      throw badRequest("网址格式无效", { code: "feed_adapter_suggest_url_invalid" });
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw badRequest("只支持 http/https 网址", { code: "feed_adapter_suggest_url_invalid" });
+    }
+    if (isPrivateHost(url.hostname)) {
+      throw badRequest("不能抓取本机或内网地址", { code: "feed_adapter_suggest_url_blocked" });
+    }
+    url.hash = "";
+    return url.toString();
+  }
+
+  function escapeRegex(value = "") {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function buildDefaultTemplateMatch(inputUrl = "") {
+    const url = new URL(inputUrl);
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    const suffix = pathname === "/" ? "/?" : `${escapeRegex(pathname)}/?`;
+    return `^${escapeRegex(url.origin)}${suffix}$`;
+  }
+
+  function slugifyTemplateId(value = "") {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || `template-${Date.now().toString(36)}`;
+  }
+
+  function normalizeText(value = "") {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function toSafeAbsoluteHttpUrl(candidate = "", baseUrl = "") {
+    const raw = String(candidate || "").trim();
+    if (!raw) return "";
+    try {
+      const url = baseUrl ? new URL(raw, baseUrl) : new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+      return url.toString();
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function buildJuejinHotTemplate(inputUrl = "") {
+    let url;
+    try {
+      url = new URL(inputUrl);
+    } catch (_error) {
+      return null;
+    }
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host !== "juejin.cn" || !/^\/hot\/articles(?:\/\d+)?\/?$/i.test(url.pathname)) {
+      return null;
+    }
+    const categoryId = url.pathname.split("/").filter(Boolean)[2] || "1";
+    return {
+      name: "掘金热榜 文章",
+      match: "^https://juejin\\.cn/hot/articles(?:/\\d+)?/?$",
+      feedUrl: `https://api.juejin.cn/content_api/v1/content/article_rank?category_id=${encodeURIComponent(categoryId)}&type=hot`,
+      requestMethod: "GET",
+      requestBody: "",
+      feedFormat: "json",
+      requestProfile: "browser",
+      jsonItemsPath: "data",
+      jsonTitlePath: "content.title",
+      jsonLinkPath: "content.content_id",
+      jsonSummaryPath: "content.brief",
+      jsonContentPath: "content.brief"
+    };
+  }
+
+  function buildJuejinRecommendedTemplate(inputUrl = "") {
+    let url;
+    try {
+      url = new URL(inputUrl);
+    } catch (_error) {
+      return null;
+    }
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host !== "juejin.cn" || !/^\/recommended\/?$/i.test(url.pathname)) {
+      return null;
+    }
+    const sort = String(url.searchParams.get("sort") || "popular").trim().toLowerCase();
+    const sortTypes = {
+      popular: 200,
+      newest: 300,
+      hottest: 0,
+      three_days_hottest: 3,
+      weekly_hottest: 7,
+      monthly_hottest: 30,
+      newest_withtop: 600,
+      newest_ctime: 500
+    };
+    const sortType = sortTypes[sort] ?? sortTypes.popular;
+    const sortLabels = {
+      popular: "推荐",
+      newest: "最新",
+      hottest: "热门",
+      three_days_hottest: "3天热门",
+      weekly_hottest: "7天热门",
+      monthly_hottest: "30天热门"
+    };
+    const match = sort && sort !== "popular"
+      ? `^https://juejin\\.cn/recommended(?:\\?(?:[^#]*&)?sort=${escapeRegex(sort)}(?:&[^#]*)?)?$`
+      : "^https://juejin\\.cn/recommended(?:\\?.*)?$";
+    return {
+      name: `掘金推荐 ${sortLabels[sort] || sort}`,
+      match,
+      feedUrl: "https://api.juejin.cn/recommend_api/v1/article/recommend_all_feed",
+      requestMethod: "POST",
+      requestBody: JSON.stringify({
+        id_type: 2,
+        client_type: 2608,
+        sort_type: sortType,
+        cursor: "0",
+        limit: 20
+      }),
+      feedFormat: "json",
+      requestProfile: "browser",
+      jsonItemsPath: "data",
+      jsonTitlePath: "item_info.article_info.title",
+      jsonLinkPath: "item_info.article_info.article_id",
+      jsonDatePath: "item_info.article_info.rtime",
+      jsonSummaryPath: "item_info.article_info.brief_content",
+      jsonContentPath: "item_info.article_info.brief_content"
+    };
+  }
+
+  function getCandidateTemplateValue(rawSuggestion = {}, keys = []) {
+    const sources = [
+      rawSuggestion,
+      rawSuggestion.template,
+      rawSuggestion.rules,
+      rawSuggestion.rule,
+      rawSuggestion.mapping,
+      rawSuggestion.selectors,
+      rawSuggestion.html,
+      rawSuggestion.json
+    ].filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry));
+    for (const source of sources) {
+      for (const key of keys) {
+        if (source[key] !== undefined && source[key] !== null) {
+          return source[key];
+        }
+      }
+    }
+    return "";
+  }
+
+  function inferHtmlTemplateSuggestion(inputUrl = "", sample = "") {
+    if (!/<(?:html|body|article|main|div|a)\b/i.test(sample)) return null;
+    const $ = cheerio.load(sample);
+    const candidates = [
+      "article",
+      "li",
+      ".article-item",
+      ".entry",
+      ".item",
+      ".post",
+      ".hot-list a[href]",
+      "a[href]"
+    ];
+    for (const selector of candidates) {
+      const roots = $(selector).toArray();
+      const validRoots = roots.filter((element) => {
+        const root = $(element);
+        const link = root.is("a")
+          ? toSafeAbsoluteHttpUrl(root.attr("href") || "", inputUrl)
+          : toSafeAbsoluteHttpUrl(root.find("a[href]").first().attr("href") || "", inputUrl);
+        const title = normalizeText(root.is("a") ? root.text() : root.find("h1,h2,h3,a").first().text());
+        return Boolean(link && title && title.length >= 4 && title.length <= 180);
+      });
+      if (validRoots.length < 2) continue;
+      const isAnchorRoot = selector.endsWith("a[href]") || selector === "a[href]";
+      return {
+        feedFormat: "html",
+        requestProfile: "browser",
+        htmlItemsSelector: selector,
+        htmlTitleSelector: isAnchorRoot ? "" : "h1,h2,h3,a",
+        htmlLinkSelector: isAnchorRoot ? "" : "a[href]",
+        htmlSummarySelector: "",
+        htmlContentSelector: ""
+      };
+    }
+    return null;
+  }
+
+  function buildBaselineTemplateSuggestion(inputUrl = "", sample = "") {
+    return buildJuejinHotTemplate(inputUrl) || buildJuejinRecommendedTemplate(inputUrl) || inferHtmlTemplateSuggestion(inputUrl, sample) || {};
+  }
+
+  function hasUsableTemplateSuggestion(suggestion = {}) {
+    return Boolean(
+      suggestion &&
+        typeof suggestion === "object" &&
+        suggestion.feedUrl &&
+        suggestion.feedFormat &&
+        (
+          suggestion.feedFormat !== "html" ||
+          suggestion.htmlItemsSelector ||
+          suggestion.jsonItemsPath
+        )
+    );
+  }
+
+  function normalizeSuggestedRequestMethod(value = "", fallback = "GET") {
+    const candidate = String(value || "").trim().toUpperCase();
+    if (candidate === "GET" || candidate === "POST") return candidate;
+    return fallback === "POST" ? "POST" : "GET";
+  }
+
+  function extractJsonObject(text = "") {
+    const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+    try {
+      return JSON.parse(raw);
+    } catch (_error) {
+      // Continue with a balanced-object scan below.
+    }
+
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0;
+    let quote = "";
+    let escaped = false;
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = "";
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(raw.slice(start, index + 1));
+          } catch (_error) {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async function fetchTemplateSample(inputUrl, cookie = "") {
+    let response;
+    try {
+      response = await fetch(inputUrl, {
+        headers: {
+          "user-agent": config.browserUserAgent || config.userAgent || "Mozilla/5.0 AppleWebKit/537.36 Chrome/135 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+          "accept-language": "zh-CN,zh;q=0.9,en;q=0.7",
+          ...(cookie ? { cookie } : {})
+        },
+        signal: AbortSignal.timeout(Math.min(Math.max(Number(config.crawlTimeoutMs) || 15000, 5000), 30000))
+      });
+    } catch (error) {
+      throw badRequest(`网页样本抓取失败：${describeFetchError(error)}`, { code: "feed_adapter_suggest_fetch_failed" });
+    }
+    const body = await response.text();
+    if (!response.ok) {
+      throw badRequest(`网页样本抓取失败：${response.status} ${response.statusText}`, { code: "feed_adapter_suggest_fetch_failed" });
+    }
+    return {
+      contentType: response.headers.get("content-type") || "",
+      sample: body.slice(0, 60000)
+    };
+  }
+
+  function compactTemplateSample(sample = "", contentType = "") {
+    const raw = String(sample || "");
+    if (!raw) return "";
+    if (/json/i.test(contentType) || /^\s*[\[{]/.test(raw)) {
+      return raw.slice(0, 14000);
+    }
+    const $ = cheerio.load(raw);
+    const title = normalizeText($("title").first().text());
+    const description = normalizeText(
+      $("meta[name='description']").attr("content") ||
+        $("meta[property='og:description']").attr("content") ||
+        ""
+    );
+    const links = $("a[href]").toArray().slice(0, 80).map((element) => {
+      const node = $(element);
+      const text = normalizeText(node.text()).slice(0, 180);
+      const href = String(node.attr("href") || "").trim();
+      return text || href ? `<a href="${href}">${text}</a>` : "";
+    }).filter(Boolean);
+    const containers = $("article, main, li, .hot-list, .entry-list, .article-list, .item, .entry")
+      .toArray()
+      .slice(0, 40)
+      .map((element) => {
+        const node = $(element).clone();
+        node.find("script,style,noscript,svg,img").remove();
+        return normalizeText(node.text()).slice(0, 300);
+      })
+      .filter(Boolean);
+    const scriptHints = [];
+    $("script").each((_, element) => {
+      const text = $(element).html() || "";
+      if (/__NUXT__|__NEXT_DATA__|INITIAL|content_api|recommend_api|article_rank|hot/i.test(text)) {
+        scriptHints.push(text.slice(0, 2500));
+      }
+    });
+    return [
+      title ? `TITLE: ${title}` : "",
+      description ? `DESCRIPTION: ${description}` : "",
+      links.length ? `LINKS:\n${links.join("\n")}` : "",
+      containers.length ? `TEXT_BLOCKS:\n${containers.join("\n")}` : "",
+      scriptHints.length ? `SCRIPT_HINTS:\n${scriptHints.join("\n---\n")}` : ""
+    ].filter(Boolean).join("\n\n").slice(0, 14000);
+  }
+
+  function buildTemplateSuggestionPrompt({ inputUrl, contentType, sample }) {
+    return `你是 RSS 抓取模板配置助手。请根据给定网址和网页样本，输出一个严格 JSON 对象，用于把网页列表映射成订阅源。不要输出 Markdown，不要解释。\n\n可用字段：\n{\n  "name": "模板名称",\n  "match": "匹配输入网址的 JavaScript 正则字符串",\n  "feedUrl": "抓取地址模板，通常填 {rawUrl}，也可填固定 API URL 或 builtin://...",\n  "feedFormat": "html|json|auto|rss|atom",\n  "requestProfile": "browser|auto|bot",\n  "requestMethod": "GET|POST",\n  "requestBody": "POST 请求体 JSON 字符串，可为空",\n  "htmlItemsSelector": "每条列表项的 CSS 选择器",\n  "htmlTitleSelector": "相对于列表项的标题选择器",\n  "htmlLinkSelector": "相对于列表项的链接选择器",\n  "htmlDateSelector": "相对于列表项的日期选择器，可为空",\n  "htmlSummarySelector": "相对于列表项的摘要选择器，可为空",\n  "htmlContentSelector": "相对于列表项的正文选择器，可为空",\n  "jsonItemsPath": "JSON 列表路径，可为空",\n  "jsonTitlePath": "JSON 标题路径，可为空",\n  "jsonLinkPath": "JSON 链接路径，可为空",\n  "jsonDatePath": "JSON 日期路径，可为空",\n  "jsonSummaryPath": "JSON 摘要路径，可为空",\n  "jsonContentPath": "JSON 正文路径，可为空",\n  "notes": "一句话说明"\n}\n\n规则：\n- 如果样本是普通 HTML 列表，feedFormat 选 html，feedUrl 优先 {rawUrl}。\n- HTML 选择器尽量稳定、简短，优先列表项容器、标题、链接、摘要，不要使用随机 hash 类名。\n- 如果页面内明显是 JSON API 响应，feedFormat 选 json 并填写 JSON 路径；接口需要 POST 时填写 requestMethod 和 requestBody。\n- match 应精确到当前栏目路径，避免匹配整个网站。\n- 不确定的字段填空字符串。\n\n网址：${inputUrl}\nContent-Type：${contentType}\n网页样本：\n${sample}`;
+  }
+
+  function normalizeSuggestedTemplate(rawSuggestion = {}, inputUrl = "", baselineSuggestion = {}) {
+    const url = new URL(inputUrl);
+    const hostLabel = url.hostname.replace(/^www\./i, "");
+    const pick = (keys) => getCandidateTemplateValue(rawSuggestion, keys);
+    const name = String(pick(["name", "title", "templateName"]) || baselineSuggestion.name || `${hostLabel} 抓取模板`).trim().slice(0, 120);
+    const template = {
+      id: slugifyTemplateId(name || hostLabel),
+      name,
+      enabled: true,
+      match: String(pick(["match", "urlPattern", "pattern"]) || baselineSuggestion.match || "").trim() || buildDefaultTemplateMatch(inputUrl),
+      feedUrl: String(pick(["feedUrl", "feed_url", "url", "apiUrl", "api_url"]) || baselineSuggestion.feedUrl || "").trim() || "{rawUrl}",
+      requestMethod: normalizeSuggestedRequestMethod(
+        pick(["requestMethod", "request_method", "method"]),
+        baselineSuggestion.requestMethod || "GET"
+      ),
+      requestBody: String(pick(["requestBody", "request_body", "body", "postBody", "post_body"]) || baselineSuggestion.requestBody || "").trim(),
+      feedFormat: String(pick(["feedFormat", "feed_format", "format"]) || baselineSuggestion.feedFormat || "html").trim().toLowerCase(),
+      requestProfile: String(pick(["requestProfile", "request_profile", "profile"]) || baselineSuggestion.requestProfile || "browser").trim().toLowerCase(),
+      htmlItemsSelector: String(pick(["htmlItemsSelector", "html_items_selector", "itemsSelector", "itemSelector", "listSelector"]) || baselineSuggestion.htmlItemsSelector || "").trim(),
+      htmlTitleSelector: String(pick(["htmlTitleSelector", "html_title_selector", "titleSelector"]) || baselineSuggestion.htmlTitleSelector || "").trim(),
+      htmlLinkSelector: String(pick(["htmlLinkSelector", "html_link_selector", "linkSelector"]) || baselineSuggestion.htmlLinkSelector || "").trim(),
+      htmlDateSelector: String(pick(["htmlDateSelector", "html_date_selector", "dateSelector"]) || baselineSuggestion.htmlDateSelector || "").trim(),
+      htmlSummarySelector: String(pick(["htmlSummarySelector", "html_summary_selector", "summarySelector"]) || baselineSuggestion.htmlSummarySelector || "").trim(),
+      htmlContentSelector: String(pick(["htmlContentSelector", "html_content_selector", "contentSelector"]) || baselineSuggestion.htmlContentSelector || "").trim(),
+      jsonItemsPath: String(pick(["jsonItemsPath", "json_items_path", "itemsPath", "listPath"]) || baselineSuggestion.jsonItemsPath || "").trim(),
+      jsonTitlePath: String(pick(["jsonTitlePath", "json_title_path", "titlePath"]) || baselineSuggestion.jsonTitlePath || "").trim(),
+      jsonLinkPath: String(pick(["jsonLinkPath", "json_link_path", "linkPath", "urlPath"]) || baselineSuggestion.jsonLinkPath || "").trim(),
+      jsonDatePath: String(pick(["jsonDatePath", "json_date_path", "datePath"]) || baselineSuggestion.jsonDatePath || "").trim(),
+      jsonSummaryPath: String(pick(["jsonSummaryPath", "json_summary_path", "summaryPath"]) || baselineSuggestion.jsonSummaryPath || "").trim(),
+      jsonContentPath: String(pick(["jsonContentPath", "json_content_path", "contentPath"]) || baselineSuggestion.jsonContentPath || "").trim()
+    };
+    return template;
+  }
+
+  function buildBaselineTemplateResult(inputUrl, cookie, sample, baselineSuggestion, notes = "") {
+    const template = normalizeFeedAdapterTemplate(normalizeSuggestedTemplate({}, inputUrl, baselineSuggestion));
+    return {
+      template: { ...template, cookie: "", cookieConfigured: Boolean(cookie) },
+      notes,
+      provider: "本地识别",
+      sample: {
+        contentType: sample.contentType,
+        chars: sample.sample.length
+      }
+    };
   }
 
   function normalizePositiveInteger(value, label) {
@@ -594,6 +1002,94 @@ export function createAdminService({
     };
   }
 
+  function getRssHubConfiguredBases() {
+    const settingValue = store.getSetting?.("rsshub", "base_urls")?.value ?? "";
+    return normalizeRssHubCheckBases(settingValue, config.rssHubBaseUrls || []);
+  }
+
+  function parseRssHubHomeInfo(html = "") {
+    const $ = cheerio.load(String(html || ""));
+    const text = $.text();
+    const readField = (label) => {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = text.match(new RegExp(`${escaped}:\\s*([^\\n]+)`, "i"));
+      return match ? match[1].trim() : "";
+    };
+    const commitLink = $("a[href*='/commit/']").first().text().trim();
+    return {
+      gitHash: commitLink || readField("Git Hash"),
+      gitDate: readField("Git Date"),
+      health: readField("Health"),
+      uptime: readField("Uptime"),
+      cacheHitRatio: readField("Cache Hit Ratio")
+    };
+  }
+
+  function buildRssHubUrl(baseUrl, routePath = "/") {
+    const url = new URL(baseUrl);
+    const basePath = url.pathname.replace(/\/+$/, "");
+    const route = String(routePath || "/").replace(/^\/+/, "");
+    url.pathname = [basePath, route].filter(Boolean).join("/").replace(/\/+/g, "/") || "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  }
+
+  async function fetchRssHubText(url) {
+    const response = await fetch(url, {
+      headers: {
+        "user-agent": config.userAgent || "Z7RSSBot/0.1",
+        accept: "text/html,application/xml;q=0.9,*/*;q=0.8"
+      },
+      signal: AbortSignal.timeout(Math.min(Math.max(Number(config.crawlTimeoutMs) || 15000, 3000), 15000))
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      contentType: response.headers.get("content-type") || "",
+      route: response.headers.get("x-rsshub-route") || "",
+      text
+    };
+  }
+
+  async function checkRssHubBase(baseUrl) {
+    const rootUrl = buildRssHubUrl(baseUrl, "/");
+    const root = await fetchRssHubText(rootUrl);
+    const routes = [];
+    for (const routePath of RSSHUB_HEALTH_ROUTES) {
+      try {
+        const result = await fetchRssHubText(buildRssHubUrl(baseUrl, routePath));
+        routes.push({
+          path: routePath,
+          ok: result.ok,
+          status: result.status,
+          route: result.route,
+          contentType: result.contentType
+        });
+      } catch (error) {
+        routes.push({
+          path: routePath,
+          ok: false,
+          status: 0,
+          error: describeFetchError(error)
+        });
+      }
+    }
+
+    return {
+      baseUrl,
+      ok: root.ok,
+      status: root.status,
+      statusText: root.statusText,
+      contentType: root.contentType,
+      rootUrl,
+      ...parseRssHubHomeInfo(root.text),
+      routes
+    };
+  }
+
   async function fetchDockerHubTag(imageRef) {
     if (typeof dockerHubFetch !== "function") {
       throw badRequest("当前运行环境不支持 Docker Hub 更新检查", { code: "docker_update_check_unavailable" });
@@ -673,6 +1169,11 @@ export function createAdminService({
           ...entry,
           config: parseJsonSafe(entry.config_json, {})
         })),
+        feedAdapterTemplates: getFeedAdapterTemplates(store, secretBox).map((entry) => ({
+          ...entry,
+          cookieConfigured: Boolean(entry.cookie),
+          cookie: ""
+        })),
         contentRules: store.listContentRules(),
         blockedSites: store.listBlockedSites(),
         blockedIps: store.listBlockedIps(),
@@ -725,6 +1226,41 @@ export function createAdminService({
         sourceUrl: `https://hub.docker.com/r/${imageRef.namespace}/${imageRef.repository}/tags?name=${encodeURIComponent(imageRef.tag)}`
       };
     },
+    async checkRssHubStatus(context = null) {
+      const bases = getRssHubConfiguredBases();
+      const results = [];
+      for (const baseUrl of bases) {
+        try {
+          results.push(await checkRssHubBase(baseUrl));
+        } catch (error) {
+          results.push({
+            baseUrl,
+            ok: false,
+            status: 0,
+            error: describeFetchError(error),
+            routes: []
+          });
+        }
+      }
+      const result = {
+        checkedAt: new Date().toISOString(),
+        enabled: bases.length > 0,
+        bases,
+        results,
+        updateCommand: "docker compose pull rsshub && docker compose up -d rsshub"
+      };
+      logAudit(context, {
+        action: "admin.rsshub.checked",
+        targetType: "system",
+        targetId: "rsshub",
+        summary: "检查 RSSHub 状态",
+        details: {
+          bases,
+          okCount: results.filter((entry) => entry.ok).length
+        }
+      });
+      return result;
+    },
     revealProviderSecret(poolType, id, context = null) {
       const result = getPoolSecretValue(poolType, id);
       logAudit(context, {
@@ -755,6 +1291,107 @@ export function createAdminService({
         }
       });
       return result;
+    },
+    setFeedAdapterTemplates(templates = [], context = null) {
+      const currentById = new Map(getFeedAdapterTemplates(store, secretBox).map((entry) => [entry.id, entry]));
+      const prepared = (Array.isArray(templates) ? templates : []).map((entry) => {
+        const current = currentById.get(String(entry?.id || ""));
+        const cookie = String(entry?.cookie || "").trim() || current?.cookie || "";
+        return { ...entry, cookie };
+      });
+      const saved = setFeedAdapterTemplates(store, prepared, secretBox);
+      logAudit(context, {
+        action: "admin.feed_adapter_templates.updated",
+        targetType: "settings",
+        targetId: "feed_adapter_templates.templates_json",
+        summary: `更新抓取模板 ${saved.length} 个`,
+        details: {
+          count: saved.length,
+          ids: saved.map((entry) => entry.id)
+        }
+      });
+      return {
+        templates: saved.map((entry) => ({
+          ...entry,
+          cookieConfigured: Boolean(entry.cookie),
+          cookie: ""
+        }))
+      };
+    },
+    async testFeedAdapterTemplate(template = {}, inputUrl = "") {
+      if (!feedService?.testFetchAdapterTemplate) {
+        throw badRequest("抓取模板测试服务不可用", { code: "feed_adapter_test_unavailable" });
+      }
+      const current = getFeedAdapterTemplates(store, secretBox).find((entry) => entry.id === String(template?.id || ""));
+      const cookie = String(template?.cookie || "").trim() || current?.cookie || "";
+      return feedService.testFetchAdapterTemplate({ ...template, cookie }, inputUrl);
+    },
+    async suggestFeedAdapterTemplate(payload = {}, context = null) {
+      if (!ai?.summarize || !accountService?.getEffectiveAiRuntimes) {
+        throw badRequest("AI 模板生成服务不可用", { code: "feed_adapter_suggest_unavailable" });
+      }
+      const inputUrl = parsePublicHttpUrl(payload.url || payload.inputUrl || payload.input_url || "");
+      const current = getFeedAdapterTemplates(store, secretBox).find((entry) => entry.id === String(payload?.template?.id || payload?.id || ""));
+      const cookie = String(payload.cookie || payload.template?.cookie || "").trim() || current?.cookie || "";
+      const sample = await fetchTemplateSample(inputUrl, cookie);
+      const baselineSuggestion = buildBaselineTemplateSuggestion(inputUrl, sample.sample);
+      const compactSample = compactTemplateSample(sample.sample, sample.contentType);
+      const prompt = buildTemplateSuggestionPrompt({ inputUrl, contentType: sample.contentType, sample: compactSample });
+      const runtimes = accountService.getEffectiveAiRuntimes(0).filter((entry) => entry.baseUrl && entry.apiKey);
+      if (!runtimes.length) {
+        if (hasUsableTemplateSuggestion(baselineSuggestion)) {
+          return buildBaselineTemplateResult(inputUrl, cookie, sample, baselineSuggestion, "后台 AI 未配置，已使用本地识别规则");
+        }
+        throw badRequest("后台 AI 接口未配置，无法生成抓取模板", { code: "ai_provider_unconfigured" });
+      }
+
+      const errors = [];
+      for (const runtime of runtimes) {
+        try {
+          const output = await ai.summarize({
+            ...runtime,
+            summaryPrompt: "你是 RSS 抓取模板生成器。只输出严格 JSON 对象，不要输出 Markdown、解释或额外文本。",
+            maxInputChars: Math.max(Number(runtime.maxInputChars || 0), 16000)
+          }, prompt);
+          const parsed = extractJsonObject(output);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("AI 未返回有效 JSON 对象");
+          }
+          const template = normalizeFeedAdapterTemplate(normalizeSuggestedTemplate(parsed, inputUrl, baselineSuggestion));
+          logAudit(context, {
+            action: "admin.feed_adapter_template.suggested",
+            targetType: "settings",
+            targetId: "feed_adapter_templates.templates_json",
+            summary: `AI 生成抓取模板草稿 ${template.name}`,
+            details: {
+              inputUrl,
+              feedFormat: template.feedFormat,
+              provider: runtime.label || runtime.id || runtime.source || "ai"
+            }
+          });
+          return {
+            template: { ...template, cookie: "", cookieConfigured: Boolean(cookie) },
+            notes: String(parsed.notes || "").trim(),
+            provider: runtime.label || runtime.id || runtime.source || "AI",
+            sample: {
+              contentType: sample.contentType,
+              chars: sample.sample.length
+            }
+          };
+        } catch (error) {
+          errors.push(`${runtime.label || runtime.id || runtime.source || "AI"}: ${error.message || String(error)}`);
+        }
+      }
+      if (hasUsableTemplateSuggestion(baselineSuggestion)) {
+        return buildBaselineTemplateResult(
+          inputUrl,
+          cookie,
+          sample,
+          baselineSuggestion,
+          `AI 生成失败，已使用本地识别规则：${errors.slice(0, 2).join("；")}`
+        );
+      }
+      throw badRequest(`AI 生成抓取模板失败：${errors.slice(0, 3).join("；")}`, { code: "feed_adapter_suggest_failed" });
     },
     getUserSecurity(userId) {
       return getUserSecuritySnapshot(userId);
@@ -1092,6 +1729,7 @@ export function createAdminService({
         aiTranslationEnabled: normalizeOptionalBoolean(payload?.aiTranslationEnabled, "AI 翻译开关"),
         aiSummaryEnabled: normalizeOptionalBoolean(payload?.aiSummaryEnabled, "AI 总结开关"),
         customAiEnabled: normalizeOptionalBoolean(payload?.customAiEnabled, "自定义 AI 开关"),
+        specialRoutesEnabled: normalizeOptionalBoolean(payload?.specialRoutesEnabled, "特殊路由开关"),
         aiDigestEnabled: normalizeOptionalBoolean(payload?.aiDigestEnabled, "AI 简报开关"),
         emailDigestEnabled: normalizeOptionalBoolean(payload?.emailDigestEnabled, "邮件简报开关"),
         maxDigestRules:
@@ -1117,6 +1755,7 @@ export function createAdminService({
           aiTranslationEnabled: Boolean(nextPlan.ai_translation_enabled),
           aiSummaryEnabled: Boolean(nextPlan.ai_summary_enabled),
           customAiEnabled: Boolean(nextPlan.custom_ai_enabled),
+          specialRoutesEnabled: Boolean(nextPlan.special_routes_enabled),
           aiDigestEnabled: Boolean(nextPlan.ai_digest_enabled),
           emailDigestEnabled: Boolean(nextPlan.email_digest_enabled),
           maxDigestRules: nextPlan.max_digest_rules

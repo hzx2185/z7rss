@@ -68,6 +68,9 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
     clearCachedMe() {
       clearAuthStateCache()
     },
+    async getConfig(fresh = false) {
+      return request(`/api/config${fresh ? `?_=${Date.now()}` : ""}`, fresh ? { cache: "no-store" } : {})
+    },
     async updateReaderPreferences(payload) {
       return request("/api/account/preferences/reader", {
         method: "POST",
@@ -86,6 +89,12 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
       if (fresh) params.set("_", String(Date.now()))
       const query = params.toString()
       return request(`/api/feeds${query ? `?${query}` : ""}`, fresh ? { cache: "no-store" } : {})
+    },
+    async getSpecialRoutes(url, fresh = false) {
+      const params = new URLSearchParams()
+      params.set("url", url)
+      if (fresh) params.set("_", String(Date.now()))
+      return request(`/api/feeds/special-routes?${params.toString()}`, fresh ? { cache: "no-store" } : {})
     },
     async listItems({ feedId, limit, page, filter, publishedSince, fresh = false, skipImmediateTranslations = false, includeTotal = true, signal = null }) {
       const params = new URLSearchParams()
@@ -154,9 +163,17 @@ export function createReaderApi(fetchImpl = window.fetch.bind(window)) {
       return request(`/api/feeds/${feedId}`, { method: "DELETE" })
     },
     async addFeed(url, options = {}) {
+      const body = {
+        url,
+        isPublic: options.isPublic,
+        allowExisting: true
+      }
+      if (Object.prototype.hasOwnProperty.call(options, "rssHubBaseUrls") && options.rssHubBaseUrls !== undefined) {
+        body.rssHubBaseUrls = options.rssHubBaseUrls
+      }
       return request("/api/feeds", {
         method: "POST",
-        body: JSON.stringify({ url, isPublic: options.isPublic })
+        body: JSON.stringify(body)
       })
     },
     async importFeeds(content) {

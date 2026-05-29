@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import { badGateway, badRequest } from "../lib/errors.js";
 import { normalizeText } from "../lib/http.js";
 import { isLikelyInvalidArticleContent, isV2exHost } from "./article-content.js";
+import { fetchBuiltinFeed, isBuiltinFeedUrl } from "./builtin-feeds.js";
 
 const DEFAULT_BOT_USER_AGENT = "Z7RSSBot/0.1";
 const DEFAULT_BROWSER_USER_AGENT =
@@ -67,6 +68,12 @@ function asArray(value) {
 
 function stripHtml(html = "") {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function trimText(value = "", limit = 500) {
+  const text = normalizeText(value);
+  if (!text || text.length <= limit) return text;
+  return `${text.slice(0, limit).replace(/\s+\S*$/, "").trim()}...`;
 }
 
 function normalizeParagraphText(value = "") {
@@ -212,6 +219,15 @@ function toSafeAbsoluteUrl(candidate, baseUrl, { allowRelative = false } = {}) {
   }
 
   return "";
+}
+
+function isHttpUrl(value = "") {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
 }
 
 function sanitizeHtmlFragment(html = "", baseUrl = "") {
@@ -601,7 +617,9 @@ function applyHtmlRange(body = "", { htmlStart = "", htmlEnd = "" } = {}) {
 
 function toIsoOrNull(value) {
   if (!value) return null;
-  const date = new Date(value);
+  const raw = typeof value === "number" ? value : String(value || "").trim();
+  const numeric = typeof raw === "number" ? raw : /^\d{10,13}$/.test(raw) ? Number(raw) : null;
+  const date = numeric === null ? new Date(raw) : new Date(numeric < 100000000000 ? numeric * 1000 : numeric);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
@@ -615,6 +633,18 @@ function pickText(node) {
 function normalizeProfile(value = "") {
   const candidate = String(value || "").trim().toLowerCase();
   return ["browser", "bot"].includes(candidate) ? candidate : "auto";
+}
+
+function normalizeRequestMethod(value = "") {
+  const candidate = String(value || "").trim().toUpperCase();
+  return candidate === "POST" ? "POST" : "GET";
+}
+
+function buildRequestBody(value = "", method = "GET") {
+  if (method !== "POST") return undefined;
+  const raw = String(value || "").trim();
+  if (!raw) return undefined;
+  return raw;
 }
 
 function getResourceOrigin(resourceUrl) {
@@ -681,7 +711,7 @@ function shouldRetryWithBrowserOnError(profile, profiles, error) {
 
 function buildRequestHeaders(
   resourceUrl,
-  { kind = "feed", profile = "bot", userAgent = "", browserUserAgent = "", cookie = "", etag = "", lastModified = "" } = {}
+  { kind = "feed", profile = "bot", userAgent = "", browserUserAgent = "", cookie = "", etag = "", lastModified = "", method = "GET", body = "" } = {}
 ) {
   const accept =
     kind === "feed"
@@ -700,6 +730,7 @@ function buildRequestHeaders(
       ...(etag ? { "if-none-match": etag } : {}),
       ...(lastModified ? { "if-modified-since": lastModified } : {}),
       ...(cookie ? { cookie } : {}),
+      ...(method === "POST" && body ? { "content-type": "application/json" } : {}),
       ...(referer ? { referer } : {})
     };
   }
@@ -709,6 +740,7 @@ function buildRequestHeaders(
     accept,
     ...(etag ? { "if-none-match": etag } : {}),
     ...(lastModified ? { "if-modified-since": lastModified } : {}),
+    ...(method === "POST" && body ? { "content-type": "application/json" } : {}),
     ...(cookie ? { cookie } : {})
   };
 }
@@ -735,6 +767,8 @@ function looksLikeAccessChallengeResponse(response, body = "", contentType = "")
 
 async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = {}) {
   const kind = options.kind === "article" ? "article" : "feed";
+  const method = normalizeRequestMethod(options.requestMethod);
+  const requestBody = buildRequestBody(options.requestBody, method);
   let lastError = null;
   const profiles = getRequestProfiles(options);
 
@@ -790,15 +824,19 @@ async function requestWithBrowserFallback(resourceUrl, options = {}, handlers = 
     let response;
     try {
       response = await fetch(resourceUrl, {
-          headers: buildRequestHeaders(resourceUrl, {
-            kind,
-            profile,
-            userAgent: options.userAgent,
-            browserUserAgent: options.browserUserAgent,
-            etag: options.etag,
-            lastModified: options.lastModified,
-            cookie: runtimeCookie
-          }),
+        method,
+        headers: buildRequestHeaders(resourceUrl, {
+          kind,
+          profile,
+          userAgent: options.userAgent,
+          browserUserAgent: options.browserUserAgent,
+          etag: options.etag,
+          lastModified: options.lastModified,
+          cookie: runtimeCookie,
+          method,
+          body: requestBody
+        }),
+        ...(requestBody ? { body: requestBody } : {}),
         signal: AbortSignal.timeout(options.timeoutMs || 15000)
       });
     } catch (error) {
@@ -898,6 +936,10 @@ function getPathValue(input, path = "") {
   }, input);
 }
 
+function joinJsonPath(segments = []) {
+  return segments.map((segment) => String(segment || "").trim()).filter(Boolean).join(".");
+}
+
 function coerceJsonText(value) {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
@@ -910,6 +952,93 @@ function coerceJsonText(value) {
     return "";
   }
   return "";
+}
+
+function coerceJsonLink(value, feedUrl = "") {
+  const direct = coerceJsonText(value);
+  let feedHost = "";
+  try {
+    feedHost = new URL(feedUrl).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch (_error) {
+    feedHost = "";
+  }
+  const isJuejinFeed = feedHost === "juejin.cn" || feedHost === "api.juejin.cn";
+  if (direct) {
+    if (isJuejinFeed && /^[0-9]{8,}$/.test(direct)) return `https://juejin.cn/post/${direct}`;
+    return direct;
+  }
+  if (value && typeof value === "object") {
+    const contentId = value.content_id || value.article_id || value.item_id || value.id;
+    if (isJuejinFeed && contentId) return `https://juejin.cn/post/${contentId}`;
+  }
+  return "";
+}
+
+function parseJsonPayload(value = "") {
+  try {
+    return JSON.parse(String(value || "").trim());
+  } catch (_error) {
+    return null;
+  }
+}
+
+function extractBalancedJsonObject(source = "", markerIndex = 0) {
+  const text = String(source || "");
+  const start = text.indexOf("{", markerIndex);
+  if (start < 0) return "";
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return "";
+}
+
+function extractJsonPayloadsFromHtml(body = "") {
+  const $ = cheerio.load(body);
+  const payloads = [];
+  const addPayload = (payload, source = "") => {
+    if (payload && typeof payload === "object") payloads.push({ payload, source });
+  };
+
+  $("script").each((_, element) => {
+    const node = $(element);
+    const text = node.html() || "";
+    const type = String(node.attr("type") || "").toLowerCase();
+    const id = String(node.attr("id") || "").toLowerCase();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (/json|ld\+json/.test(type) || id === "__next_data__" || /^\s*[\[{]/.test(trimmed)) {
+      addPayload(parseJsonPayload(trimmed), id || type || "script-json");
+    }
+    for (const marker of ["window.__INITIAL_STATE__", "window.__INITIAL_DATA__", "window.__NUXT__"]) {
+      const markerIndex = text.indexOf(marker);
+      if (markerIndex >= 0) addPayload(parseJsonPayload(extractBalancedJsonObject(text, markerIndex)), marker);
+    }
+  });
+
+  return payloads;
 }
 
 function findJsonItems(payload) {
@@ -927,14 +1056,102 @@ function findJsonItems(payload) {
   return Array.isArray(nestedArray) ? nestedArray : [];
 }
 
+function isLikelyUrlText(value = "") {
+  const raw = String(value || "").trim();
+  return /^https?:\/\//i.test(raw) || /^\//.test(raw) || /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(raw);
+}
+
+function scoreJsonFieldName(path = [], kind = "") {
+  const key = String(path[path.length - 1] || "").toLowerCase();
+  const full = path.join(".").toLowerCase();
+  const scores = {
+    title: /(^|\.|_)(title|headline|name|subject)$/.test(full) || ["title", "headline", "name", "subject"].includes(key) ? 12 : 0,
+    link: /(^|\.|_)(url|link|href|permalink|external_url)$/.test(full) || ["url", "link", "href", "permalink", "external_url"].includes(key) ? 12 : 0,
+    summary: /summary|description|excerpt|intro|abstract|detail_text/.test(full) ? 10 : 0,
+    content: /content|body|article|text|html|excerpt|description/.test(full) ? 9 : 0,
+    date: /date|time|published|created|updated/.test(full) ? 10 : 0
+  };
+  return scores[kind] || 0;
+}
+
+function collectScalarFields(value, prefix = [], fields = [], depth = 0) {
+  if (!value || typeof value !== "object" || depth > 4 || fields.length > 160) return fields;
+  for (const [key, nested] of Object.entries(value)) {
+    const path = [...prefix, key];
+    if (nested === null || nested === undefined) continue;
+    if (["string", "number", "boolean"].includes(typeof nested)) {
+      fields.push({ path, value: nested, text: coerceJsonText(nested) });
+      continue;
+    }
+    if (typeof nested === "object" && !Array.isArray(nested)) {
+      collectScalarFields(nested, path, fields, depth + 1);
+    }
+  }
+  return fields;
+}
+
+function pickBestField(fields = [], kind = "") {
+  let best = null;
+  for (const field of fields) {
+    const text = normalizeText(field.text);
+    if (!text) continue;
+    let score = scoreJsonFieldName(field.path, kind);
+    if (kind === "title") {
+      if (text.length >= 4 && text.length <= 160) score += 6;
+      if (isLikelyUrlText(text)) score -= 8;
+    } else if (kind === "link") {
+      if (isLikelyUrlText(text)) score += 10;
+      if (text.length > 500) score -= 5;
+    } else if (kind === "summary" || kind === "content") {
+      if (text.length >= 20) score += Math.min(10, Math.floor(text.length / 80));
+      if (isLikelyUrlText(text)) score -= 10;
+    } else if (kind === "date") {
+      if (toIsoOrNull(text)) score += 8;
+    }
+    if (!best || score > best.score) best = { ...field, score };
+  }
+  return best && best.score > 0 ? best : null;
+}
+
+function isPotentialJsonItem(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const fields = collectScalarFields(value);
+  return Boolean(pickBestField(fields, "title") && pickBestField(fields, "link"));
+}
+
+function findJsonArrayCandidates(value, path = [], candidates = [], visited = new Set(), depth = 0) {
+  if (!value || typeof value !== "object" || depth > 8 || candidates.length > 120) return candidates;
+  if (visited.has(value)) return candidates;
+  visited.add(value);
+
+  if (Array.isArray(value)) {
+    const objectItems = value.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry));
+    const sample = objectItems.slice(0, 8);
+    const itemLikeCount = sample.filter(isPotentialJsonItem).length;
+    if (objectItems.length >= 2 && itemLikeCount >= Math.min(2, sample.length)) {
+      candidates.push({ path, items: objectItems, itemLikeCount });
+    }
+    for (let index = 0; index < Math.min(value.length, 8); index += 1) {
+      findJsonArrayCandidates(value[index], [...path, String(index)], candidates, visited, depth + 1);
+    }
+    return candidates;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (!nested || typeof nested !== "object") continue;
+    findJsonArrayCandidates(nested, [...path, key], candidates, visited, depth + 1);
+  }
+  return candidates;
+}
+
 function mapJsonItems(payload, feedUrl, options = {}) {
   const itemsRoot = options.jsonItemsPath ? getPathValue(payload, options.jsonItemsPath) : findJsonItems(payload);
   const items = Array.isArray(itemsRoot) ? itemsRoot : [];
 
   return items.map((item, index) => {
-    const rawLink =
-      coerceJsonText(options.jsonLinkPath ? getPathValue(item, options.jsonLinkPath) : item.link || item.url || item.permalink) ||
-      "";
+    const rawLink = options.jsonLinkPath
+      ? coerceJsonLink(getPathValue(item, options.jsonLinkPath), feedUrl)
+      : coerceJsonLink(item.url || item.external_url || item.link || item.permalink || item.id || item.content, feedUrl);
     const rawTitle =
       coerceJsonText(options.jsonTitlePath ? getPathValue(item, options.jsonTitlePath) : item.title || item.name || item.headline) ||
       "Untitled";
@@ -942,7 +1159,9 @@ function mapJsonItems(payload, feedUrl, options = {}) {
       options.jsonSummaryPath ? getPathValue(item, options.jsonSummaryPath) : item.summary || item.description || item.excerpt
     );
     const rawContent = coerceJsonText(
-      options.jsonContentPath ? getPathValue(item, options.jsonContentPath) : item.content || item.content_html || rawSummary
+      options.jsonContentPath
+        ? getPathValue(item, options.jsonContentPath)
+        : item.content || item.content_html || item.content_text || item.body || rawSummary
     );
     const link = toSafeAbsoluteUrl(rawLink, feedUrl, { allowRelative: true }) || "";
     const contentHtml = sanitizeHtmlFragment(rawContent, link || feedUrl);
@@ -954,14 +1173,147 @@ function mapJsonItems(payload, feedUrl, options = {}) {
       author: coerceJsonText(authorValue),
       summary: rawSummary,
       contentHtml,
-      contentText: htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml || rawSummary)),
+      contentText: coerceJsonText(item.content_text) || htmlToStructuredText(contentHtml) || normalizeParagraphText(stripHtml(contentHtml || rawSummary)),
       publishedAt: toIsoOrNull(
         coerceJsonText(
-          options.jsonDatePath ? getPathValue(item, options.jsonDatePath) : item.publishedAt || item.published_at || item.pubDate || item.date
+          options.jsonDatePath
+            ? getPathValue(item, options.jsonDatePath)
+            : item.date_published || item.publishedAt || item.published_at || item.pubDate || item.date || item.created_at || item.updated_at
         )
       )
     };
   });
+}
+
+function pickElementText($, root, selector = "") {
+  const rawSelector = String(selector || "").trim();
+  if (!rawSelector) return "";
+  const element = root.find(rawSelector).first();
+  if (!element.length) return "";
+  return normalizeText(element.text());
+}
+
+function pickElementHtml($, root, selector = "", baseUrl = "") {
+  const rawSelector = String(selector || "").trim();
+  if (!rawSelector) return "";
+  const element = root.find(rawSelector).first();
+  if (!element.length) return "";
+  return sanitizeHtmlFragment(element.html() || element.text() || "", baseUrl);
+}
+
+function pickElementUrl($, root, selector = "", baseUrl = "") {
+  const rawSelector = String(selector || "").trim();
+  if (!rawSelector) return "";
+  const element = root.find(rawSelector).first();
+  if (!element.length) return "";
+  const rawUrl = element.attr("href") || element.attr("data-href") || element.attr("src") || element.attr("data-src") || element.text();
+  return toSafeAbsoluteUrl(rawUrl || "", baseUrl, { allowRelative: true }) || "";
+}
+
+function mapHtmlItems(body = "", feedUrl = "", options = {}) {
+  const itemsSelector = String(options.htmlItemsSelector || "").trim();
+  if (!itemsSelector) {
+    throw badRequest("HTML 抓取缺少列表选择器", { code: "feed_html_selector_missing" });
+  }
+  const $ = cheerio.load(body);
+  const roots = $(itemsSelector).toArray();
+  if (!roots.length) {
+    throw badRequest("HTML 抓取没有匹配到列表项", { code: "feed_html_items_empty" });
+  }
+
+  return roots.map((element, index) => {
+    const root = $(element);
+    const title = pickElementText($, root, options.htmlTitleSelector) || pickElementText($, root, "h1,h2,h3,a") || "Untitled";
+    const link = pickElementUrl($, root, options.htmlLinkSelector, feedUrl) || pickElementUrl($, root, "a[href]", feedUrl) || `${feedUrl}#html-${index}`;
+    const summary = pickElementText($, root, options.htmlSummarySelector);
+    const contentHtml = pickElementHtml($, root, options.htmlContentSelector, link || feedUrl) || sanitizeHtmlFragment(summary, link || feedUrl);
+    const contentText = htmlToStructuredText(contentHtml) || summary || normalizeText(root.text());
+    const publishedAt = toIsoOrNull(pickElementText($, root, options.htmlDateSelector));
+    return {
+      guid: link || stableFallbackGuid("html", [feedUrl, title, index]),
+      title,
+      link,
+      author: "",
+      summary,
+      contentHtml,
+      contentText,
+      publishedAt
+    };
+  }).filter((item) => item.title && item.link);
+}
+
+function inferJsonListMapping(payload, baseUrl = "") {
+  const candidates = findJsonArrayCandidates(payload);
+  let best = null;
+
+  for (const candidate of candidates) {
+    const sample = candidate.items.slice(0, 8);
+    const fieldVotes = { title: new Map(), link: new Map(), summary: new Map(), content: new Map(), date: new Map() };
+    let totalScore = Math.min(candidate.items.length, 50) * 2 + candidate.itemLikeCount * 8;
+
+    for (const item of sample) {
+      const fields = collectScalarFields(item);
+      for (const kind of Object.keys(fieldVotes)) {
+        const bestField = pickBestField(fields, kind);
+        if (!bestField) continue;
+        const pathKey = joinJsonPath(bestField.path);
+        fieldVotes[kind].set(pathKey, (fieldVotes[kind].get(pathKey) || 0) + bestField.score);
+        totalScore += bestField.score;
+      }
+    }
+
+    const pickVote = (kind) => {
+      let picked = null;
+      for (const [pathKey, score] of fieldVotes[kind].entries()) {
+        if (!picked || score > picked.score) picked = { path: pathKey, score };
+      }
+      return picked?.path || "";
+    };
+
+    const mapping = {
+      jsonItemsPath: joinJsonPath(candidate.path),
+      jsonTitlePath: pickVote("title"),
+      jsonLinkPath: pickVote("link"),
+      jsonSummaryPath: pickVote("summary"),
+      jsonContentPath: pickVote("content"),
+      jsonDatePath: pickVote("date")
+    };
+    if (!mapping.jsonTitlePath || !mapping.jsonLinkPath) continue;
+
+    const previewItems = mapJsonItems(payload, baseUrl, {
+      jsonItemsPath: mapping.jsonItemsPath,
+      jsonTitlePath: mapping.jsonTitlePath,
+      jsonLinkPath: mapping.jsonLinkPath,
+      jsonSummaryPath: mapping.jsonSummaryPath,
+      jsonContentPath: mapping.jsonContentPath,
+      jsonDatePath: mapping.jsonDatePath
+    }).filter((item) => item.title && item.link);
+    totalScore += Math.min(previewItems.length, 20) * 5;
+    if (!best || totalScore > best.score) {
+      best = { mapping, items: previewItems, score: totalScore };
+    }
+  }
+
+  return best;
+}
+
+export function discoverJsonFeedMappingFromHtml(body = "", pageUrl = "") {
+  let best = null;
+  for (const { payload, source } of extractJsonPayloadsFromHtml(body)) {
+    const result = inferJsonListMapping(payload, pageUrl);
+    if (!result?.items?.length) continue;
+    if (!best || result.score > best.score) {
+      best = { ...result, payload, source };
+    }
+  }
+  if (!best) return null;
+  return {
+    source: best.source,
+    mapping: best.mapping,
+    payload: best.payload,
+    items: best.items,
+    score: best.score
+  };
 }
 
 function mapRssItems(channel) {
@@ -1009,15 +1361,53 @@ function mapAtomEntries(feed) {
 }
 
 export async function fetchFeed(feedUrl, options = {}) {
+  if (isBuiltinFeedUrl(feedUrl)) {
+    return fetchBuiltinFeed(feedUrl, options);
+  }
+
   return requestWithBrowserFallback(
     feedUrl,
     { ...options, kind: "feed" },
     {
       onBody({ body, contentType, profile }) {
         const forcedFormat = String(options.feedFormat || "").trim().toLowerCase() || "auto";
+        if (forcedFormat === "html") {
+          try {
+            const items = mapHtmlItems(body, feedUrl, options);
+            return {
+              value: {
+                meta: {
+                  title: feedUrl,
+                  description: "",
+                  siteUrl: feedUrl
+                },
+                items
+              }
+            };
+          } catch (error) {
+            return { error };
+          }
+        }
         const looksLikeJson = /application\/json|text\/json/i.test(contentType) || /^[\[{]/.test(String(body || "").trim());
         if (forcedFormat === "json" || (forcedFormat === "auto" && looksLikeJson)) {
           try {
+            if (looksLikeHtmlDocument(body, contentType)) {
+              const mapping = discoverJsonFeedMappingFromHtml(body, feedUrl);
+              if (!mapping?.payload) {
+                throw new Error("No JSON feed mapping found in HTML");
+              }
+              const items = mapJsonItems(mapping.payload, feedUrl, options);
+              return {
+                value: {
+                  meta: {
+                    title: feedUrl,
+                    description: "",
+                    siteUrl: feedUrl
+                  },
+                  items
+                }
+              };
+            }
             const payload = JSON.parse(body);
             const items = mapJsonItems(payload, feedUrl, options);
             return {
@@ -1092,6 +1482,146 @@ export async function fetchFeed(feedUrl, options = {}) {
 
         return {
           error: badRequest("Unsupported feed format", { code: "unsupported_feed_format" })
+        };
+      }
+    }
+  );
+}
+
+function classifyAlternateFeedType(type = "", href = "") {
+  const normalizedType = String(type || "").trim().toLowerCase();
+  const normalizedHref = String(href || "").trim().toLowerCase();
+  if (/application\/(rss|atom|feed|rdf)\+xml|application\/xml|text\/xml/.test(normalizedType)) return "feed";
+  if (/application\/feed\+json|application\/json|text\/json/.test(normalizedType)) return "feed";
+  if (/\b(rss|atom|feed|rdf|jsonfeed)\b/.test(normalizedHref)) return "maybe";
+  return "";
+}
+
+function scoreDiscoveredFeed(candidate = {}) {
+  let score = 0;
+  const type = String(candidate.type || "").toLowerCase();
+  const title = String(candidate.title || "").toLowerCase();
+  const url = String(candidate.url || "").toLowerCase();
+  if (/rss/.test(type) || /rss/.test(title) || /rss/.test(url)) score += 45;
+  if (/atom/.test(type) || /atom/.test(title) || /atom/.test(url)) score += 40;
+  if (/feed\+json|jsonfeed/.test(type) || /json/.test(url)) score += 30;
+  if (/comments|comment|评论/.test(title) || /comments|comment/.test(url)) score -= 30;
+  if (/tag|category|author/.test(url)) score -= 8;
+  return score;
+}
+
+function discoverFeedLinksFromHtml(body = "", pageUrl = "") {
+  const $ = cheerio.load(body);
+  const seen = new Set();
+  const feeds = [];
+
+  $("link[rel]").each((_, element) => {
+    const node = $(element);
+    const rel = String(node.attr("rel") || "").toLowerCase();
+    if (!rel.split(/\s+/).includes("alternate")) return;
+    const href = node.attr("href") || "";
+    const kind = classifyAlternateFeedType(node.attr("type") || "", href);
+    if (!kind) return;
+    const resolved = toSafeAbsoluteUrl(href, pageUrl, { allowRelative: true });
+    if (!resolved || seen.has(resolved)) return;
+    seen.add(resolved);
+    feeds.push({
+      url: resolved,
+      title: normalizeText(node.attr("title") || ""),
+      type: normalizeText(node.attr("type") || ""),
+      source: "html_link",
+      confidence: kind === "feed" ? "high" : "medium"
+    });
+  });
+
+  return feeds.sort((a, b) => scoreDiscoveredFeed(b) - scoreDiscoveredFeed(a));
+}
+
+export async function discoverFeedLinks(pageUrl, options = {}) {
+  if (!isHttpUrl(pageUrl)) {
+    return { pageUrl, siteTitle: "", siteDescription: "", feeds: [] };
+  }
+
+  const result = await requestWithBrowserFallback(
+    pageUrl,
+    { ...options, kind: "article" },
+    {
+      onBody({ body, contentType, profile }) {
+        const feedKind = classifyAlternateFeedType(contentType, pageUrl);
+        if (feedKind === "feed" && !looksLikeHtmlDocument(body, contentType)) {
+          return {
+            value: {
+              pageUrl,
+              siteTitle: "",
+              siteDescription: "",
+              feeds: [{ url: pageUrl, title: "", type: contentType, source: "direct", confidence: "high" }]
+            }
+          };
+        }
+
+        if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
+          return {
+            retry: true,
+            error: badGateway(FEED_ACCESS_CHALLENGE_MESSAGE, {
+              code: "feed_request_access_challenge"
+            })
+          };
+        }
+
+        if (!looksLikeHtmlDocument(body, contentType)) {
+          return {
+            value: { pageUrl, siteTitle: "", siteDescription: "", feeds: [] }
+          };
+        }
+
+        const $ = cheerio.load(body);
+        const siteTitle = extractDocumentTitle($, pageUrl);
+        const siteDescription = trimText(
+          $("meta[name='description']").attr("content") ||
+            $("meta[property='og:description']").attr("content") ||
+            $("meta[name='twitter:description']").attr("content") ||
+            "",
+          500
+        );
+
+        return {
+          value: {
+            pageUrl,
+            siteTitle,
+            siteDescription,
+            feeds: discoverFeedLinksFromHtml(body, pageUrl)
+          }
+        };
+      }
+    }
+  );
+
+  return result || { pageUrl, siteTitle: "", siteDescription: "", feeds: [] };
+}
+
+export async function discoverJsonFeedMapping(pageUrl, options = {}) {
+  if (!isHttpUrl(pageUrl)) {
+    return null;
+  }
+
+  return requestWithBrowserFallback(
+    pageUrl,
+    { ...options, kind: "article" },
+    {
+      onBody({ body, contentType, profile }) {
+        if (profile === "bot" && looksLikeAccessChallenge(body, contentType)) {
+          return {
+            retry: true,
+            error: badGateway(FEED_ACCESS_CHALLENGE_MESSAGE, {
+              code: "feed_request_access_challenge"
+            })
+          };
+        }
+        if (!looksLikeHtmlDocument(body, contentType)) {
+          return { value: null };
+        }
+        return {
+          value: discoverJsonFeedMappingFromHtml(body, pageUrl)
         };
       }
     }

@@ -461,6 +461,7 @@ export function createAccountService({ store, config, secretBox }) {
           ai_translation_enabled: subscription.ai_translation_enabled,
           ai_summary_enabled: subscription.ai_summary_enabled,
           custom_ai_enabled: subscription.custom_ai_enabled,
+          special_routes_enabled: subscription.special_routes_enabled,
           ai_digest_enabled: subscription.ai_digest_enabled,
           email_digest_enabled: subscription.email_digest_enabled,
           max_digest_rules: subscription.max_digest_rules,
@@ -808,6 +809,7 @@ export function createAccountService({ store, config, secretBox }) {
           translation: Boolean(config.aiEnabled && plan.ai_translation_enabled),
           summary: Boolean(config.aiEnabled && plan.ai_summary_enabled),
           customAi: Boolean(config.aiEnabled && plan.custom_ai_enabled),
+          specialRoutes: Boolean(plan.special_routes_enabled),
           digest: Boolean(config.aiEnabled && plan.ai_digest_enabled),
           emailDigest: Boolean(config.aiEnabled && plan.email_digest_enabled)
         },

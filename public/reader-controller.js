@@ -1,5 +1,5 @@
-import { createReaderFeedController } from "./reader-feed-controller.js?v=33"
-import { createReaderItemController } from "./reader-item-controller.js?v=33"
+import { createReaderFeedController } from "./reader-feed-controller.js?v=38"
+import { createReaderItemController } from "./reader-item-controller.js?v=34"
 
 export function createReaderController(deps) {
   let feedController = null

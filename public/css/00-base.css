@@ -42,10 +42,15 @@
 }
 
 html {
-  scroll-behavior: smooth;
   transition:
     background-color 280ms ease,
     color 280ms ease;
+}
+
+@media (min-width: 901px) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {
