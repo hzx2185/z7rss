@@ -107,21 +107,17 @@ export function createAdminDashboard({
       if (rsshubFirst.ok) return "可用"
       return rsshubFirst.error || `异常 ${rsshubFirst.status || ""}`.trim()
     })()
-    const routeSummary = Array.isArray(rsshubFirst?.routes) && rsshubFirst.routes.length
-      ? rsshubFirst.routes.map((route) => `${route.path} ${route.ok ? "OK" : route.status || "失败"}`).join(" · ")
-      : ""
     safeHtml(els.adminRsshubVersionInfo, [
       renderProfileVersionDetail("状态", rsshubStatus),
-      renderProfileVersionDetail("规则", rsshubFirst?.gitHash || "-"),
-      renderProfileVersionDetail("时间", rsshubFirst?.gitDate ? formatDate(rsshubFirst.gitDate) : "-"),
-      routeSummary ? renderProfileVersionDetail("路由", routeSummary) : "",
-      rsshub?.updateCommand ? renderProfileVersionDetail("命令", rsshub.updateCommand) : ""
+      renderProfileVersionDetail("当前版本", rsshubFirst?.gitHash || "-"),
+      renderProfileVersionDetail("最新版本", state.rssHubLatestGitHash || "-"),
+      renderProfileVersionDetail("更新时间", rsshubFirst?.gitDate ? formatDate(rsshubFirst.gitDate) : "-")
     ].join(""))
 
     if (els.adminRsshubCheckBtn) {
       els.adminRsshubCheckBtn.disabled = Boolean(state.rssHubChecking)
       els.adminRsshubCheckBtn.textContent = state.rssHubChecking ? "检查中" : "检查 RSSHub"
-      els.adminRsshubCheckBtn.title = rsshub?.updateCommand || "查看 RSSHub 状态、规则版本和关键路由"
+      els.adminRsshubCheckBtn.title = "查看 RSSHub 状态和版本"
       els.adminRsshubCheckBtn.onclick = () => actions.checkRssHubStatus()
     }
   }

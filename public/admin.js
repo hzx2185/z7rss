@@ -52,6 +52,7 @@ const state = {
   dockerUpdateChecking: false,
   rssHubCheck: null,
   rssHubChecking: false,
+  rssHubLatestGitHash: "-",
   translationProviderPoolDraft: [],
   aiProviderPoolDraft: [],
   feedAdapterTemplateDraft: [],
@@ -285,11 +286,28 @@ async function checkRssHubStatus() {
   if (state.rssHubChecking) return
   try {
     state.rssHubChecking = true
+    state.rssHubLatestGitHash = "-"
     renderAdminDashboard()
-    state.rssHubCheck = await api("/api/admin/system/rsshub-check", {
-      method: "POST",
-      body: JSON.stringify({})
-    })
+    const [checkResult, githubResult] = await Promise.allSettled([
+      api("/api/admin/system/rsshub-check", {
+        method: "POST",
+        body: JSON.stringify({})
+      }),
+      fetch("https://api.github.com/repos/DIYgod/RSSHub/commits/master", {
+        signal: AbortSignal.timeout(3000)
+      }).then(res => res.ok ? res.json() : null)
+    ])
+    if (checkResult.status === "fulfilled") {
+      state.rssHubCheck = checkResult.value
+      if (checkResult.value.latestGitHash && checkResult.value.latestGitHash !== "-") {
+        state.rssHubLatestGitHash = checkResult.value.latestGitHash
+      }
+    } else {
+      throw checkResult.reason
+    }
+    if (githubResult.status === "fulfilled" && githubResult.value) {
+      state.rssHubLatestGitHash = String(githubResult.value.sha || "").substring(0, 7)
+    }
     setStatus("RSSHub 状态检查完成", "success")
   } catch (error) {
     state.rssHubCheck = {

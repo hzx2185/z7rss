@@ -104,6 +104,16 @@ services:
 - 已有自建 RSSHub 时，不需要 sidecar，只要在管理后台“特殊路由基址”填写外部地址，或设置 `RSSHUB_BASE_URLS=https://rsshub.example.com`。
 - 多个基址用逗号或空格分隔；填 `none` 可以禁用特殊路由候选。
 
+### 定期更新 RSSHub 规则版本
+
+RSSHub 的核心是其庞大的订阅抓取规则库。由于目标网站频繁变动，官方（DIYgod）的抓取规则每天都在发生更新。
+
+如果您在管理后台“系统状态”中点击“检查 RSSHub”发现 **“当前版本”** 和 **“最新版本”** 不一致，或者在其他部署机器上遇到某些路由检查异常，请运行以下命令来拉取最新的 RSSHub 镜像并重启服务：
+
+```bash
+docker compose pull rsshub && docker compose up -d rsshub
+```
+
 ## 推荐生产配置
 
 默认无需 `.env`。生产域名和站点名称优先在管理后台保存；反向代理 HTTPS 场景会自动识别 `X-Forwarded-Proto` / `X-Forwarded-Host`，通常也不需要额外环境变量。需要预设管理员邮箱时，可以按需添加 `ADMIN_EMAILS`：

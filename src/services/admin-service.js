@@ -1009,19 +1009,33 @@ export function createAdminService({
 
   function parseRssHubHomeInfo(html = "") {
     const $ = cheerio.load(String(html || ""));
-    const text = $.text();
-    const readField = (label) => {
+    const debugInfo = {};
+
+    // 优先使用高精度 DOM 选择器解析 Debug Info
+    $(".debug-item").each((_, el) => {
+      const key = $(el).find(".debug-key").text().replace(":", "").trim();
+      const val = $(el).find(".debug-value").text().trim();
+      if (key) {
+        debugInfo[key] = val;
+      }
+    });
+
+    // 兼容可能不含 debug-item 结构但包含文本的 Fallback
+    const readFieldFallback = (label) => {
+      if (debugInfo[label]) return debugInfo[label];
+      const text = $.text();
       const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = text.match(new RegExp(`${escaped}:\\s*([^\\n]+)`, "i"));
+      const match = text.match(new RegExp(`${escaped}:\\s*([^\\n]+?)(?=(?:[A-Z][a-zA-Z\\s]+:|$))`, "i"));
       return match ? match[1].trim() : "";
     };
+
     const commitLink = $("a[href*='/commit/']").first().text().trim();
     return {
-      gitHash: commitLink || readField("Git Hash"),
-      gitDate: readField("Git Date"),
-      health: readField("Health"),
-      uptime: readField("Uptime"),
-      cacheHitRatio: readField("Cache Hit Ratio")
+      gitHash: commitLink || debugInfo["Git Hash"] || readFieldFallback("Git Hash"),
+      gitDate: debugInfo["Git Date"] || readFieldFallback("Git Date"),
+      health: debugInfo["Health"] || readFieldFallback("Health"),
+      uptime: debugInfo["Uptime"] || readFieldFallback("Uptime"),
+      cacheHitRatio: debugInfo["Cache Hit Ratio"] || readFieldFallback("Cache Hit Ratio")
     };
   }
 
@@ -1242,11 +1256,33 @@ export function createAdminService({
           });
         }
       }
+
+      // 后端双保险：顺便在后端服务器请求 GitHub API，为前端浏览器受限网络环境做 Failover
+      let latestGitHash = "-";
+      try {
+        const githubRes = await fetch("https://api.github.com/repos/DIYgod/RSSHub/commits/master", {
+          headers: {
+            "user-agent": "Z7RSSBot/0.1",
+            accept: "application/json"
+          },
+          signal: AbortSignal.timeout(3000)
+        });
+        if (githubRes.ok) {
+          const githubData = await githubRes.json();
+          if (githubData && githubData.sha) {
+            latestGitHash = String(githubData.sha).substring(0, 7);
+          }
+        }
+      } catch (_e) {
+        // 允许静默失败，优雅降级
+      }
+
       const result = {
         checkedAt: new Date().toISOString(),
         enabled: bases.length > 0,
         bases,
         results,
+        latestGitHash,
         updateCommand: "docker compose pull rsshub && docker compose up -d rsshub"
       };
       logAudit(context, {
