@@ -12,9 +12,9 @@ import {
   formatRefreshTrigger
 } from "./admin-formatters.js?v=2"
 import { getAdminUserSecurityState } from "./admin-user-security.js?v=2"
-import { getAdminElements } from "./admin-elements.js?v=12"
+import { getAdminElements } from "./admin-elements.js?v=13"
 import { createAdminRefreshPanel } from "./admin-refresh-panel.js?v=2"
-import { createAdminDashboard } from "./admin-dashboard.js?v=12"
+import { createAdminDashboard } from "./admin-dashboard.js?v=13"
 import {
   getRedeemBatchId,
   getRedeemBatches,
