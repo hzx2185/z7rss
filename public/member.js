@@ -45,6 +45,19 @@ const els = {
   capabilityFlags: document.querySelector("#member-capability-flags"),
   loginForm: document.querySelector("#member-login-form"),
   registerForm: document.querySelector("#member-register-form"),
+  forgotForm: document.querySelector("#member-forgot-form"),
+  forgotEmail: document.querySelector("#member-forgot-email"),
+  forgotCode: document.querySelector("#member-forgot-code"),
+  forgotNewPassword: document.querySelector("#member-forgot-new-password"),
+  forgotConfirmPassword: document.querySelector("#member-forgot-confirm-password"),
+  forgotSendBtn: document.querySelector("#member-forgot-send-btn"),
+  showForgotLink: document.querySelector("#member-show-forgot"),
+  forgotBackLink: document.querySelector("#member-forgot-back"),
+  guestAuthTabs: document.querySelector("#guest-auth-tabs"),
+  guestCardTitle: document.querySelector("#guest-card-title"),
+  guestCardHint: document.querySelector("#guest-card-hint"),
+  btnShowLogin: document.querySelector("#btn-show-login"),
+  btnShowRegister: document.querySelector("#btn-show-register"),
   planList: document.querySelector("#member-plan-list"),
   redeemForm: document.querySelector("#member-redeem-form"),
   redeemCode: document.querySelector("#member-redeem-code"),
@@ -219,12 +232,55 @@ function showMemberSection(targetId, options = {}) {
   }
 }
 
+function setGuestViewMode(mode = "login") {
+  const isLogin = mode === "login";
+  const isRegister = mode === "register";
+  const isForgot = mode === "forgot";
+
+  safeToggle(els.loginForm, !isLogin);
+  safeToggle(els.registerForm, !isRegister);
+  safeToggle(els.forgotForm, !isForgot);
+
+  safeToggle(els.guestAuthTabs, !isForgot);
+
+  if (els.btnShowLogin) {
+    els.btnShowLogin.classList.toggle("active", isLogin);
+    els.btnShowLogin.style.background = isLogin ? "var(--bg-sunken)" : "transparent";
+    els.btnShowLogin.style.color = isLogin ? "var(--text-primary)" : "var(--text-secondary)";
+    els.btnShowLogin.style.fontWeight = isLogin ? "bold" : "normal";
+  }
+  if (els.btnShowRegister) {
+    els.btnShowRegister.classList.toggle("active", isRegister);
+    els.btnShowRegister.style.background = isRegister ? "var(--bg-sunken)" : "transparent";
+    els.btnShowRegister.style.color = isRegister ? "var(--text-primary)" : "var(--text-secondary)";
+    els.btnShowRegister.style.fontWeight = isRegister ? "bold" : "normal";
+  }
+
+  if (isLogin) {
+    safeSet(els.guestCardTitle, "textContent", "登录会员中心");
+    safeSet(els.guestCardHint, "textContent", "登录后可管理订阅、套餐、AI 配置与翻译设置");
+  } else if (isRegister) {
+    safeSet(els.guestCardTitle, "textContent", "注册新账户");
+    safeSet(els.guestCardHint, "textContent", "注册后可管理订阅、套餐并启用 AI 总结和翻译功能");
+  } else if (isForgot) {
+    safeSet(els.guestCardTitle, "textContent", "忘记密码");
+    safeSet(els.guestCardHint, "textContent", "请输入注册时的邮箱地址重置您的密码");
+  }
+}
+
 function initSectionNav() {
   if (state.sectionNavReady) return
   state.sectionNavReady = true
 
   const syncFromHash = () => {
-    showMemberSection(window.location.hash || state.activeSectionId)
+    const hash = window.location.hash;
+    if (hash === "#member-register-form") {
+      setGuestViewMode("register");
+    } else if (hash === "#member-login-form") {
+      setGuestViewMode("login");
+    } else {
+      showMemberSection(hash || state.activeSectionId)
+    }
   }
 
   document.querySelectorAll("[data-section-target]").forEach((link) => {
@@ -1099,7 +1155,8 @@ registerMemberEvents({
     loadPreferences,
     resetDigestForm,
     setSecretInputVisible,
-    setStatus
+    setStatus,
+    setGuestViewMode
   },
   renderers: {
     renderAuth,

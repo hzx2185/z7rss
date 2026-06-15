@@ -74,6 +74,73 @@ export function registerMemberEvents({
     }
   })
 
+  // 切换登录/注册
+  els.btnShowLogin?.addEventListener("click", () => {
+    actions.setGuestViewMode("login")
+  })
+  els.btnShowRegister?.addEventListener("click", () => {
+    actions.setGuestViewMode("register")
+  })
+
+  // 忘记密码跳转
+  els.showForgotLink?.addEventListener("click", (event) => {
+    event.preventDefault()
+    actions.setGuestViewMode("forgot")
+  })
+  els.forgotBackLink?.addEventListener("click", (event) => {
+    event.preventDefault()
+    actions.setGuestViewMode("login")
+  })
+
+  // 发送重置验证码
+  els.forgotSendBtn?.addEventListener("click", async () => {
+    const email = els.forgotEmail?.value?.trim()
+    if (!email) {
+      actions.setStatus("请输入邮箱地址", "warning")
+      return
+    }
+    try {
+      actions.setStatus("正在发送验证码...", "info")
+      await api("/api/auth/send-reset-code", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      })
+      actions.setStatus("验证码已发送，请检查邮箱", "success")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    }
+  })
+
+  // 忘记密码表单提交
+  els.forgotForm?.addEventListener("submit", async (event) => {
+    event.preventDefault()
+    const email = els.forgotEmail?.value?.trim()
+    const code = els.forgotCode?.value?.trim()
+    const newPassword = els.forgotNewPassword?.value
+    const confirmPassword = els.forgotConfirmPassword?.value
+
+    if (newPassword !== confirmPassword) {
+      actions.setStatus("两次输入的新密码不一致", "error")
+      return
+    }
+    if (newPassword.length < 8) {
+      actions.setStatus("密码至少需要 8 位", "error")
+      return
+    }
+
+    try {
+      actions.setStatus("正在重置密码...", "info")
+      await api("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ email, code, newPassword })
+      })
+      actions.setStatus("密码重置成功，请使用新密码登录", "success")
+      actions.setGuestViewMode("login")
+    } catch (error) {
+      actions.setStatus(error.message, "error")
+    }
+  })
+
   els.logoutBtn.addEventListener("click", async () => {
     try {
       await api("/api/auth/logout", { method: "POST" })

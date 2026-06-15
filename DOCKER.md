@@ -148,6 +148,8 @@ services:
 
 AI、SMTP、套餐权益和站点信息建议在管理后台维护。密钥、SMTP 密码、订阅源抓取密码和 Cookie 会加密存储，前端不会回显明文。
 
+*注意：前台用户「忘记密码」的邮箱验证码重置服务需要系统管理员在管理后台正确配置 SMTP 发信参数，否则无法发送重置邮件。*
+
 默认 `BILLING_PROVIDER=demo`，点击升级会直接开通套餐，便于试用。真实收费需要配置 Stripe Secret、Webhook Secret 和价格 ID。
 
 ## 自动默认值

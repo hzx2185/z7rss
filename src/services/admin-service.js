@@ -1025,7 +1025,7 @@ export function createAdminService({
       if (debugInfo[label]) return debugInfo[label];
       const text = $.text();
       const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = text.match(new RegExp(`${escaped}:\\s*([^\\n]+?)(?=(?:[A-Z][a-zA-Z\\s]+:|$))`, "i"));
+      const match = text.match(new RegExp(`${escaped}:\\s*([^\\n]+?)(?=(?:\\s*[A-Z][a-zA-Z\\s]+:|\\s*$))`, "i"));
       return match ? match[1].trim() : "";
     };
 

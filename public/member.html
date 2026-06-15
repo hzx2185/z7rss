@@ -85,9 +85,13 @@
 
           <div id="member-guest-view" class="member-guest-panel">
             <div class="member-guest-card card">
-              <div class="card-head">
-                <h2>登录会员中心</h2>
-                <p>登录后可管理订阅、套餐、AI 配置与翻译设置</p>
+              <div class="auth-tabs" id="guest-auth-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+                <button type="button" class="tab-btn active" id="btn-show-login" style="flex: 1; padding: 8px; border: none; background: var(--bg-sunken); border-radius: var(--radius-sm); cursor: pointer; font-weight: bold; color: var(--text-primary); font-size: 13px;">登录</button>
+                <button type="button" class="tab-btn" id="btn-show-register" style="flex: 1; padding: 8px; border: none; background: transparent; border-radius: var(--radius-sm); cursor: pointer; color: var(--text-secondary); font-size: 13px;">注册</button>
+              </div>
+              <div class="card-head" id="guest-card-head" style="margin-bottom: 16px;">
+                <h2 id="guest-card-title">登录会员中心</h2>
+                <p id="guest-card-hint">登录后可管理订阅、套餐、AI 配置与翻译设置</p>
               </div>
               <form id="member-login-form" class="stack">
                 <label class="field-label">
@@ -98,10 +102,12 @@
                   <span>密码</span>
                   <input id="member-login-password" type="password" autocomplete="current-password" required />
                 </label>
+                <div class="auth-links" style="display: flex; justify-content: flex-end; margin-top: -4px;">
+                  <a href="#" id="member-show-forgot" style="font-size: 13px; color: var(--accent-strong); text-decoration: none;">忘记密码？</a>
+                </div>
                 <button type="submit" class="cta-btn full-btn">登录</button>
               </form>
-              <div class="form-divider-text"><span>或</span></div>
-              <form id="member-register-form" class="stack">
+              <form id="member-register-form" class="stack hidden">
                 <label class="field-label">
                   <span>显示名</span>
                   <input id="member-register-name" type="text" autocomplete="name" required />
@@ -112,9 +118,34 @@
                 </label>
                 <label class="field-label">
                   <span>密码</span>
-                  <input id="member-register-password" type="password" autocomplete="new-password" required />
+                  <input id="member-register-password" type="password" autocomplete="new-password" minlength="8" required />
                 </label>
-                <button class="ghost-btn full-btn" type="submit">注册并登录</button>
+                <button class="ghost-btn full-btn cta-btn" type="submit">注册并登录</button>
+              </form>
+              <form id="member-forgot-form" class="stack hidden">
+                <label class="field-label">
+                  <span>邮箱</span>
+                  <input id="member-forgot-email" type="email" autocomplete="email" required />
+                </label>
+                <label class="field-label">
+                  <span>验证码</span>
+                  <div style="display: flex; gap: 8px;">
+                    <input id="member-forgot-code" type="text" pattern="[0-9]{6}" maxlength="6" placeholder="6 位验证码" required style="flex: 1;" />
+                    <button id="member-forgot-send-btn" type="button" class="secondary" style="white-space: nowrap; min-width: 100px;">发送验证码</button>
+                  </div>
+                </label>
+                <label class="field-label">
+                  <span>新密码</span>
+                  <input id="member-forgot-new-password" type="password" minlength="8" placeholder="至少 8 位" required />
+                </label>
+                <label class="field-label">
+                  <span>确认新密码</span>
+                  <input id="member-forgot-confirm-password" type="password" minlength="8" placeholder="再次输入新密码" required />
+                </label>
+                <div class="auth-links" style="display: flex; justify-content: flex-end; margin-top: -4px;">
+                  <a href="#" id="member-forgot-back" style="font-size: 13px; color: var(--accent-strong); text-decoration: none;">返回登录</a>
+                </div>
+                <button type="submit" class="cta-btn full-btn">重置密码</button>
               </form>
             </div>
           </div>

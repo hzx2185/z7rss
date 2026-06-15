@@ -82,7 +82,7 @@ export function createApp({
   }));
 
   app.use("/api", createSystemRouter({ config, billingService, store, feedService }));
-  app.use("/api/auth", createAuthRouter({ authService, accountService, config }));
+  app.use("/api/auth", createAuthRouter({ authService, accountService, config, store, mailService }));
   app.use("/api/account", accessControl.requireAuth, createAccountRouter({ accountService, aiConfigService, authService, config, digestService, feedService, mailService, opmlBackupService }));
   app.use("/api/feeds", accessControl.requireAuth, createFeedRouter({ feedService, config }));
   app.use("/api/items", accessControl.requireAuth, createItemRouter({ itemService, config }));

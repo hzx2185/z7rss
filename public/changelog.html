@@ -49,6 +49,25 @@
         <div class="changelog-timeline">
           <article class="changelog-entry">
             <div class="changelog-meta">
+              <span class="changelog-date">2026-06-15</span>
+              <div class="changelog-tags">
+                <span class="changelog-tag changelog-tag-new">新增</span>
+                <span class="changelog-tag changelog-tag-improve">优化</span>
+                <span class="changelog-tag changelog-tag-fix">修复</span>
+              </div>
+            </div>
+            <h2 class="changelog-entry-title">忘记密码邮箱重置与前台登录组件优化</h2>
+            <p class="changelog-entry-body">新增通过邮箱验证码重置忘记密码的功能，提升账户安全性；优化会员中心登录与注册面板展示，采用选项卡切换降低界面复杂度；修复 RSSHub 管理员后台版本匹配解析的正则缺陷。</p>
+            <ul class="changelog-changes">
+              <li>会员中心登录页面新增「忘记密码」入口，支持通过 SMTP 发信服务向用户邮箱发送 6 位数验证码，输入验证码即可重置新密码</li>
+              <li>登录与注册表单整合为选项卡（Tab）切换展示，不再同时显示两个表单，界面更加清爽直观</li>
+              <li>修复后台 RSSHub 状态检查中 cheerio 解析 Git Hash 的正则匹配在多行 HTML/空格时的失效问题</li>
+              <li>完善帮助中心与 README / Docker 部署说明文档，补全密码重置机制说明与清理系统无用冗余缓存/备份</li>
+            </ul>
+          </article>
+
+          <article class="changelog-entry">
+            <div class="changelog-meta">
               <span class="changelog-date">2026-05-29</span>
               <div class="changelog-tags">
                 <span class="changelog-tag changelog-tag-new">新增</span>
